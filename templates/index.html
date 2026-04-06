@@ -1,0 +1,2357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#F2F2F7">
+<title>Golf Stats</title>
+<!-- No external libraries needed -->
+<style>
+/* ================================================================
+   EXACT COLORS FROM Frontend.py GolfApp.COLORS
+   ================================================================ */
+:root {
+  --bg: #F2F2F7;
+  --card: #FFFFFF;
+  --accent: #007AFF;
+  --green: #34C759;
+  --red: #FF3B30;
+  --orange: #FF9500;
+  --text: #000000;
+  --text2: #8E8E93;
+  --sep: #C6C6C8;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+}
+
+/* ================================================================
+   RESET
+   ================================================================ */
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html, body { height:100%; overflow:hidden; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 16px;
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+}
+
+/* ================================================================
+   APP SHELL — matches GolfApp.__init__ layout:
+   main_container > content_frame + tab_bar
+   ================================================================ */
+#app { display:flex; flex-direction:column; height:100%; overflow:hidden; }
+#content { flex:1; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch; }
+
+/* ================================================================
+   TAB BAR — _create_tab_bar: 3 tabs, icons 20px, labels 10px
+   Card.TFrame bg, separator on top, pady=(8,12)
+   ================================================================ */
+#tabbar {
+  display: flex;
+  background: var(--card);
+  border-top: 1px solid var(--bg);
+  padding: 8px 0 calc(12px + var(--safe-b));
+  flex-shrink: 0;
+}
+.tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  cursor: pointer;
+  text-decoration: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.tab-icon { font-size: 20px; line-height: 1.2; }
+.tab-label { font-size: 10px; color: var(--text2); transition: color .15s; }
+.tab.active .tab-label { color: var(--accent); }
+
+/* ================================================================
+   PAGE HEADER — _create_page_header:
+   padx=16, pady=(16,8), Title.TLabel = Helvetica 24 bold
+   ================================================================ */
+.page-header { padding: 16px 16px 8px; }
+.page-title { font-size: 24px; font-weight: bold; }
+.back-btn {
+  font-size: 13px; color: var(--accent); background:none; border:none;
+  padding: 2px 0; cursor:pointer; font-family:inherit; margin-bottom: 4px;
+  display: flex; align-items: center; gap: 2px;
+}
+
+/* ================================================================
+   CARDS — _create_card: Card.TFrame padding=16
+   ================================================================ */
+.card {
+  background: var(--card);
+  padding: 16px;
+  margin: 8px 16px;
+}
+.card-sm { padding: 12px; }
+
+/* CardTitle.TLabel: Helvetica 12, text_secondary */
+.card-title {
+  font-size: 12px;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: 4px;
+}
+
+/* Stat.TLabel: Helvetica 28 bold, accent */
+.card-stat {
+  font-size: 28px;
+  font-weight: bold;
+  color: var(--accent);
+}
+
+/* Two cards side by side — stats_row with columnconfigure weight=1 */
+.card-row {
+  display: flex;
+  gap: 8px;
+  padding: 0 16px;
+  margin: 8px 0;
+}
+.card-row > .card { flex:1; margin:0; }
+
+/* ================================================================
+   BUTTONS — Primary.TButton: Helvetica 14 bold, padding (16,10)
+   ================================================================ */
+.btn {
+  display: block; width: 100%; padding: 10px 16px;
+  font-size: 14px; font-weight: bold; border: none;
+  cursor: pointer; text-align: center; font-family: inherit;
+}
+.btn:active { opacity: 0.7; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-green { background: var(--green); color: #fff; }
+.btn-red { background: var(--red); color: #fff; }
+.btn + .btn { margin-top: 4px; }
+
+/* ================================================================
+   FORMS — Combobox / Entry styling from Tkinter
+   ================================================================ */
+.form-group { padding: 4px 0; }
+.form-label { font-size: 13px; font-weight: normal; margin-bottom: 4px; display: block; }
+.form-input, .form-select {
+  width: 100%; padding: 10px 12px; font-size: 15px;
+  border: 1px solid var(--sep); background: var(--card);
+  color: var(--text); font-family: inherit;
+  -webkit-appearance: none; appearance: none;
+}
+.form-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12'%3E%3Cpath d='M6 8L1 3h10z' fill='%238E8E93'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px;
+}
+.form-input:focus, .form-select:focus { outline: none; border-color: var(--accent); }
+textarea.form-input { min-height: 100px; resize: vertical; }
+
+/* ================================================================
+   RADIO GROUP — Tkinter Radiobutton row
+   ================================================================ */
+.radio-row { display: flex; gap: 2px; flex-wrap: wrap; padding: 4px 0; }
+.radio-opt {
+  padding: 6px 12px; font-size: 13px; cursor: pointer;
+  border: 1px solid var(--sep); background: var(--card);
+  font-family: inherit; color: var(--text);
+}
+.radio-opt.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* Checkbox style */
+.check-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; font-size: 13px; }
+.check-row input[type=checkbox] { width: 18px; height: 18px; }
+
+/* ================================================================
+   TREEVIEW / LIST — ttk.Treeview equivalent
+   ================================================================ */
+.tree-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tree-table th {
+  text-align: center; padding: 6px 4px; font-size: 11px;
+  font-weight: bold; border-bottom: 1px solid var(--sep);
+  background: var(--bg);
+}
+.tree-table td { padding: 8px 4px; border-bottom: 0.5px solid var(--sep); text-align: center; }
+.tree-table tr { cursor: pointer; }
+.tree-table tr:active { background: #E5E5EA; }
+.tree-table td:first-child { text-align: left; }
+
+/* ================================================================
+   SCORE ENTRY
+   ================================================================ */
+.entry-topbar {
+  background: var(--card);
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.entry-hole-num { font-size: 36px; font-weight: bold; color: var(--accent); }
+.entry-course-info { text-align: right; }
+.entry-course-name { font-size: 14px; font-weight: bold; }
+.entry-hole-info { color: var(--text2); font-size: 13px; }
+.entry-tee-info { color: var(--text2); font-size: 10px; }
+
+.entry-middle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 0;
+  flex: 1;
+}
+.entry-nav-btn {
+  font-size: 24px; background: none; border: none;
+  cursor: pointer; padding: 8px 20px; color: var(--text);
+}
+.entry-nav-btn:disabled { color: var(--sep); }
+.entry-center { text-align: center; flex: 1; }
+.entry-stroke { font-size: 72px; font-weight: bold; }
+.entry-clubs-display { font-size: 11px; color: var(--text2); padding: 8px 0 0; max-width: 250px; margin: 0 auto; }
+.entry-diff { font-size: 14px; color: var(--accent); padding: 4px 0 0; }
+
+/* Number pad: 3 cols, bottom row = Forfeit / 0 / Next */
+.numpad { padding: 0 16px 8px; }
+.numpad-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+.numpad-btn {
+  padding: 16px 0; font-size: 20px; font-weight: bold;
+  border: none; cursor: pointer; background: var(--card);
+  color: var(--text); font-family: inherit;
+}
+.numpad-btn:active { background: #E5E5EA; }
+.numpad-btn.forfeit { background: var(--red); color: #fff; font-size: 14px; }
+.numpad-btn.next-hole { background: var(--green); color: #fff; font-size: 14px; }
+
+/* Club grid: 3 cols, last row = Forfeit / Undo / Next */
+.club-grid-container { padding: 0 16px 8px; }
+.club-grid-hint { font-size: 11px; color: var(--text2); padding: 0 0 8px; text-align: center; }
+.club-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+.club-grid-btn {
+  padding: 14px 0; font-size: 13px; font-weight: bold;
+  border: none; cursor: pointer; background: var(--card);
+  color: var(--text); text-align: center;
+}
+.club-grid-btn:active { background: #E5E5EA; }
+.club-grid-btn.putter { background: #90EE90; }
+.club-grid-btn.empty-cell { visibility: hidden; }
+.club-grid-btn.action-forfeit { background: var(--red); color: #fff; font-size: 12px; font-weight: 600; }
+.club-grid-btn.action-undo { background: #FFCC00; color: var(--text); font-size: 12px; font-weight: 600; }
+.club-grid-btn.action-next { background: var(--green); color: #fff; font-size: 12px; font-weight: 600; }
+
+/* Running total */
+.running-total {
+  text-align: center; padding: 8px; font-size: 14px;
+  font-weight: bold; color: var(--accent);
+}
+
+/* ================================================================
+   HOME PAGE
+   ================================================================ */
+.home-hero {
+  margin: 16px 16px 10px;
+  background: var(--card);
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.08);
+}
+.home-hero-stripe {
+  height: 4px;
+  background: linear-gradient(90deg, var(--green) 0%, var(--accent) 100%);
+}
+.home-hero-body {
+  padding: 22px 20px 26px;
+  text-align: center;
+}
+.home-hc-label {
+  font-size: 11px; font-weight: 700; color: var(--text2);
+  text-transform: uppercase; letter-spacing: 1.2px;
+}
+.home-hc-value {
+  font-size: 86px; font-weight: 800; color: var(--text);
+  line-height: 1; margin: 6px 0 10px;
+  font-variant-numeric: tabular-nums; letter-spacing: -3px;
+}
+.home-hc-value.hc-pending { font-size: 64px; color: var(--text2); letter-spacing: 0; }
+.home-hc-sub { font-size: 13px; color: var(--text2); }
+
+.home-log-btn {
+  display: block; width: calc(100% - 32px); margin: 0 16px 10px;
+  padding: 18px 0; font-size: 17px; font-weight: 700;
+  background: var(--green); color: #fff;
+  border: none; border-radius: 14px; cursor: pointer;
+  font-family: inherit; letter-spacing: -0.2px;
+  box-shadow: 0 3px 10px rgba(52,199,89,0.30);
+}
+.home-log-btn:active { opacity: 0.82; }
+
+.home-best {
+  margin: 0 16px 10px;
+  background: var(--card);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  cursor: pointer;
+}
+.home-best:active { opacity: 0.85; }
+.home-best-header {
+  padding: 14px 16px 10px;
+  display: flex; align-items: flex-start; justify-content: space-between;
+}
+.home-best-label {
+  font-size: 11px; font-weight: 700; color: var(--text2);
+  text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 3px;
+}
+.home-best-meta { font-size: 12px; color: var(--text2); }
+.home-best-score { font-size: 26px; font-weight: 800; line-height: 1; }
+.home-best-diff { font-size: 13px; font-weight: 600; margin-top: 2px; }
+
+.home-best-holes {
+  display: flex; overflow-x: auto; padding: 0 12px 14px; gap: 3px;
+  -webkit-overflow-scrolling: touch; scrollbar-width: none;
+}
+.home-best-holes::-webkit-scrollbar { display: none; }
+.home-hole-cell {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  min-width: 26px; flex-shrink: 0;
+}
+.home-hole-num { font-size: 9px; color: var(--text2); font-weight: 600; }
+/* Reuse sc-score markers at a smaller size inside the best card */
+.home-best-holes .sc-score {
+  width: 24px; height: 24px; font-size: 11px;
+}
+
+.home-stats-row {
+  display: flex; gap: 8px; margin: 0 16px 20px;
+}
+.home-stat-cell {
+  flex: 1; background: var(--card); border-radius: 12px;
+  padding: 14px 10px 12px; text-align: center;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+}
+.home-stat-cell.tappable { cursor: pointer; }
+.home-stat-cell.tappable:active { opacity: 0.8; }
+.home-stat-val { font-size: 22px; font-weight: 700; }
+.home-stat-lbl {
+  font-size: 10px; color: var(--text2); font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.5px; margin-top: 3px;
+}
+
+/* Pin keypads to bottom of screen during log entry */
+#v-log-entry.active {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ================================================================
+   SCORECARD — Traditional golf scorecard design
+   Circles for birdie/eagle, squares for bogey+, tee-color theming
+   ================================================================ */
+.sc-header-card {
+  margin: 0 16px 0; position: relative; overflow: hidden;
+}
+.sc-header-stripe {
+  position: absolute; top: 0; left: 0; right: 0; height: 4px;
+}
+.sc-header-main {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 12px; padding: 18px 18px 14px;
+}
+.sc-header-left { flex: 1; min-width: 0; }
+.sc-header-course { font-size: 19px; font-weight: 700; line-height: 1.2; }
+.sc-header-meta { font-size: 12px; opacity: 0.65; margin-top: 5px; }
+.sc-header-right { text-align: right; flex-shrink: 0; }
+.sc-header-total { font-size: 44px; font-weight: 800; letter-spacing: -2px; line-height: 1; }
+.sc-header-diff { font-size: 16px; font-weight: 700; margin-top: 3px; }
+.sc-header-footer {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  padding: 10px 18px 14px; border-top: 0.5px solid rgba(0,0,0,0.1);
+}
+.sc-header-target { font-size: 11px; font-weight: 600; opacity: 0.65; margin-left: auto; }
+
+/* The actual scorecard table — horizontal, traditional layout */
+.sc-wrap { margin: 12px 16px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.sc-label { font-size: 11px; font-weight: 700; color: var(--text2); text-transform: uppercase;
+  letter-spacing: 0.5px; padding: 0 0 6px; }
+.sc-grid {
+  display: grid; gap: 0; border: 1.5px solid var(--sep); background: var(--card);
+  min-width: 100%;
+}
+.sc-grid-9 { grid-template-columns: 48px repeat(9, 1fr) 48px; }
+.sc-cell {
+  padding: 8px 2px; text-align: center; font-size: 12px;
+  border-right: 0.5px solid var(--sep); border-bottom: 0.5px solid var(--sep);
+  display: flex; align-items: center; justify-content: center;
+  min-height: 36px;
+}
+.sc-cell:last-child { border-right: none; }
+.sc-cell-header {
+  font-size: 10px; font-weight: 700; color: var(--text2);
+  text-transform: uppercase; background: var(--bg);
+}
+.sc-cell-hole { font-weight: 700; font-size: 11px; color: var(--text2); }
+.sc-cell-par { font-size: 12px; color: var(--text2); }
+.sc-cell-yard { font-size: 11px; color: var(--text2); }
+.sc-cell-total { font-weight: 800; font-size: 13px; background: var(--bg); }
+
+/* Score markers — the core visual */
+.sc-score {
+  width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 700; position: relative;
+}
+/* Birdie: circle */
+.sc-birdie {
+  color: var(--green);
+}
+.sc-birdie::after {
+  content: ''; position: absolute; inset: 1px;
+  border: 2px solid var(--green); border-radius: 50%;
+}
+/* Eagle: double circle */
+.sc-eagle {
+  color: #FFD60A;
+}
+.sc-eagle::after {
+  content: ''; position: absolute; inset: 1px;
+  border: 2px solid #FFD60A; border-radius: 50%;
+}
+.sc-eagle::before {
+  content: ''; position: absolute; inset: -2px;
+  border: 2px solid #FFD60A; border-radius: 50%;
+}
+/* Bogey: square */
+.sc-bogey {
+  color: var(--red);
+}
+.sc-bogey::after {
+  content: ''; position: absolute; inset: 1px;
+  border: 2px solid var(--red);
+}
+/* Double bogey+: double square */
+.sc-dbl-bogey {
+  color: var(--red);
+}
+.sc-dbl-bogey::after {
+  content: ''; position: absolute; inset: 1px;
+  border: 2px solid var(--red);
+}
+.sc-dbl-bogey::before {
+  content: ''; position: absolute; inset: -2px;
+  border: 2px solid var(--red);
+}
+/* Par: plain */
+.sc-par-score { color: var(--text); }
+
+/* Notes card */
+.sc-notes {
+  background: var(--card); margin: 8px 16px; padding: 16px;
+}
+.sc-notes-title { font-size: 12px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 0.3px; }
+.sc-notes-body { font-size: 14px; margin-top: 6px; line-height: 1.5; }
+
+/* Round info pills */
+.sc-pills { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.sc-pill {
+  font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 100px;
+  background: rgba(255,255,255,0.2);
+}
+
+/* Actions row */
+.sc-actions { padding: 16px; display: flex; gap: 8px; }
+
+/* ================================================================
+   STATISTICS — redesigned with clear visual hierarchy
+   ================================================================ */
+.stat-card {
+  background: var(--card); margin: 8px 16px; padding: 20px;
+}
+.stat-card-title {
+  font-size: 11px; font-weight: 700; color: var(--text2); text-transform: uppercase;
+  letter-spacing: 0.5px; margin-bottom: 12px;
+}
+
+/* Hero number — big centered stat */
+.stat-hero { text-align: center; padding: 8px 0 4px; }
+.stat-hero-val { font-size: 44px; font-weight: 700; letter-spacing: -2px; }
+.stat-hero-label { font-size: 13px; color: var(--text2); margin-top: 2px; }
+
+/* Ring gauge for percentages */
+.stat-ring {
+  position: relative; width: 80px; height: 80px; margin: 0 auto 4px;
+}
+.stat-ring svg { transform: rotate(-90deg); }
+.stat-ring-val {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  font-size: 18px; font-weight: 700;
+}
+
+/* Stat grid: 2×2 or 3-col mini stats */
+.stat-mini-grid {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;
+  margin: 8px 16px;
+}
+.stat-mini {
+  background: var(--card); padding: 16px; text-align: center;
+}
+.stat-mini-val { font-size: 24px; font-weight: 700; }
+.stat-mini-label { font-size: 11px; color: var(--text2); margin-top: 2px; }
+
+/* 3-col breakdown inside a card */
+.stat-trio { display: flex; margin-top: 16px; }
+.stat-trio-col { flex: 1; text-align: center; padding: 8px 0; }
+.stat-trio-col + .stat-trio-col { border-left: 0.5px solid var(--sep); }
+.stat-trio-val { font-size: 20px; font-weight: 700; }
+.stat-trio-label { font-size: 11px; color: var(--text2); margin-top: 2px; }
+
+/* Bar chart for club usage / differentials */
+.stat-bar-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+.stat-bar-label { font-size: 13px; width: 50px; text-align: right; flex-shrink: 0; }
+.stat-bar-track { flex: 1; height: 20px; background: var(--bg); border-radius: 4px; overflow: hidden; position: relative; }
+.stat-bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s ease-out; min-width: 2px; }
+.stat-bar-val { font-size: 12px; font-weight: 600; width: 44px; text-align: left; flex-shrink: 0; }
+
+/* Insight cards — cleaner */
+.insight-card {
+  background: var(--card); margin: 8px 16px; padding: 16px;
+  display: flex; gap: 14px;
+}
+.insight-badge {
+  width: 40px; height: 40px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px; flex-shrink: 0;
+}
+.insight-badge.high { background: rgba(255,59,48,0.1); }
+.insight-badge.medium { background: rgba(255,149,0,0.1); }
+.insight-body { flex: 1; min-width: 0; }
+.insight-sev { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; }
+.insight-sev.high { color: var(--red); }
+.insight-sev.medium { color: var(--orange); }
+.insight-text { font-size: 14px; line-height: 1.4; margin-top: 4px; }
+.insight-tip { font-size: 12px; color: var(--text2); margin-top: 6px; }
+
+/* Stats tab selector */
+.stats-tabs { display: flex; background: var(--card); margin: 0 16px 8px; border-radius: 10px; padding: 3px; }
+.stats-tab {
+  flex: 1; padding: 8px 4px; font-size: 12px; font-weight: 600; text-align: center;
+  cursor: pointer; border-radius: 8px; border: none;
+  color: var(--text2); font-family: inherit; background: transparent;
+  transition: all 0.2s;
+}
+.stats-tab.active { color: var(--text); background: var(--bg); box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+
+/* Diff list row */
+.diff-row {
+  display: flex; align-items: center; padding: 10px 0;
+  border-bottom: 0.5px solid var(--sep);
+}
+.diff-row:last-child { border-bottom: none; }
+.diff-rank { width: 24px; font-size: 12px; color: var(--text2); font-weight: 600; }
+.diff-info { flex: 1; min-width: 0; }
+.diff-course { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.diff-meta { font-size: 11px; color: var(--text2); }
+.diff-val { font-size: 18px; font-weight: 700; width: 52px; text-align: right; }
+
+/* Club list — redesigned */
+.club-items-card {
+  background: var(--card); border-radius: 16px; margin: 0 16px 10px;
+  overflow: hidden; box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+}
+.club-item { cursor: pointer; }
+.club-item + .club-item { border-top: 0.5px solid var(--sep); }
+.club-item-main {
+  display: flex; align-items: center; gap: 10px; padding: 13px 14px;
+}
+.club-item-name { font-size: 15px; font-weight: 600; width: 68px; flex-shrink: 0; }
+.club-item-bar-wrap { flex: 1; }
+.club-item-bar { height: 4px; border-radius: 2px; background: var(--accent); transition: width 0.4s ease-out; min-width: 2px; }
+.club-item-right { text-align: right; flex-shrink: 0; }
+.club-item-dist { font-size: 15px; font-weight: 700; }
+.club-item-usage { font-size: 11px; color: var(--text2); margin-top: 1px; }
+.club-item-chevron {
+  font-size: 18px; color: var(--sep); width: 16px; text-align: center; flex-shrink: 0;
+  transition: transform 0.2s;
+}
+.club-item.expanded .club-item-chevron { transform: rotate(90deg); color: var(--accent); }
+
+.club-item-edit {
+  padding: 14px 14px 16px; border-top: 0.5px solid var(--sep); background: var(--bg);
+}
+.club-edit-row {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
+}
+.club-edit-lbl { font-size: 13px; color: var(--text2); width: 64px; flex-shrink: 0; }
+.club-edit-actions { display: flex; gap: 8px; margin-top: 4px; }
+.club-edit-save {
+  flex: 1; padding: 13px; background: var(--green); color: #fff;
+  border: none; border-radius: 10px; font-size: 15px; font-weight: 600;
+  cursor: pointer; font-family: inherit;
+}
+.club-edit-save:active { opacity: 0.8; }
+.club-edit-cancel {
+  padding: 13px 18px; color: var(--text2); background: none;
+  border: none; font-size: 15px; cursor: pointer; font-family: inherit;
+}
+.club-edit-delete {
+  padding: 13px 18px; color: var(--red); background: none;
+  border: none; font-size: 15px; cursor: pointer; font-family: inherit;
+}
+.club-add-btn {
+  display: block; width: calc(100% - 32px); margin: 0 16px 16px;
+  padding: 15px; background: var(--card); color: var(--accent);
+  border: none; border-radius: 14px; font-size: 16px; font-weight: 600;
+  cursor: pointer; font-family: inherit; box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  text-align: center;
+}
+.club-add-btn:active { opacity: 0.8; }
+
+/* Old club row (kept for any other refs) */
+.club-row {
+  display: flex; align-items: center; padding: 10px 0;
+  border-bottom: 0.5px solid var(--sep); cursor: pointer;
+}
+.club-row:last-child { border-bottom: none; }
+.club-row:active { opacity: 0.6; }
+.club-name { font-size: 14px; font-weight: 600; width: 60px; flex-shrink: 0; }
+.club-bar-wrap { flex: 1; padding: 0 12px; }
+.club-bar { height: 6px; border-radius: 3px; background: var(--accent); transition: width 0.4s ease-out; }
+.club-dist { font-size: 14px; font-weight: 700; width: 50px; text-align: right; flex-shrink: 0; }
+.club-note { font-size: 11px; color: var(--orange); }
+
+/* ================================================================
+   COURSE DETAIL — pretty view of course info, pars, yardages, tees
+   ================================================================ */
+.course-hero {
+  background: var(--card); padding: 20px 16px; margin: 0 16px 8px;
+  text-align: center;
+}
+.course-hero-name { font-size: 22px; font-weight: bold; letter-spacing: -0.3px; }
+.course-hero-club { font-size: 14px; color: var(--text2); margin-top: 2px; }
+.course-hero-stats {
+  display: flex; justify-content: center; gap: 24px; margin-top: 16px;
+}
+.course-hero-stat { text-align: center; }
+.course-hero-stat-val { font-size: 24px; font-weight: bold; color: var(--accent); }
+.course-hero-stat-lbl { font-size: 11px; color: var(--text2); text-transform: uppercase; }
+
+/* Tee box pills */
+.tee-pills { display: flex; gap: 6px; padding: 8px 16px; flex-wrap: wrap; justify-content: center; }
+.tee-pill {
+  display: flex; align-items: center; gap: 6px; padding: 8px 14px;
+  background: var(--card); cursor: pointer; font-size: 13px; font-weight: 500;
+  border: 2px solid transparent; transition: border-color .15s;
+}
+.tee-pill.active { border-color: var(--accent); }
+.tee-pill:active { opacity: 0.7; }
+.tee-dot {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 1px solid rgba(0,0,0,0.15); flex-shrink: 0;
+}
+.tee-pill-info { font-size: 11px; color: var(--text2); }
+
+/* Hole grid — scorecard-style table for course view */
+.hole-grid { margin: 8px 16px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.hole-grid table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: center; min-width: 360px; }
+.hole-grid th {
+  padding: 8px 4px; font-size: 10px; font-weight: 700; text-transform: uppercase;
+  color: var(--text2); background: var(--bg); position: sticky; top: 0;
+  border-bottom: 1px solid var(--sep);
+}
+.hole-grid td { padding: 8px 4px; border-bottom: 0.5px solid var(--sep); }
+.hole-grid .hole-num { font-weight: 700; color: var(--text2); width: 32px; }
+.hole-grid .par-3 { color: var(--green); font-weight: 600; }
+.hole-grid .par-4 { color: var(--text); }
+.hole-grid .par-5 { color: var(--accent); font-weight: 600; }
+.hole-grid .nine-sep td { border-top: 2px solid var(--sep); font-weight: 700; background: rgba(0,122,255,0.04); }
+.hole-grid .total-row td { border-top: 2px solid var(--accent); font-weight: 700; font-size: 13px; }
+
+/* Tee detail card */
+.tee-detail {
+  background: var(--card); margin: 8px 16px; padding: 16px;
+}
+.tee-detail-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.tee-detail-color { font-size: 16px; font-weight: 700; }
+.tee-detail-row { display: flex; justify-content: space-around; text-align: center; }
+.tee-detail-val { font-size: 20px; font-weight: 700; }
+.tee-detail-lbl { font-size: 11px; color: var(--text2); }
+
+/* Course editor: per-hole inputs */
+.hole-input-grid { margin: 8px 16px; }
+.hole-input-row {
+  display: flex; align-items: center; gap: 4px; padding: 6px 0;
+  border-bottom: 0.5px solid var(--sep);
+}
+.hole-input-row:last-child { border-bottom: none; }
+.hole-input-num { width: 28px; font-size: 12px; font-weight: 700; color: var(--text2); text-align: center; flex-shrink: 0; }
+.hole-input-field {
+  flex: 1; padding: 8px; font-size: 15px; border: 1px solid var(--sep);
+  background: var(--card); color: var(--text); font-family: inherit;
+  text-align: center; min-width: 0;
+}
+.hole-input-field:focus { outline: none; border-color: var(--accent); }
+.hole-input-label { font-size: 10px; color: var(--text2); text-align: center; flex-shrink: 0; width: 40px; }
+
+/* Tee editor card */
+.tee-editor-card {
+  border: 1.5px solid var(--sep); padding: 12px; margin: 6px 0; position: relative;
+}
+.tee-editor-remove {
+  position: absolute; top: 8px; right: 8px; background: none; border: none;
+  color: var(--red); font-size: 18px; cursor: pointer; padding: 4px;
+}
+
+/* ================================================================
+   RULEBOOK
+   ================================================================ */
+.rb-content { white-space: pre-wrap; font-size: 14px; line-height: 1.6; padding: 16px; }
+.rb-result { padding: 12px 16px; border-bottom: 0.5px solid var(--sep); cursor: pointer; }
+.rb-result:active { background: var(--bg); }
+.rb-result-page { font-size: 11px; font-weight: bold; color: var(--accent); margin-bottom: 2px; }
+.rb-result-snippet { font-size: 13px; line-height: 1.4; }
+mark { background: rgba(255,204,0,0.4); padding: 0 2px; }
+
+/* ================================================================
+   MISC
+   ================================================================ */
+.hint { font-size: 11px; color: var(--text2); padding: 0 16px 4px; }
+.empty { text-align: center; padding: 40px 20px; color: var(--text2); }
+.empty-icon { font-size: 48px; margin-bottom: 12px; }
+.empty-text { font-size: 14px; }
+.view { display: none; }
+.view.active { display: block; }
+.badge-red { color: #FF3B30; }
+.badge-green { color: #34C759; }
+.badge-even { color: var(--text); }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="content">
+    <div id="v-home" class="view active"></div>
+    <div id="v-rounds" class="view"></div>
+    <div id="v-scorecard" class="view"></div>
+    <div id="v-log-setup" class="view"></div>
+    <div id="v-log-entry" class="view"></div>
+    <div id="v-log-notes" class="view"></div>
+    <div id="v-courses" class="view"></div>
+    <div id="v-course-detail" class="view"></div>
+    <div id="v-course-editor" class="view"></div>
+    <div id="v-stats" class="view"></div>
+    <div id="v-rulebook" class="view"></div>
+  </div>
+
+  <!-- Tab bar: exactly 3 tabs matching _create_tab_bar -->
+  <nav id="tabbar">
+    <a class="tab" data-tab="rounds" onclick="nav('rounds')">
+      <span class="tab-icon">🏌️</span><span class="tab-label">Rounds</span></a>
+    <a class="tab active" data-tab="home" onclick="nav('home')">
+      <span class="tab-icon">🏠</span><span class="tab-label">Home</span></a>
+    <a class="tab" data-tab="courses" onclick="nav('courses')">
+      <span class="tab-icon">⛳</span><span class="tab-label">Courses</span></a>
+  </nav>
+</div>
+
+<script>
+/* ================================================================
+   STATE
+   ================================================================ */
+const S = {
+  courses:[], clubs:[], handicap:null, stats:null, editingClub:null,
+  // Log round
+  logCourse:null, logTee:null, logHoles:'full_18', logType:'solo',
+  logSerious:true, logMode:'quick', logDate:'',
+  holesToScore:[], currentHoleIdx:0,
+  holeScores:[], holeClubs:[],
+  clubOptions:[], clubFullNames:{},
+  // Scorecard
+  viewRound:null, viewRoundIdx:null,
+  // Yardbook
+  ybCourse:null, ybHole:1, ybMap:null,
+  // Rulebook
+  rbPage:1, rbTotal:0,
+  // Course editor
+  editCourse:null,
+};
+
+/* ================================================================
+   API
+   ================================================================ */
+async function api(path, opts={}) {
+  const res = await fetch(path, {headers:{'Content-Type':'application/json',...opts.headers},...opts});
+  if(res.status===401){location.href='/login';return null;}
+  return res.json();
+}
+const GET=p=>api(p);
+const POST=(p,d)=>api(p,{method:'POST',body:JSON.stringify(d)});
+const PUT=(p,d)=>api(p,{method:'PUT',body:JSON.stringify(d)});
+const DEL=p=>api(p,{method:'DELETE'});
+
+/* ================================================================
+   NAVIGATION — mirrors show_page + _update_tab_bar
+   ================================================================ */
+function nav(page) {
+  document.querySelectorAll('.tab').forEach(t=>{
+    t.classList.toggle('active', t.dataset.tab===page);
+  });
+  show(page);
+}
+
+function show(name) {
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  const el=document.getElementById('v-'+name);
+  if(el) el.classList.add('active');
+  const content=document.getElementById('content');
+  const isEntry = name==='log-entry';
+  content.style.overflowY = isEntry ? 'hidden' : '';
+  content.style.height = isEntry ? '100%' : '';
+  content.scrollTop=0;
+  const r={
+    home:renderHome, rounds:renderRounds, scorecard:renderScorecard,
+    'log-setup':renderLogSetup, 'log-entry':renderLogEntry, 'log-notes':renderLogNotes,
+    courses:renderCourses, 'course-detail':renderCourseDetail, 'course-editor':renderCourseEditor,
+    stats:renderStats, rulebook:renderRulebook
+  };
+  if(r[name]) r[name]();
+}
+
+function esc(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML;}
+
+/* ================================================================
+   HOME — _show_home_page
+   ================================================================ */
+async function renderHome() {
+  const [stats,hc,best]=await Promise.all([GET('/api/stats'),GET('/api/stats/handicap'),GET('/api/stats/best-round')]);
+  S.stats=stats; S.handicap=hc.handicap_index;
+  const v=document.getElementById('v-home');
+
+  // Handicap hero
+  const hasHC = S.handicap!==null;
+  const hcStr = hasHC ? S.handicap.toFixed(1) : '--';
+  let hcSub='';
+  if(!hasHC){
+    const rem=Math.max(0,54-(stats.total_holes_played||0));
+    hcSub = rem>0 ? `Play ${rem} more holes to establish` : 'Calculating…';
+  } else {
+    const avgStr = stats.avg_score_18 ? `Avg ${stats.avg_score_18.toFixed(1)} (18-hole)` : stats.avg_score_9 ? `Avg ${stats.avg_score_9.toFixed(1)} (9-hole)` : '';
+    hcSub = [avgStr, `${stats.total_rounds} round${stats.total_rounds!==1?'s':''}`].filter(Boolean).join(' · ');
+  }
+
+  // Best round mini scorecard
+  let bestHtml='';
+  if(best&&best.total_score&&best._index!=null){
+    const sc=await GET(`/api/rounds/${best._index}/scorecard`);
+    const d=best.total_score-(best.par||72);
+    const ds=d>0?`+${d}`:d===0?'E':`${d}`;
+    const dsColor=d>0?'var(--red)':d<0?'var(--green)':'var(--text)';
+    const dateStr=(best.date||'').substring(0,10);
+    const scores=sc.scores||[]; const pars=sc.pars||[];
+    let holeHtml='';
+    for(let i=0;i<scores.length;i++){
+      const s=scores[i],p=pars[i];
+      if(!s){holeHtml+=`<div class="home-hole-cell"><div class="home-hole-num">${i+1}</div><div class="sc-score sc-par-score" style="color:var(--sep)">—</div></div>`;continue;}
+      const dif=s-p;
+      const cls=dif<=-2?'sc-eagle':dif===-1?'sc-birdie':dif===0?'sc-par-score':dif===1?'sc-bogey':'sc-dbl-bogey';
+      holeHtml+=`<div class="home-hole-cell"><div class="home-hole-num">${i+1}</div><div class="sc-score ${cls}">${s}</div></div>`;
+    }
+    bestHtml=`
+      <div class="home-best" onclick="viewRound(${best._index})">
+        <div class="home-best-header">
+          <div>
+            <div class="home-best-label">Personal Best</div>
+            <div class="home-best-meta">${esc(sc.course_name||'')} · ${dateStr}</div>
+          </div>
+          <div style="text-align:right">
+            <div class="home-best-score">${best.total_score}</div>
+            <div class="home-best-diff" style="color:${dsColor}">${ds}</div>
+          </div>
+        </div>
+        <div class="home-best-holes">${holeHtml}</div>
+      </div>`;
+  }
+
+  const avgVal = stats.avg_score_18 ? stats.avg_score_18.toFixed(1) : stats.avg_score_9 ? stats.avg_score_9.toFixed(1) : '—';
+  const avgLbl = stats.avg_score_18 ? 'Avg (18)' : 'Avg (9)';
+
+  v.innerHTML=`
+    <div class="home-hero">
+      <div class="home-hero-stripe"></div>
+      <div class="home-hero-body">
+        <div class="home-hc-label">Handicap Index</div>
+        <div class="home-hc-value${hasHC?'':' hc-pending'}">${hcStr}</div>
+        <div class="home-hc-sub">${hcSub}</div>
+      </div>
+    </div>
+    <button class="home-log-btn" onclick="startLog()">⛳ Log New Round</button>
+    ${bestHtml}
+    <div class="home-stats-row">
+      <div class="home-stat-cell">
+        <div class="home-stat-val">${stats.total_rounds}</div>
+        <div class="home-stat-lbl">Rounds</div>
+      </div>
+      <div class="home-stat-cell">
+        <div class="home-stat-val">${avgVal}</div>
+        <div class="home-stat-lbl">${avgLbl}</div>
+      </div>
+      <div class="home-stat-cell tappable" onclick="show('stats')">
+        <div class="home-stat-val" style="font-size:20px;padding-top:2px">📊</div>
+        <div class="home-stat-lbl">Stats</div>
+      </div>
+    </div>
+  `;
+}
+
+/* ================================================================
+   ROUNDS — _show_rounds_page
+   ================================================================ */
+let roundsFilter='all';
+async function renderRounds() {
+  const rounds=await GET(`/api/rounds?round_type=${roundsFilter}&sort=recent`);
+  const v=document.getElementById('v-rounds');
+
+  let filterHtml='';
+  for(const [lbl,val] of [['All','all'],['Solo','solo'],['Scramble','scramble']]){
+    filterHtml+=`<button class="radio-opt${roundsFilter===val?' active':''}" onclick="roundsFilter='${val}';renderRounds()">${lbl}</button>`;
+  }
+
+  let rows='';
+  if(!rounds.length){
+    rows='<div class="empty"><div class="empty-icon">🏌️</div><div class="empty-text">No rounds yet</div></div>';
+  } else {
+    rows='<div style="padding:0 16px;overflow-x:auto"><table class="tree-table"><tr><th style="width:80px">Date</th><th>Course</th><th style="width:50px">Score</th><th style="width:45px">+/-</th><th style="width:45px">Holes</th></tr>';
+    for(const rd of rounds){
+      const diff=rd.total_score-(rd.par||72);
+      const ds=diff>0?`+${diff}`:`${diff}`;
+      const dc=diff>0?'badge-red':diff<0?'badge-green':'badge-even';
+      const hc=rd.holes_choice;
+      const hs=hc==='front_9'?'F9':hc==='back_9'?'B9':String(rd.holes_played||18);
+      const dt=(rd.date||'').substring(0,10);
+      rows+=`<tr onclick="viewRound(${rd._index})"><td style="text-align:left">${dt}</td><td style="text-align:left">${esc(rd.course_name).substring(0,18)}</td><td>${rd.total_score}</td><td class="${dc}">${ds}</td><td>${hs}</td></tr>`;
+    }
+    rows+='</table></div>';
+  }
+
+  v.innerHTML=`
+    <div class="page-header"><div class="page-title">My Rounds</div></div>
+    <div class="card card-sm" style="margin-bottom:4px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:13px">Filter:</span>
+        <div class="radio-row">${filterHtml}</div>
+      </div>
+    </div>
+    <div class="hint">Tap a round to view details</div>
+    ${rows}
+  `;
+}
+
+async function viewRound(idx) {
+  S.viewRoundIdx=idx;
+  const sc=await GET(`/api/rounds/${idx}/scorecard`);
+  S.viewRound=sc;
+  show('scorecard');
+}
+
+/* ================================================================
+   SCORECARD DETAIL — _show_scorecard_detail_page
+   ================================================================ */
+function renderScorecard() {
+  const sc=S.viewRound; if(!sc) return;
+  const v=document.getElementById('v-scorecard');
+  const diff=sc.total_score-sc.par;
+  const ds=diff>0?`+${diff}`:diff===0?'E':`${diff}`;
+  const teeColor=sc.tee_color||'White';
+  const teeCSS=teeColorCSS(teeColor);
+
+  // Determine header colors based on tee
+  // Dark tees (Black) get light text, light tees get dark text
+  const darkTees=['Black','Blue','Green'];
+  const isDarkTee=darkTees.includes(teeColor);
+  const headerBg=isDarkTee?teeCSS:(teeColor==='White'?'#F8F8F8':teeCSS);
+  const headerFg=isDarkTee?'#FFFFFF':(teeColor==='Yellow'||teeColor==='Gold'?'#1C1C1E':'#1C1C1E');
+  const headerBorder=teeColor==='White'?'1px solid var(--sep)':'none';
+
+  // Date formatting
+  const dateStr=(sc.date||'').substring(0,10);
+  const totalYards=(sc.front_9.yards_total||0)+(sc.back_9.yards_total||0);
+
+  // Score diff color
+  const diffColor=diff>0?'rgba(255,59,48,0.9)':diff<0?'rgba(52,199,89,0.9)':'inherit';
+
+  // Target
+  let targetHtml='';
+  if(sc.target_score && sc.target_score!=='N/A'){
+    const td=sc.total_score-sc.target_score;
+    targetHtml=`<span class="sc-header-target">Target ${sc.target_score} (${td>=0?'+':''}${td})</span>`;
+  }
+
+  // Round info pills
+  const holesLabel=sc.holes_choice==='front_9'?'Front 9':sc.holes_choice==='back_9'?'Back 9':'18 Holes';
+  let pills=`<span class="sc-pill">${holesLabel}</span>`;
+  pills+=`<span class="sc-pill">${sc.round_type==='scramble'?'Scramble':'Solo'}</span>`;
+  if(!sc.is_serious) pills+=`<span class="sc-pill">Casual</span>`;
+
+  // Tee dot pill
+  const teeDotBorder=isDarkTee?'none':'1px solid rgba(0,0,0,0.2)';
+  const teePill=`<span class="sc-pill"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${teeCSS};border:${teeDotBorder};vertical-align:middle;margin-right:4px"></span>${teeColor} Tees</span>`;
+
+  // Build scorecard grids — traditional horizontal format
+  function buildNine(label, pars, scores, yardages, startHole) {
+    if(!pars||!pars.length) return '';
+
+    // Header row (hole numbers)
+    let holeRow=`<div class="sc-cell sc-cell-header sc-cell-hole"></div>`;
+    for(let i=0;i<pars.length;i++) holeRow+=`<div class="sc-cell sc-cell-header sc-cell-hole">${startHole+i+1}</div>`;
+    holeRow+=`<div class="sc-cell sc-cell-header sc-cell-hole">${label}</div>`;
+
+    // Yardage row
+    let yardRow=`<div class="sc-cell sc-cell-header sc-cell-yard">YDS</div>`;
+    let yardTotal=0;
+    for(let i=0;i<pars.length;i++){
+      const y=yardages&&yardages[i]?yardages[i]:'';
+      yardTotal+=(yardages&&yardages[i])||0;
+      yardRow+=`<div class="sc-cell sc-cell-yard">${y}</div>`;
+    }
+    yardRow+=`<div class="sc-cell sc-cell-total sc-cell-yard">${yardTotal||''}</div>`;
+
+    // Par row
+    let parRow=`<div class="sc-cell sc-cell-header" style="font-weight:700;font-size:10px;color:var(--text2)">PAR</div>`;
+    let parTotal=0;
+    for(let i=0;i<pars.length;i++){
+      parTotal+=pars[i];
+      const pc=pars[i]===3?'color:var(--green)':pars[i]===5?'color:var(--accent)':'';
+      parRow+=`<div class="sc-cell sc-cell-par" style="${pc}">${pars[i]}</div>`;
+    }
+    parRow+=`<div class="sc-cell sc-cell-total">${parTotal}</div>`;
+
+    // Score row
+    let scoreRow=`<div class="sc-cell sc-cell-header" style="font-weight:700;font-size:10px;color:var(--text)">SCORE</div>`;
+    let scoreTotal=0;
+    let hasScores=false;
+    for(let i=0;i<pars.length;i++){
+      const s=scores&&i<scores.length?scores[i]:null;
+      if(s!=null){
+        hasScores=true;
+        scoreTotal+=s;
+        const d=s-pars[i];
+        let cls='sc-par-score';
+        if(d<=-2) cls='sc-eagle';
+        else if(d===-1) cls='sc-birdie';
+        else if(d===1) cls='sc-bogey';
+        else if(d>=2) cls='sc-dbl-bogey';
+        scoreRow+=`<div class="sc-cell"><div class="sc-score ${cls}">${s}</div></div>`;
+      } else {
+        scoreRow+=`<div class="sc-cell" style="color:var(--text3)">—</div>`;
+      }
+    }
+    scoreRow+=`<div class="sc-cell sc-cell-total">${hasScores?scoreTotal:''}</div>`;
+
+    if(!hasScores && !scores.length) return '';
+
+    return `
+      <div class="sc-wrap">
+        <div class="sc-grid sc-grid-9">
+          ${holeRow}${yardRow}${parRow}${scoreRow}
+        </div>
+      </div>`;
+  }
+
+  const frontGrid=buildNine('FRONT OUT', sc.front_9.pars, sc.front_9.scores, sc.front_9.yardages, 0);
+  const backGrid=buildNine('BACK OUT', sc.back_9.pars, sc.back_9.scores, sc.back_9.yardages, 9);
+
+  // Totals summary row (when full 18 or to show combined)
+  let totalsHtml='';
+  if(frontGrid && backGrid){
+    const f9=sc.front_9.score_total, b9=sc.back_9.score_total;
+    const f9p=sc.front_9.par_total, b9p=sc.back_9.par_total;
+    totalsHtml=`
+      <div style="background:var(--card);margin:0 16px;padding:12px 16px;display:flex;justify-content:space-around;text-align:center;border-top:2px solid ${teeCSS}">
+        <div><div style="font-size:11px;color:var(--text2)">OUT</div><div style="font-size:18px;font-weight:700">${f9||'—'}</div></div>
+        <div><div style="font-size:11px;color:var(--text2)">OUT</div><div style="font-size:18px;font-weight:700">${b9||'—'}</div></div>
+        <div><div style="font-size:11px;color:var(--text2)">TOTAL</div><div style="font-size:22px;font-weight:800">${sc.total_score}</div></div>
+        <div><div style="font-size:11px;color:var(--text2)">PAR</div><div style="font-size:18px;font-weight:700">${f9p+b9p}</div></div>
+        <div><div style="font-size:11px;color:var(--text2)">+/−</div><div style="font-size:18px;font-weight:700;color:${diffColor}">${ds}</div></div>
+      </div>`;
+  }
+
+  v.innerHTML=`
+    <div class="page-header">
+      <button class="back-btn" onclick="nav('rounds')">← Rounds</button>
+    </div>
+
+    <!-- Tee-colored header card -->
+    <div class="sc-header-card" style="background:${headerBg};color:${headerFg};border:${headerBorder}">
+      <div class="sc-header-stripe" style="background:${teeCSS}"></div>
+      <div class="sc-header-main">
+        <div class="sc-header-left">
+          <div class="sc-header-course">${esc(sc.course_name)}</div>
+          <div class="sc-header-meta">${[sc.club_name,dateStr,totalYards?totalYards+' yds':''].filter(Boolean).join(' · ')}</div>
+        </div>
+        <div class="sc-header-right">
+          <div class="sc-header-total">${sc.total_score}</div>
+          <div class="sc-header-diff" style="color:${diffColor}">${ds}</div>
+        </div>
+      </div>
+      <div class="sc-header-footer" style="border-top-color:${isDarkTee?'rgba(255,255,255,0.15)':'rgba(0,0,0,0.1)'}">
+        ${teePill}${pills}${targetHtml}
+      </div>
+    </div>
+
+    <!-- Scorecard grids -->
+    ${frontGrid}
+    ${backGrid}
+    ${totalsHtml}
+
+    ${sc.notes?`<div class="sc-notes"><div class="sc-notes-title">Notes</div><div class="sc-notes-body">${esc(sc.notes)}</div></div>`:''}
+
+    <div class="sc-actions">
+      <button class="btn btn-red" style="flex:0;padding:10px 20px;font-size:13px" onclick="delRound(${S.viewRoundIdx})">🗑 Delete</button>
+      <div style="flex:1"></div>
+      <button class="btn" style="flex:0;padding:10px 20px;font-size:13px;background:var(--bg)" onclick="nav('rounds')">← Back</button>
+    </div>
+  `;
+}
+
+async function delRound(idx){
+  if(!confirm('Delete this round?\nThis cannot be undone.')) return;
+  await DEL(`/api/rounds/${idx}`);
+  nav('rounds');
+}
+
+/* ================================================================
+   LOG ROUND SETUP — club→course, tee pills, scramble=not serious
+   ================================================================ */
+async function startLog(){
+  S.courses=await GET('/api/courses');
+  S.clubs=await GET('/api/clubs');
+  const prefs=await GET('/api/prefs');
+  S.logMode=prefs.entry_mode||'quick';
+  S.logType='solo'; S.logSerious=true; S.logHoles='full_18';
+  show('log-setup');
+}
+
+function renderLogSetup() {
+  const v=document.getElementById('v-log-setup');
+  if(!S.courses.length){
+    v.innerHTML=`<div class="page-header"><button class="back-btn" onclick="nav('home')">← Back</button><div class="page-title">Log Round</div></div>
+      <div class="card"><div style="font-size:14px;font-weight:bold">No courses added yet</div><div style="font-size:11px;color:var(--text2);padding:12px 0">Add a course before logging a round.</div>
+      <button class="btn btn-primary" onclick="nav('courses')">➕ Add Course</button></div>`;
+    return;
+  }
+
+  // Group courses by club
+  const clubMap={};
+  for(const c of S.courses){const k=c.club||'Other';if(!clubMap[k])clubMap[k]=[];clubMap[k].push(c);}
+  const clubNames=Object.keys(clubMap).sort();
+
+  // Build club selector
+  let clubOpts=`<option value="" disabled selected>Pick one</option>`+clubNames.map(cn=>`<option value="${esc(cn)}">${esc(cn)}</option>`).join('');
+
+  const today=new Date().toISOString().substring(0,10);
+
+  // Auto-select scramble disables serious
+  const seriousDisabled=S.logType==='scramble';
+  const seriousChecked=S.logSerious&&!seriousDisabled;
+
+  v.innerHTML=`
+    <div class="page-header">
+      <button class="back-btn" onclick="nav('home')">← Back</button>
+      <div class="page-title">Log Round</div>
+    </div>
+
+    <div class="card">
+      <div style="font-size:14px;font-weight:bold;margin-bottom:8px">Club / Facility</div>
+      <select class="form-select" id="ls-club" onchange="lsClubChanged()">${clubOpts}</select>
+    </div>
+
+    <div class="card">
+      <div style="font-size:14px;font-weight:bold;margin-bottom:8px">Course</div>
+      <div id="ls-course-list"></div>
+    </div>
+
+    <div class="card">
+      <div style="font-size:14px;font-weight:bold;margin-bottom:8px">Tee Box</div>
+      <div class="tee-pills" id="ls-tee-pills"></div>
+    </div>
+
+    <div class="card">
+      <div class="form-group">
+        <div class="form-label">Holes</div>
+        <div class="radio-row" id="ls-holes">
+          <button class="radio-opt${S.logHoles==='full_18'?' active':''}" onclick="setR(this,'ls-holes');S.logHoles='full_18'">18 Holes</button>
+          <button class="radio-opt${S.logHoles==='front_9'?' active':''}" onclick="setR(this,'ls-holes');S.logHoles='front_9'">Front 9</button>
+          <button class="radio-opt${S.logHoles==='back_9'?' active':''}" onclick="setR(this,'ls-holes');S.logHoles='back_9'">Back 9</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <div class="form-label">Date</div>
+        <input type="date" class="form-input" id="ls-date" value="${today}">
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="font-size:14px;font-weight:bold;margin-bottom:8px">Round Type</div>
+      <div class="radio-row" id="ls-type">
+        <button class="radio-opt${S.logType==='solo'?' active':''}" onclick="setR(this,'ls-type');S.logType='solo';lsTypeChanged()">Solo</button>
+        <button class="radio-opt${S.logType==='scramble'?' active':''}" onclick="setR(this,'ls-type');S.logType='scramble';lsTypeChanged()">Scramble</button>
+      </div>
+      <div class="check-row" style="padding-top:8px" id="ls-serious-row">
+        <input type="checkbox" id="ls-serious" ${seriousChecked?'checked':''} ${seriousDisabled?'disabled':''} onchange="S.logSerious=this.checked">
+        <label for="ls-serious" style="${seriousDisabled?'opacity:0.4':''}">Serious round (counts toward handicap)</label>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="font-size:14px;font-weight:bold;margin-bottom:8px">Entry Mode</div>
+      <div class="radio-row" id="ls-mode">
+        <button class="radio-opt${S.logMode==='quick'?' active':''}" onclick="setR(this,'ls-mode');S.logMode='quick'">Quick (scores only)</button>
+        <button class="radio-opt${S.logMode==='detailed'?' active':''}" onclick="setR(this,'ls-mode');S.logMode='detailed'">Detailed (scores + clubs)</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <button class="btn btn-green" onclick="beginEntry()">▶ Start Entering Scores</button>
+    </div>
+  `;
+
+  lsClubChanged();
+}
+
+function setR(el,gid){document.getElementById(gid).querySelectorAll('.radio-opt').forEach(b=>b.classList.remove('active'));el.classList.add('active');}
+
+function lsTypeChanged(){
+  const cb=document.getElementById('ls-serious');
+  const row=document.getElementById('ls-serious-row');
+  if(S.logType==='scramble'){
+    S.logSerious=false;
+    cb.checked=false; cb.disabled=true;
+    row.querySelector('label').style.opacity='0.4';
+  } else {
+    cb.disabled=false;
+    row.querySelector('label').style.opacity='1';
+  }
+}
+
+function lsClubChanged(){
+  const clubName=document.getElementById('ls-club').value;
+  const container=document.getElementById('ls-course-list');
+  if(!clubName){container.innerHTML='<div style="font-size:13px;color:var(--text2)">Select a club to see courses</div>';S.logCourse=null;document.getElementById('ls-tee-pills').innerHTML='';return;}
+  const clubMap={};
+  for(const c of S.courses){const k=c.club||'Other';if(!clubMap[k])clubMap[k]=[];clubMap[k].push(c);}
+  const courses=clubMap[clubName]||[];
+
+  // Course list as tappable rows
+  if(!courses.length){container.innerHTML='<div style="font-size:13px;color:var(--text2)">No courses for this club</div>';return;}
+
+  let html='';
+  courses.forEach((c,i)=>{
+    const tp=c.pars.reduce((a,b)=>a+b,0);
+    const sel=S.logCourse&&S.logCourse.name===c.name;
+    html+=`<div style="display:flex;align-items:center;padding:12px;cursor:pointer;border:2px solid ${sel?'var(--accent)':'transparent'};background:${sel?'rgba(0,122,255,0.06)':'var(--bg)'};margin-bottom:4px" onclick="lsPickCourse('${esc(c.name)}')">
+      <div style="flex:1">
+        <div style="font-size:15px;font-weight:${sel?'600':'500'}">${esc(c.name)}</div>
+        <div style="font-size:12px;color:var(--text2)">${c.pars.length} holes · Par ${tp}</div>
+      </div>
+      ${sel?'<div style="color:var(--accent);font-size:16px;font-weight:700">✓</div>':''}
+    </div>`;
+  });
+  container.innerHTML=html;
+
+  // Auto-select first if none selected or current not in this club
+  if(!S.logCourse||!courses.find(c=>c.name===S.logCourse.name)){
+    lsPickCourse(courses[0].name);
+  } else {
+    lsRefreshTees();
+  }
+}
+
+function lsPickCourse(name){
+  S.logCourse=S.courses.find(c=>c.name===name);
+  lsClubChanged(); // Re-render course list with selection
+  lsRefreshTees();
+}
+
+function lsRefreshTees(){
+  const container=document.getElementById('ls-tee-pills');
+  if(!container||!S.logCourse) return;
+  const tees=S.logCourse.tee_boxes||[];
+  if(!S.logTee||!tees.find(t=>t.color===S.logTee)){
+    const pref=tees.find(t=>t.color==='White')||tees[0];
+    S.logTee=pref?pref.color:null;
+  }
+  let html='';
+  for(const t of tees){
+    const active=t.color===S.logTee?' active':'';
+    html+=`<div class="tee-pill${active}" onclick="S.logTee='${t.color}';lsRefreshTees()">
+      <span class="tee-dot" style="background:${teeColorCSS(t.color)}"></span>
+      <span>${t.color}</span>
+      <span class="tee-pill-info">${t.rating}/${t.slope}</span>
+    </div>`;
+  }
+  container.innerHTML=html;
+}
+
+function abbrClub(name){
+  const n=name.toLowerCase();
+  if(n.includes('driver'))return'D';if(n.includes('putter'))return'P';if(n.includes('hybrid'))return'H';
+  if(n.includes('wood')){for(const x of name.split(' '))if(/^\d+$/.test(x))return x+'W';return'W';}
+  if(n.includes('iron')){for(const x of name.split(' '))if(/^\d+$/.test(x))return x+'i';return'i';}
+  if(n==='pw')return'PW';if(n==='gw')return'GW';if(n==='sw')return'SW';if(n==='lw')return'LW';
+  return name.substring(0,3).toUpperCase();
+}
+
+function beginEntry(){
+  if(!S.logCourse){alert('Select a course');return;}
+  if(!S.logTee){alert('Select a tee box');return;}
+  S.logDate=document.getElementById('ls-date').value;
+  const pars=S.logCourse.pars;
+  if(S.logHoles==='front_9') S.holesToScore=[...Array(9).keys()];
+  else if(S.logHoles==='back_9') S.holesToScore=[...Array(Math.min(9,pars.length-9)).keys()].map(i=>i+9);
+  else S.holesToScore=[...Array(pars.length).keys()];
+  S.currentHoleIdx=0;
+  S.holeScores=new Array(S.holesToScore.length).fill(null);
+  S.holeClubs=Array.from({length:S.holesToScore.length},()=>[]);
+  const sorted=[...S.clubs].sort((a,b)=>(b.distance||0)-(a.distance||0));
+  S.clubOptions=[];S.clubFullNames={};
+  for(const c of sorted){const ab=abbrClub(c.name);S.clubOptions.push(ab);S.clubFullNames[ab]=c.name;}
+  if(!S.clubOptions.includes('P')&&!sorted.some(c=>c.name.toLowerCase()==='putter')){S.clubOptions.push('P');S.clubFullNames['P']='Putter';}
+  show('log-entry');
+}
+
+/* ================================================================
+   LOG ROUND ENTRY — numpad: bottom row = Forfeit/0/Next
+   Club grid: 3 cols, last row = Forfeit/Undo/Next
+   ================================================================ */
+function renderLogEntry(){
+  const v=document.getElementById('v-log-entry');
+  const hi=S.currentHoleIdx;
+  const holeNum=S.holesToScore[hi];
+  const par=S.logCourse.pars[holeNum];
+  const yardages=S.logCourse.yardages?.[S.logTee]||[];
+  const yard=yardages[holeNum]||'-';
+  const isD=S.logMode==='detailed';
+  const lastH=hi===S.holesToScore.length-1;
+  const nextLabel=lastH?'✓ Done':'Next →';
+
+  let score,clubsStr='';
+  if(isD){score=S.holeClubs[hi].length||null;clubsStr=S.holeClubs[hi].length?S.holeClubs[hi].join(' → '):'Tap clubs in order';}
+  else{score=S.holeScores[hi];}
+  const scoreStr=score!=null&&score>0?String(score):'-';
+  let diffStr='';
+  if(score!=null&&score>0){const d=score-par;diffStr=d>0?`+${d}`:d<0?String(d):'E';}
+
+  // Running total
+  let total=0,done=0,parDone=0;
+  for(let i=0;i<S.holesToScore.length;i++){const s=isD?S.holeClubs[i].length:S.holeScores[i];if(s!=null&&s>0){total+=s;done++;parDone+=S.logCourse.pars[S.holesToScore[i]];}}
+  let runStr=`0/${S.holesToScore.length} holes`;
+  if(done>0){const rd=total-parDone;const rds=rd>0?`+${rd}`:rd<0?String(rd):'E';runStr=`Total: ${total} (${rds}) · ${done}/${S.holesToScore.length}`;}
+
+  // Build bottom pad
+  let bottomHtml='';
+  if(isD){
+    // 3-col club grid
+    let cells='';
+    for(const c of S.clubOptions){
+      const ip=c==='P'||((S.clubFullNames[c]||'').toLowerCase().includes('putter'));
+      cells+=`<button class="club-grid-btn${ip?' putter':''}" onclick="addClub('${c}')">${c}</button>`;
+    }
+    // Pad to fill last row (need 0, 1, or 2 empty cells before the action row)
+    const remainder=S.clubOptions.length%3;
+    if(remainder===1) cells+=`<div class="club-grid-btn empty-cell"></div><div class="club-grid-btn empty-cell"></div>`;
+    else if(remainder===2) cells+=`<div class="club-grid-btn empty-cell"></div>`;
+    // Action row: Forfeit / Undo / Next
+    cells+=`<button class="club-grid-btn action-forfeit" onclick="forfeitHole()">Forfeit</button>`;
+    cells+=`<button class="club-grid-btn action-undo" onclick="undoClub()">↩ Undo</button>`;
+    cells+=`<button class="club-grid-btn action-next" onclick="${lastH?'checkFinish()':'nextH()'}">${nextLabel}</button>`;
+
+    bottomHtml=`<div class="club-grid-container">
+      <div class="club-grid-hint">Tap clubs in order of use</div>
+      <div class="club-grid">${cells}</div>
+    </div>`;
+  } else {
+    // Quick mode numpad: 1-9, then Forfeit / 0 / Next
+    let btns='';
+    for(let n=1;n<=9;n++) btns+=`<button class="numpad-btn" onclick="inputScore(${n})">${n}</button>`;
+    btns+=`<button class="numpad-btn forfeit" onclick="forfeitHole()">Forfeit</button>`;
+    btns+=`<button class="numpad-btn" onclick="inputScore(0)">0</button>`;
+    btns+=`<button class="numpad-btn next-hole" onclick="${lastH?'checkFinish()':'nextH()'}">${nextLabel}</button>`;
+    bottomHtml=`<div class="numpad"><div class="numpad-grid">${btns}</div></div>`;
+  }
+
+  v.innerHTML=`
+    <div class="entry-topbar">
+      <div class="entry-hole-num">${holeNum+1}</div>
+      <div class="entry-course-info">
+        <div class="entry-course-name">${esc(S.logCourse.name).substring(0,20)}</div>
+        <div class="entry-hole-info">Par ${par} · ${yard} yds</div>
+        <div class="entry-tee-info">${S.logTee} Tees</div>
+      </div>
+    </div>
+    <div class="entry-middle">
+      <button class="entry-nav-btn" onclick="prevH()" ${hi<=0?'disabled':''}>◀</button>
+      <div class="entry-center">
+        <div class="entry-stroke">${scoreStr}</div>
+        ${isD?`<div class="entry-clubs-display">${esc(clubsStr)}</div>`:''}
+        <div class="entry-diff">${diffStr}</div>
+      </div>
+      <button class="entry-nav-btn" onclick="nextH()" ${hi>=S.holesToScore.length-1?'disabled':''}>▶</button>
+    </div>
+    <div class="running-total">${runStr}</div>
+    ${bottomHtml}
+  `;
+}
+
+function inputScore(n){let c=S.holeScores[S.currentHoleIdx];if(c===null)c=n;else{c=c*10+n;if(c>20)c=n;}S.holeScores[S.currentHoleIdx]=c;renderLogEntry();}
+function forfeitHole(){if(confirm('Forfeit this hole?\nThis records a score of 0.')){if(S.logMode==='detailed'){S.holeClubs[S.currentHoleIdx]=['X'];}else{S.holeScores[S.currentHoleIdx]=0;}renderLogEntry();}}
+function addClub(c){S.holeClubs[S.currentHoleIdx].push(c);renderLogEntry();}
+function undoClub(){S.holeClubs[S.currentHoleIdx].pop();renderLogEntry();}
+function prevH(){if(S.currentHoleIdx>0){S.currentHoleIdx--;renderLogEntry();}}
+function nextH(){if(S.currentHoleIdx<S.holesToScore.length-1){S.currentHoleIdx++;renderLogEntry();}}
+function checkFinish(){
+  const isD=S.logMode==='detailed';
+  const inc=[];
+  for(let i=0;i<S.holesToScore.length;i++){
+    if(isD){if(!S.holeClubs[i].length)inc.push(S.holesToScore[i]+1);}
+    else{if(S.holeScores[i]===null)inc.push(S.holesToScore[i]+1);}
+  }
+  if(inc.length){
+    alert(`Please enter scores for holes: ${inc.slice(0,5).join(', ')}${inc.length>5?' (+'+( inc.length-5)+' more)':''}`);
+    return;
+  }
+  show('log-notes');
+}
+
+/* ================================================================
+   LOG ROUND NOTES — shows scorecard + notes textarea
+   ================================================================ */
+function renderLogNotes(){
+  const v=document.getElementById('v-log-notes');
+  const isD=S.logMode==='detailed';
+  const course=S.logCourse;
+  const teeColor=S.logTee||'White';
+  const teeCSS_=teeColorCSS(teeColor);
+  const darkTees=['Black','Blue','Green'];
+  const isDark=darkTees.includes(teeColor);
+  const headerBg=isDark?teeCSS_:(teeColor==='White'?'#F8F8F8':teeCSS_);
+  const headerFg=isDark?'#FFF':'#1C1C1E';
+
+  // Compute scores per hole
+  const scores=[];
+  for(let i=0;i<S.holesToScore.length;i++){
+    scores.push(isD?S.holeClubs[i].length:(S.holeScores[i]||0));
+  }
+  const total=scores.reduce((a,b)=>a+b,0);
+  const parTotal=S.holesToScore.reduce((a,hi)=>a+course.pars[hi],0);
+  const diff=total-parTotal;
+  const ds=diff>0?`+${diff}`:diff===0?'E':`${diff}`;
+  const diffColor=diff>0?'rgba(255,59,48,0.9)':diff<0?'rgba(52,199,89,0.9)':'inherit';
+
+  // Build scorecard grids (reuse the buildNine logic from renderScorecard)
+  function buildMiniNine(label, startIdx, count) {
+    const pars=[],sc=[],yds=[];
+    const yardages=course.yardages?.[teeColor]||[];
+    for(let i=startIdx;i<startIdx+count&&i<course.pars.length;i++){
+      pars.push(course.pars[i]);
+      // Find this hole in our holesToScore
+      const hi=S.holesToScore.indexOf(i);
+      sc.push(hi>=0?scores[hi]:null);
+      yds.push(yardages[i]||null);
+    }
+    if(!sc.some(s=>s!=null)) return '';
+
+    let holeRow='<div class="sc-cell sc-cell-header sc-cell-hole"></div>';
+    for(let i=0;i<pars.length;i++) holeRow+=`<div class="sc-cell sc-cell-header sc-cell-hole">${startIdx+i+1}</div>`;
+    holeRow+=`<div class="sc-cell sc-cell-header sc-cell-hole">TOT</div>`;
+
+    let parRow='<div class="sc-cell sc-cell-header" style="font-weight:700;font-size:10px;color:var(--text2)">PAR</div>';
+    let pt=0;
+    for(const p of pars){pt+=p;const pc=p===3?'color:var(--green)':p===5?'color:var(--accent)':'';parRow+=`<div class="sc-cell sc-cell-par" style="${pc}">${p}</div>`;}
+    parRow+=`<div class="sc-cell sc-cell-total">${pt}</div>`;
+
+    let scoreRow='<div class="sc-cell sc-cell-header" style="font-weight:700;font-size:10px">SCORE</div>';
+    let st=0;let has=false;
+    for(let i=0;i<pars.length;i++){
+      const s=sc[i];
+      if(s!=null&&s>0){has=true;st+=s;const d=s-pars[i];let cls='sc-par-score';if(d<=-2)cls='sc-eagle';else if(d===-1)cls='sc-birdie';else if(d===1)cls='sc-bogey';else if(d>=2)cls='sc-dbl-bogey';
+        scoreRow+=`<div class="sc-cell"><div class="sc-score ${cls}">${s}</div></div>`;}
+      else scoreRow+=`<div class="sc-cell" style="color:var(--text3)">—</div>`;
+    }
+    scoreRow+=`<div class="sc-cell sc-cell-total">${has?st:''}</div>`;
+    if(!has) return '';
+
+    return `<div class="sc-wrap"><div class="sc-grid sc-grid-9">${holeRow}${parRow}${scoreRow}</div></div>`;
+  }
+
+  let frontGrid='',backGrid='';
+  if(S.logHoles==='front_9'){
+    frontGrid=buildMiniNine('FRONT OUT',0,9);
+  } else if(S.logHoles==='back_9'){
+    backGrid=buildMiniNine('BACK OUT',9,9);
+  } else {
+    frontGrid=buildMiniNine('FRONT OUT',0,9);
+    backGrid=buildMiniNine('BACK OUT',9,9);
+  }
+
+  v.innerHTML=`
+    <div class="page-header">
+      <button class="back-btn" onclick="show('log-entry')">← Back to Scoring</button>
+      <div class="page-title">Review & Save</div>
+    </div>
+
+    <!-- Tee-colored header -->
+    <div class="sc-header-card" style="background:${headerBg};color:${headerFg};border:${teeColor==='White'?'1px solid var(--sep)':'none'}">
+      <div class="sc-header-stripe" style="background:${teeCSS_}"></div>
+      <div class="sc-header-course">${esc(course.name)}</div>
+      <div class="sc-header-meta">${S.logDate} · ${teeColor} Tees · ${S.holesToScore.length} holes</div>
+      <div class="sc-header-score-row" style="border-top-color:${isDark?'rgba(255,255,255,0.15)':'rgba(0,0,0,0.1)'}">
+        <div class="sc-header-total">${total}</div>
+        <div>
+          <div class="sc-header-diff" style="color:${diffColor}">${ds}</div>
+        </div>
+      </div>
+    </div>
+
+    ${frontGrid}
+    ${backGrid}
+
+    <div class="card">
+      <div style="font-size:14px;font-weight:bold;margin-bottom:6px">Notes (optional)</div>
+      <textarea class="form-input" id="ln-notes" placeholder="How was the round?"></textarea>
+    </div>
+
+    <div style="padding:12px 16px">
+      <button class="btn btn-green" onclick="submitRound()">💾 Save Round</button>
+    </div>
+  `;
+}
+async function submitRound(){
+  const isD=S.logMode==='detailed';const course=S.logCourse;const scores=[];const det=[];
+  for(let i=0;i<S.holesToScore.length;i++){const hn=S.holesToScore[i];
+    if(isD){const clubs=[...S.holeClubs[i]];const sc=clubs.length;scores.push(sc);const putts=clubs.filter(c=>c==='P').length;det.push({score:sc,putts,strokes_to_green:sc-putts,clubs_used:clubs.map(c=>S.clubFullNames[c]||c)});}
+    else{scores.push(S.holeScores[i]);det.push({score:S.holeScores[i]});}}
+  const total=scores.reduce((a,b)=>a+b,0);const parP=S.holesToScore.reduce((a,hi)=>a+course.pars[hi],0);
+  const fullScores=new Array(course.pars.length).fill(null);const fullDet=new Array(course.pars.length).fill(null).map(()=>({}));
+  for(let i=0;i<S.holesToScore.length;i++){fullScores[S.holesToScore[i]]=scores[i];fullDet[S.holesToScore[i]]=det[i];}
+  const now=new Date();const dateStr=S.logDate+' '+String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
+  const notes=(document.getElementById('ln-notes')||{}).value||'';
+  await POST('/api/rounds',{course_name:course.name,tee_color:S.logTee,scores:fullScores,is_serious:S.logSerious,round_type:S.logType,notes,holes_played:S.holesToScore.length,holes_choice:S.logHoles,total_score:total,date:dateStr,entry_mode:S.logMode,detailed_stats:fullDet});
+  const diff=total-parP;alert(`Round Saved\nScore: ${total} (${diff>0?'+':''}${diff})\nCourse: ${course.name}\nHoles: ${S.holesToScore.length}`);
+  nav('rounds');
+}
+
+/* ================================================================
+   COURSES LIST
+   ================================================================ */
+async function renderCourses(){
+  S.courses=await GET('/api/courses');const v=document.getElementById('v-courses');
+  const sorted=[...S.courses].sort((a,b)=>(a.club||'').localeCompare(b.club||'')||a.name.localeCompare(b.name));
+  let rows='';
+  if(!sorted.length){
+    rows='<div class="empty"><div class="empty-icon">⛳</div><div class="empty-text">No courses yet.<br>Add your first course to get started.</div></div>';
+  } else {
+    // Group by club
+    const clubs={};
+    for(const c of sorted){const k=c.club||'Other';if(!clubs[k])clubs[k]=[];clubs[k].push(c);}
+    for(const [clubName,courses] of Object.entries(clubs)){
+      rows+=`<div style="padding:12px 16px 4px;font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px">${esc(clubName)}</div>`;
+      rows+='<div style="background:var(--card);margin:0 16px 8px">';
+      for(let i=0;i<courses.length;i++){
+        const c=courses[i];
+        const tp=c.pars.reduce((a,b)=>a+b,0);
+        const teeColors=c.tee_boxes.map(t=>t.color);
+        let dots='';for(const tc of teeColors) dots+=`<span class="tee-dot" style="width:10px;height:10px;display:inline-block;background:${teeColorCSS(tc)}"></span>`;
+        rows+=`<div style="display:flex;align-items:center;padding:14px 16px;cursor:pointer;${i<courses.length-1?'border-bottom:0.5px solid var(--sep);':''}" onclick="viewCourse('${esc(c.name)}')">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:16px;font-weight:500">${esc(c.name)}</div>
+            <div style="font-size:12px;color:var(--text2);margin-top:2px;display:flex;align-items:center;gap:6px">
+              ${c.pars.length} holes · Par ${tp} <span style="display:flex;gap:3px">${dots}</span>
+            </div>
+          </div>
+          <div style="color:var(--text2);font-size:14px">›</div>
+        </div>`;
+      }
+      rows+='</div>';
+    }
+  }
+
+  v.innerHTML=`
+    <div class="page-header"><div class="page-title">Courses</div></div>
+    <div style="padding:0 16px 8px;display:flex;justify-content:flex-end">
+      <button class="btn btn-primary" style="width:auto;padding:8px 16px;font-size:13px" onclick="editCourse(null)">➕ Add New Course</button>
+    </div>
+    <div class="hint">Tap a course to view details</div>
+    ${rows}
+  `;
+}
+
+function teeColorCSS(name){
+  const m={'Black':'#1C1C1E','Blue':'#007AFF','White':'#FFFFFF','Yellow':'#FFD60A','Red':'#FF3B30','Gold':'#FFB800','Green':'#34C759','Silver':'#C7C7CC'};
+  return m[name]||'#8E8E93';
+}
+
+function viewCourse(name){
+  S.viewCourseName=name;
+  S.viewCourseTee=null;
+  show('course-detail');
+}
+
+function editCourse(name){
+  S.editCourse=name?S.courses.find(c=>c.name===name):null;
+  show('course-editor');
+}
+
+/* ================================================================
+   COURSE DETAIL — pretty read view with tee selector + hole grid
+   ================================================================ */
+async function renderCourseDetail(){
+  const v=document.getElementById('v-course-detail');
+  const c=S.courses.find(x=>x.name===S.viewCourseName);
+  if(!c){nav('courses');return;}
+
+  const totalPar=c.pars.reduce((a,b)=>a+b,0);
+  const tees=c.tee_boxes||[];
+  // Default tee selection
+  if(!S.viewCourseTee){
+    const pref=tees.find(t=>t.color==='White')||tees[0];
+    S.viewCourseTee=pref?pref.color:null;
+  }
+  const activeTee=tees.find(t=>t.color===S.viewCourseTee)||tees[0];
+  const yardages=c.yardages?.[S.viewCourseTee]||[];
+  const totalYards=yardages.reduce((a,b)=>a+(b||0),0);
+
+  // Tee pills
+  let teePills='';
+  for(const t of tees){
+    const active=t.color===S.viewCourseTee?' active':'';
+    teePills+=`<div class="tee-pill${active}" onclick="S.viewCourseTee='${t.color}';renderCourseDetail()">
+      <span class="tee-dot" style="background:${teeColorCSS(t.color)}"></span>
+      <span>${t.color}</span>
+    </div>`;
+  }
+
+  // Hole grid table
+  let holeRows='';
+  let f9par=0,b9par=0,f9yds=0,b9yds=0;
+  for(let i=0;i<c.pars.length;i++){
+    const par=c.pars[i];
+    const yd=yardages[i]||'';
+    const parClass=par===3?'par-3':par===5?'par-5':'par-4';
+    holeRows+=`<tr>
+      <td class="hole-num">${i+1}</td>
+      <td class="${parClass}">${par}</td>
+      <td>${yd||'—'}</td>
+    </tr>`;
+    if(i<9){f9par+=par;f9yds+=(yd||0);}
+    else{b9par+=par;b9yds+=(yd||0);}
+
+    // Insert front-9 subtotal
+    if(i===8&&c.pars.length>9){
+      holeRows+=`<tr class="nine-sep"><td>OUT</td><td>${f9par}</td><td>${f9yds||'—'}</td></tr>`;
+    }
+  }
+  // Back-9 subtotal + total
+  if(c.pars.length>9){
+    holeRows+=`<tr class="nine-sep"><td>OUT</td><td>${b9par}</td><td>${b9yds||'—'}</td></tr>`;
+  }
+  holeRows+=`<tr class="total-row"><td>TOT</td><td>${totalPar}</td><td>${totalYards||'—'}</td></tr>`;
+
+  // Tee detail card
+  let teeDetailHtml='';
+  if(activeTee){
+    teeDetailHtml=`<div class="tee-detail">
+      <div class="tee-detail-header">
+        <span class="tee-dot" style="background:${teeColorCSS(activeTee.color)};width:18px;height:18px"></span>
+        <span class="tee-detail-color">${activeTee.color} Tees</span>
+      </div>
+      <div class="tee-detail-row">
+        <div class="tee-detail-item"><div class="tee-detail-val">${activeTee.rating}</div><div class="tee-detail-lbl">Rating</div></div>
+        <div class="tee-detail-item"><div class="tee-detail-val">${activeTee.slope}</div><div class="tee-detail-lbl">Slope</div></div>
+        <div class="tee-detail-item"><div class="tee-detail-val">${totalYards||'—'}</div><div class="tee-detail-lbl">Yards</div></div>
+        <div class="tee-detail-item"><div class="tee-detail-val">${activeTee.handicap!=null?activeTee.handicap:'—'}</div><div class="tee-detail-lbl">HCP</div></div>
+      </div>
+    </div>`;
+  }
+
+  v.innerHTML=`
+    <div class="page-header">
+      <button class="back-btn" onclick="nav('courses')">← Courses</button>
+    </div>
+    <div class="course-hero">
+      <div class="course-hero-name">${esc(c.name)}</div>
+      <div class="course-hero-club">${esc(c.club||'')}</div>
+      <div class="course-hero-stats">
+        <div class="course-hero-stat"><div class="course-hero-stat-val">${c.pars.length}</div><div class="course-hero-stat-lbl">Holes</div></div>
+        <div class="course-hero-stat"><div class="course-hero-stat-val">${totalPar}</div><div class="course-hero-stat-lbl">Par</div></div>
+        <div class="course-hero-stat"><div class="course-hero-stat-val">${totalYards||'—'}</div><div class="course-hero-stat-lbl">Yards</div></div>
+      </div>
+    </div>
+
+    <div class="tee-pills">${teePills}</div>
+
+    ${teeDetailHtml}
+
+    <div class="hole-grid">
+      <table>
+        <tr><th>Hole</th><th>Par</th><th>Yards</th></tr>
+        ${holeRows}
+      </table>
+    </div>
+
+    <div style="padding:12px 16px;display:flex;gap:8px">
+      <button class="btn btn-primary" style="flex:1" onclick="editCourse('${esc(c.name)}')">✏️ Edit Course</button>
+      <button class="btn btn-red" style="flex:0;padding:10px 20px" onclick="deleteCourse('${esc(c.name)}')">🗑</button>
+    </div>
+  `;
+}
+
+async function deleteCourse(name){
+  if(!confirm(`Delete "${name}"?\nThis cannot be undone.`))return;
+  await DEL(`/api/courses/${encodeURIComponent(name)}`);
+  nav('courses');
+}
+
+/* ================================================================
+   COURSE EDITOR — full editor with per-hole par + yardage per tee
+   ================================================================ */
+
+// Temp storage for yardages while editing — keyed by tee color
+let ceYardages = {};
+let ceActiveTee = '';
+
+function renderCourseEditor(){
+  const v=document.getElementById('v-course-editor');
+  const c=S.editCourse;
+  const title=c?'Edit Course':'Add New Course';
+  const numHoles=c?c.pars.length:18;
+
+  // Initialize yardages storage from course data
+  ceYardages = {};
+  const tees=c?c.tee_boxes:[{color:'White',rating:72.0,slope:113}];
+  for(const t of tees){
+    ceYardages[t.color] = c?.yardages?.[t.color] ? [...c.yardages[t.color]] : new Array(numHoles).fill(0);
+  }
+  ceActiveTee = tees[0]?.color || 'White';
+
+  // Tee boxes editor
+  let teesHtml='';
+  tees.forEach((t,i)=>{
+    teesHtml+=`<div class="tee-editor-card" data-tee-idx="${i}">
+      <button class="tee-editor-remove" onclick="removeTeeEditor(this)" title="Remove">✕</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <div class="form-group" style="flex:1;min-width:70px">
+          <div class="form-label">Color</div>
+          <input class="form-input tee-color" value="${t.color}" onchange="onTeeColorRenamed(this)">
+        </div>
+        <div class="form-group" style="flex:1;min-width:70px">
+          <div class="form-label">Rating</div>
+          <input class="form-input tee-rating" value="${t.rating}" type="number" step="0.1">
+        </div>
+        <div class="form-group" style="flex:1;min-width:70px">
+          <div class="form-label">Slope</div>
+          <input class="form-input tee-slope" value="${t.slope}" type="number">
+        </div>
+      </div>
+    </div>`;
+  });
+
+  v.innerHTML=`
+    <div class="page-header">
+      <button class="back-btn" onclick="${c?`viewCourse('${esc(c.name)}')`:'nav(\'courses\')'}">← Back</button>
+      <div class="page-title">${title}</div>
+    </div>
+
+    <div class="card">
+      <div style="font-size:14px;font-weight:bold;margin-bottom:10px">Course Information</div>
+      <div class="form-group">
+        <div class="form-label">Course Name</div>
+        <input class="form-input" id="ce-name" value="${c?esc(c.name):''}">
+      </div>
+      <div class="form-group">
+        <div class="form-label">Club / Facility</div>
+        <input class="form-input" id="ce-club" value="${c?esc(c.club||''):''}">
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-size:14px;font-weight:bold">Tee Boxes</div>
+        <button class="btn btn-primary" style="width:auto;padding:6px 14px;font-size:12px" onclick="addTeeBox()">+ Add Tee</button>
+      </div>
+      <div id="ce-tees">${teesHtml}</div>
+    </div>
+
+    <div class="card">
+      <div style="font-size:14px;font-weight:bold;margin-bottom:4px">Hole Pars & Yardages</div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:8px">Select a tee color to edit its yardages</div>
+      <div class="tee-pills" id="ce-tee-pills" style="padding:4px 0 12px;justify-content:flex-start"></div>
+      <div id="ce-hole-grid"></div>
+    </div>
+
+    <div style="padding:12px 16px;display:flex;gap:8px">
+      <button class="btn btn-green" style="flex:2" onclick="saveCourse()">💾 Save Course</button>
+      <button class="btn" style="flex:1;background:var(--bg)" onclick="${c?`viewCourse('${esc(c.name)}')`:'nav(\'courses\')'}">Cancel</button>
+    </div>
+  `;
+
+  refreshCeTeePills();
+  refreshCeHoleGrid();
+}
+
+/** Save current yardage inputs into ceYardages before switching tees */
+function ceStashCurrentYards(){
+  const inputs=document.querySelectorAll('.ce-yard-input');
+  if(!inputs.length) return;
+  const arr=[];
+  inputs.forEach(inp=>{ arr.push(parseInt(inp.value)||0); });
+  ceYardages[ceActiveTee]=arr;
+}
+
+/** Rebuild the tee pill selector based on current tee-editor cards */
+function refreshCeTeePills(){
+  const colors=getCurrentTeeColors();
+  // Ensure ceYardages has an entry for every color
+  const numHoles=document.querySelectorAll('.ce-par-input').length || (S.editCourse?S.editCourse.pars.length:18);
+  for(const col of colors){
+    if(!ceYardages[col]) ceYardages[col]=new Array(numHoles).fill(0);
+  }
+  // If active tee no longer exists, switch to first
+  if(!colors.includes(ceActiveTee) && colors.length) ceActiveTee=colors[0];
+
+  const container=document.getElementById('ce-tee-pills');
+  if(!container) return;
+  let html='';
+  for(const col of colors){
+    const active=col===ceActiveTee?' active':'';
+    html+=`<div class="tee-pill${active}" onclick="ceSwitchTee('${esc(col)}')">
+      <span class="tee-dot" style="background:${teeColorCSS(col)}"></span>
+      <span>${col}</span>
+    </div>`;
+  }
+  if(!colors.length) html='<div style="font-size:12px;color:var(--text2)">Add a tee box above first</div>';
+  container.innerHTML=html;
+}
+
+function getCurrentTeeColors(){
+  const cards=document.querySelectorAll('#ce-tees .tee-editor-card');
+  const colors=[];
+  cards.forEach(el=>{
+    const c=el.querySelector('.tee-color').value.trim();
+    if(c) colors.push(c);
+  });
+  return colors;
+}
+
+function ceSwitchTee(color){
+  ceStashCurrentYards();
+  ceActiveTee=color;
+  refreshCeTeePills();
+  refreshCeHoleGrid();
+}
+
+function refreshCeHoleGrid(){
+  const container=document.getElementById('ce-hole-grid');
+  if(!container) return;
+  const c=S.editCourse;
+  const numHoles=c?c.pars.length:18;
+  const yards=ceYardages[ceActiveTee]||[];
+
+  let html=`<div class="hole-input-row" style="border-bottom:1px solid var(--sep)">
+    <div class="hole-input-num" style="font-size:10px">Hole</div>
+    <div class="hole-input-label" style="flex:1">Par</div>
+    <div class="hole-input-label" style="flex:1">${esc(ceActiveTee)} Yds</div>
+  </div>`;
+
+  for(let i=0;i<numHoles;i++){
+    const par=c?c.pars[i]:4;
+    const yd=yards[i]||'';
+    html+=`<div class="hole-input-row">
+      <div class="hole-input-num">${i+1}</div>
+      <input class="hole-input-field ce-par-input" type="number" value="${par}" min="3" max="6" data-hole="${i}">
+      <input class="hole-input-field ce-yard-input" type="number" value="${yd||''}" placeholder="—" data-hole="${i}">
+    </div>`;
+  }
+  container.innerHTML=html;
+}
+
+function removeTeeEditor(btn){
+  const card=btn.closest('.tee-editor-card');
+  const color=card.querySelector('.tee-color').value.trim();
+  card.remove();
+  // Remove yardages for this tee
+  if(color) delete ceYardages[color];
+  refreshCeTeePills();
+  refreshCeHoleGrid();
+}
+
+function onTeeColorRenamed(input){
+  // When a tee color is changed, refresh the pill selector
+  refreshCeTeePills();
+  refreshCeHoleGrid();
+}
+
+function addTeeBox(){
+  const container=document.getElementById('ce-tees');
+  const div=document.createElement('div');
+  div.className='tee-editor-card';
+  div.innerHTML=`<button class="tee-editor-remove" onclick="removeTeeEditor(this)" title="Remove">✕</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <div class="form-group" style="flex:1;min-width:70px"><div class="form-label">Color</div><input class="form-input tee-color" value="" onchange="onTeeColorRenamed(this)" placeholder="e.g. Blue"></div>
+      <div class="form-group" style="flex:1;min-width:70px"><div class="form-label">Rating</div><input class="form-input tee-rating" value="" type="number" step="0.1"></div>
+      <div class="form-group" style="flex:1;min-width:70px"><div class="form-label">Slope</div><input class="form-input tee-slope" value="" type="number"></div>
+    </div>`;
+  container.appendChild(div);
+  refreshCeTeePills();
+}
+
+async function saveCourse(){
+  const name=document.getElementById('ce-name').value.trim();
+  const club=document.getElementById('ce-club').value.trim();
+  if(!name){alert('Enter a course name');return;}
+
+  // Stash current yardage inputs
+  ceStashCurrentYards();
+
+  // Collect pars
+  const parInputs=document.querySelectorAll('.ce-par-input');
+  const pars=[];
+  parInputs.forEach(inp=>{ pars.push(parseInt(inp.value)||4); });
+  if(pars.length<9){alert('Need at least 9 holes');return;}
+
+  // Collect tee boxes
+  const teeEls=document.querySelectorAll('#ce-tees .tee-editor-card');
+  const teeBoxes=[];
+  teeEls.forEach(el=>{
+    const color=el.querySelector('.tee-color').value.trim();
+    const rating=parseFloat(el.querySelector('.tee-rating').value);
+    const slope=parseInt(el.querySelector('.tee-slope').value);
+    if(color&&!isNaN(rating)&&!isNaN(slope)) teeBoxes.push({color,rating,slope});
+  });
+  if(!teeBoxes.length){alert('Add at least one tee box');return;}
+
+  // Build yardages from ceYardages — only include tees that still exist
+  const yardages={};
+  for(const tb of teeBoxes){
+    if(ceYardages[tb.color]) yardages[tb.color]=ceYardages[tb.color];
+  }
+
+  const data={name,club,pars,tee_boxes:teeBoxes,yardages};
+
+  if(S.editCourse) await PUT(`/api/courses/${encodeURIComponent(S.editCourse.name)}`,data);
+  else await POST('/api/courses',data);
+
+  S.courses=await GET('/api/courses');
+  S.viewCourseName=name;
+  show('course-detail');
+}
+
+/* ================================================================
+   STATISTICS — redesigned
+   ================================================================ */
+let statsTab='overview';
+
+function svgRing(pct, color, size=80, stroke=7) {
+  const r = (size - stroke) / 2;
+  const circ = 2 * Math.PI * r;
+  const offset = circ * (1 - Math.min(pct,100) / 100);
+  return `<div class="stat-ring" style="width:${size}px;height:${size}px">
+    <svg width="${size}" height="${size}"><circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="var(--sep)" stroke-width="${stroke}"/>
+    <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="${color}" stroke-width="${stroke}" stroke-linecap="round" stroke-dasharray="${circ}" stroke-dashoffset="${offset}"/></svg>
+    <div class="stat-ring-val" style="color:${color}">${pct!=null?pct+'%':'—'}</div></div>`;
+}
+
+async function renderStats(){
+  const [stats,hc,adv,leaks,diffs]=await Promise.all([
+    GET('/api/stats'),GET('/api/stats/handicap'),GET('/api/stats/advanced'),
+    GET('/api/stats/stroke-leaks'),GET('/api/stats/differentials')
+  ]);
+  const v=document.getElementById('v-stats');
+  const idx=hc.handicap_index;
+
+  const tabs=[['overview','Overview'],['perf','Performance'],['clubs','Clubs'],['analysis','Analysis']];
+  let tabHtml='<div class="stats-tabs">';
+  for(const [k,lbl] of tabs) tabHtml+=`<button class="stats-tab${statsTab===k?' active':''}" onclick="statsTab='${k}';S.editingClub=null;renderStats()">${lbl}</button>`;
+  tabHtml+='</div>';
+
+  let body='';
+
+  /* ---- OVERVIEW ---- */
+  if(statsTab==='overview'){
+    const hcColor = idx!=null ? (idx<15?'var(--green)':idx<25?'var(--accent)':'var(--orange)') : 'var(--text2)';
+
+    // Best round
+    let bestHtml='—';
+    const best = await GET('/api/stats/best-round');
+    if(best && best.total_score){
+      const bd = best.total_score-(best.par||72);
+      bestHtml = `${best.total_score} <span style="font-size:16px;color:${bd>0?'var(--red)':'var(--green)'}">(${bd>0?'+':''}${bd})</span>`;
+    }
+
+    body=`
+      <!-- Handicap hero -->
+      <div class="stat-card">
+        <div class="stat-hero">
+          <div class="stat-hero-val" style="color:${hcColor}">${idx!=null?idx.toFixed(1):'—'}</div>
+          <div class="stat-hero-label">${idx!=null?'Handicap Index':'Not yet established'}</div>
+        </div>
+      </div>
+
+      <!-- Quick numbers -->
+      <div class="stat-mini-grid">
+        <div class="stat-mini">
+          <div class="stat-mini-val">${stats.total_rounds}</div>
+          <div class="stat-mini-label">Total Rounds</div>
+        </div>
+        <div class="stat-mini">
+          <div class="stat-mini-val">${bestHtml}</div>
+          <div class="stat-mini-label">Best Round</div>
+        </div>
+        <div class="stat-mini">
+          <div class="stat-mini-val">${stats.avg_score_9||'—'}</div>
+          <div class="stat-mini-label">Avg Score (9h)</div>
+        </div>
+        <div class="stat-mini">
+          <div class="stat-mini-val">${stats.total_holes_played||0}</div>
+          <div class="stat-mini-label">Holes Played</div>
+        </div>
+      </div>
+
+      <!-- Differentials -->
+      ${diffs&&diffs.length ? `<div class="stat-card">
+        <div class="stat-card-title">Score Differentials</div>
+        ${diffs.slice(0,8).map((d,i)=>{
+          const c = i<3 ? 'var(--green)' : 'var(--text)';
+          return `<div class="diff-row">
+            <div class="diff-rank">${i+1}</div>
+            <div class="diff-info">
+              <div class="diff-course">${esc(d.course)}</div>
+              <div class="diff-meta">${(d.date||'').substring(0,10)} · ${d.holes}h · Score ${d.score}</div>
+            </div>
+            <div class="diff-val" style="color:${c}">${d.diff.toFixed(1)}</div>
+          </div>`;
+        }).join('')}
+      </div>` : ''}
+    `;
+  }
+
+  /* ---- PERFORMANCE ---- */
+  else if(statsTab==='perf'){
+    if(!adv||!adv.total_holes_tracked){
+      body=`<div class="stat-card" style="text-align:center;padding:40px 20px">
+        <div style="font-size:40px;margin-bottom:12px">📊</div>
+        <div style="font-size:16px;font-weight:600">No Performance Data</div>
+        <div style="font-size:13px;color:var(--text2);margin-top:8px;line-height:1.5">Use "Detailed" entry mode when<br>logging rounds to track these stats.</div>
+      </div>`;
+    } else {
+      const tracked = adv.total_holes_tracked;
+
+      // GIR ring + breakdown
+      const girPct = adv.gir_overall;
+      const girColor = girPct!=null?(girPct>=30?'var(--green)':girPct>=20?'var(--orange)':'var(--red)'):'var(--text2)';
+
+      // Putting
+      const avgP = adv.avg_putts_overall;
+      const puttColor = avgP!=null?(avgP<=2?'var(--green)':avgP<=2.5?'var(--accent)':'var(--red)'):'var(--text2)';
+
+      // Scramble
+      const scrPct = adv.scramble_rate;
+      const scrColor = scrPct!=null?(scrPct>=30?'var(--green)':scrPct>=15?'var(--orange)':'var(--red)'):'var(--text2)';
+
+      body=`
+        <div style="font-size:11px;color:var(--text2);text-align:center;padding:8px">${tracked} holes tracked</div>
+
+        <!-- GIR -->
+        <div class="stat-card">
+          <div class="stat-card-title">Greens in Regulation</div>
+          <div style="display:flex;align-items:center;gap:20px">
+            ${svgRing(girPct, girColor)}
+            <div style="flex:1">
+              <div style="font-size:13px;color:var(--text2)">Overall GIR</div>
+              <div style="font-size:11px;color:var(--text2);margin-top:2px">Amateur target: 30–40%</div>
+            </div>
+          </div>
+          <div class="stat-trio">
+            <div class="stat-trio-col"><div class="stat-trio-val">${adv.gir_par3!=null?adv.gir_par3+'%':'—'}</div><div class="stat-trio-label">Par 3</div></div>
+            <div class="stat-trio-col"><div class="stat-trio-val">${adv.gir_par4!=null?adv.gir_par4+'%':'—'}</div><div class="stat-trio-label">Par 4</div></div>
+            <div class="stat-trio-col"><div class="stat-trio-val">${adv.gir_par5!=null?adv.gir_par5+'%':'—'}</div><div class="stat-trio-label">Par 5</div></div>
+          </div>
+        </div>
+
+        <!-- Putting -->
+        <div class="stat-card">
+          <div class="stat-card-title">Putting</div>
+          <div class="stat-hero">
+            <div class="stat-hero-val" style="color:${puttColor};font-size:40px">${avgP!=null?avgP.toFixed(1):'—'}</div>
+            <div class="stat-hero-label">Avg Putts per Hole <span style="color:var(--text2)">(Tour: ~1.8)</span></div>
+          </div>
+          <div class="stat-trio">
+            <div class="stat-trio-col"><div class="stat-trio-val" style="color:var(--green)">${adv.one_putt_rate!=null?adv.one_putt_rate+'%':'—'}</div><div class="stat-trio-label">1-Putt</div></div>
+            <div class="stat-trio-col"><div class="stat-trio-val">${adv.two_putt_rate!=null?adv.two_putt_rate+'%':'—'}</div><div class="stat-trio-label">2-Putt</div></div>
+            <div class="stat-trio-col"><div class="stat-trio-val" style="color:${adv.three_putt_rate>25?'var(--red)':'var(--text)'}">${adv.three_putt_rate!=null?adv.three_putt_rate+'%':'—'}</div><div class="stat-trio-label">3-Putt</div></div>
+          </div>
+        </div>
+
+        <!-- Scramble + Strokes to Green -->
+        <div class="stat-mini-grid">
+          <div class="stat-mini">
+            ${svgRing(scrPct, scrColor, 64, 6)}
+            <div class="stat-mini-label" style="margin-top:6px">Scramble Rate</div>
+          </div>
+          <div class="stat-mini">
+            <div class="stat-mini-val" style="font-size:20px">${adv.avg_strokes_to_green_par4!=null?adv.avg_strokes_to_green_par4.toFixed(1):'—'}</div>
+            <div class="stat-mini-label">Avg STG (Par 4)</div>
+            <div style="font-size:10px;color:var(--text2)">Target: 2.0</div>
+          </div>
+        </div>
+
+        ${adv.fir_overall!=null ? `<div class="stat-card">
+          <div class="stat-card-title">Fairways in Regulation</div>
+          <div style="display:flex;align-items:center;gap:20px">
+            ${svgRing(adv.fir_overall, adv.fir_overall>=50?'var(--green)':'var(--orange)')}
+            <div><div style="font-size:13px;color:var(--text2)">Fairways Hit (Par 4/5)</div></div>
+          </div>
+        </div>` : ''}
+      `;
+    }
+  }
+
+  /* ---- CLUBS ---- */
+  else if(statsTab==='clubs'){
+    const [clubs,analytics]=await Promise.all([GET('/api/clubs'),GET('/api/stats/club-analytics')]);
+    const usageMap={};
+    const totalShots=analytics.total_shots||0;
+    for(const c of (analytics.ranked_clubs||[])) usageMap[c.name]=c;
+
+    // Sort: by usage count when available, putter always last, else by distance
+    let sorted=[...clubs];
+    if(totalShots>0){
+      sorted.sort((a,b)=>{
+        const isPutterA=a.name.toLowerCase()==='putter', isPutterB=b.name.toLowerCase()==='putter';
+        if(isPutterA) return 1; if(isPutterB) return -1;
+        return (usageMap[b.name]?.count||0)-(usageMap[a.name]?.count||0);
+      });
+    } else {
+      sorted.sort((a,b)=>{
+        const isPutterA=a.name.toLowerCase()==='putter', isPutterB=b.name.toLowerCase()==='putter';
+        if(isPutterA) return 1; if(isPutterB) return -1;
+        return (b.distance||0)-(a.distance||0);
+      });
+    }
+
+    const maxUsage=totalShots>0?Math.max(...sorted.map(c=>usageMap[c.name]?.count||0),1):0;
+    const maxDist=sorted.length?Math.max(...sorted.map(c=>c.distance||0),1):300;
+
+    let itemsHtml='';
+    for(const c of sorted){
+      const isExp=S.editingClub===c.name;
+      const usage=usageMap[c.name];
+      const barPct=totalShots>0&&maxUsage>0?Math.round((usage?.count||0)/maxUsage*100):Math.round((c.distance||0)/maxDist*100);
+      const usageLbl=usage?`${usage.percentage}% of shots`:'';
+      itemsHtml+=`<div class="club-item${isExp?' expanded':''}">
+        <div class="club-item-main" onclick="clubToggle('${esc(c.name)}')">
+          <div class="club-item-name">${esc(c.name)}</div>
+          <div class="club-item-bar-wrap"><div class="club-item-bar" style="width:${barPct}%"></div></div>
+          <div class="club-item-right">
+            <div class="club-item-dist">${c.distance} <span style="font-size:11px;font-weight:400;color:var(--text2)">yd</span></div>
+            ${usageLbl?`<div class="club-item-usage">${usageLbl}</div>`:''}
+          </div>
+          <div class="club-item-chevron">›</div>
+        </div>
+        ${isExp?`<div class="club-item-edit">
+          <div class="club-edit-row">
+            <div class="club-edit-lbl">Distance</div>
+            <input class="form-input" id="club-edit-dist" type="number" value="${c.distance}" style="flex:1">
+            <span style="font-size:13px;color:var(--text2)">yd</span>
+          </div>
+          <div class="club-edit-actions">
+            <button class="club-edit-save" onclick="clubSave('${esc(c.name)}')">Save</button>
+            <button class="club-edit-delete" onclick="clubDelete('${esc(c.name)}')">Remove</button>
+            <button class="club-edit-cancel" onclick="clubToggle(null)">Cancel</button>
+          </div>
+        </div>`:''}
+      </div>`;
+    }
+
+    const CLUB_NAMES=['Driver','3 Wood','5 Wood','Hybrid','3 Iron','4 Iron','5 Iron','6 Iron','7 Iron','8 Iron','9 Iron','PW','GW','SW','LW','Putter'];
+    const existing=new Set(sorted.map(c=>c.name));
+    const available=CLUB_NAMES.filter(n=>!existing.has(n));
+    const isAdding=S.editingClub==='__new__';
+
+    const sortLbl=totalShots>0?'Sorted by usage':'Sorted by distance';
+    const bagHtml=sorted.length?`
+      <div class="club-items-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px 8px">
+          <div style="font-size:13px;font-weight:700">My Bag</div>
+          <div style="font-size:11px;color:var(--text2)">${sortLbl}</div>
+        </div>
+        ${itemsHtml}
+      </div>`:`<div class="empty" style="padding:40px 0"><div class="empty-icon">🏌️</div><div class="empty-text">No clubs in bag yet</div></div>`;
+
+    const addSection=isAdding?`
+      <div class="club-items-card">
+        <div style="padding:12px 14px 6px;font-size:13px;font-weight:700">Add Club</div>
+        <div class="club-item-edit" style="border-top:none">
+          <div class="club-edit-row">
+            <div class="club-edit-lbl">Club</div>
+            <select class="form-select" id="club-new-name" style="flex:1">
+              ${available.length?available.map(n=>`<option>${n}</option>`).join(''):'<option disabled>All clubs added</option>'}
+            </select>
+          </div>
+          <div class="club-edit-row">
+            <div class="club-edit-lbl">Distance</div>
+            <input class="form-input" id="club-new-dist" type="number" placeholder="Yards" style="flex:1">
+            <span style="font-size:13px;color:var(--text2)">yd</span>
+          </div>
+          <div class="club-edit-actions">
+            <button class="club-edit-save" onclick="clubAdd()">Add to Bag</button>
+            <button class="club-edit-cancel" onclick="clubToggle(null)">Cancel</button>
+          </div>
+        </div>
+      </div>`
+      :(available.length?`<button class="club-add-btn" onclick="clubToggle('__new__')">+ Add Club</button>`:'');
+
+    body=`${bagHtml}${addSection}`;
+  }
+
+  /* ---- ANALYSIS ---- */
+  else if(statsTab==='analysis'){
+    if(!adv||!adv.total_holes_tracked){
+      body=`<div class="stat-card" style="text-align:center;padding:40px 20px">
+        <div style="font-size:40px;margin-bottom:12px">📊</div>
+        <div style="font-size:16px;font-weight:600">No Data Available</div>
+        <div style="font-size:13px;color:var(--text2);margin-top:8px;line-height:1.5">Use "Detailed" entry mode when<br>logging rounds to track stats.</div>
+      </div>`;
+    }
+    else if(!leaks||!leaks.length){
+      body=`<div class="stat-card" style="text-align:center;padding:32px 20px">
+        <div style="font-size:48px;margin-bottom:8px">🎉</div>
+        <div style="font-size:20px;font-weight:700;color:var(--green)">Great Job!</div>
+        <div style="font-size:13px;color:var(--text2);margin-top:8px">No significant areas of concern<br>detected in your game.</div>
+      </div>
+      <div class="stat-mini-grid">
+        <div class="stat-mini">
+          <div class="stat-mini-val">${adv.total_holes_tracked}</div>
+          <div class="stat-mini-label">Holes Analyzed</div>
+        </div>
+        <div class="stat-mini">
+          <div class="stat-mini-val">${adv.gir_overall!=null?adv.gir_overall+'%':'—'}</div>
+          <div class="stat-mini-label">GIR</div>
+        </div>
+      </div>`;
+    }
+    else {
+      const tips={
+        putting:"Practice lag putting to reduce 3-putts",
+        putting_avg:"Focus on distance control from 20+ feet",
+        three_putts:"Work on speed control with long putts",
+        tee_shots_par3:"Dial in your iron distances at the range",
+        approach:"Focus on consistent contact and club selection",
+        gir:"Focus on iron accuracy at the range",
+        fir:"Consider a more reliable tee shot shape",
+        scrambling:"Practice chips and pitches from 30 yards in"
+      };
+
+      let insightsHtml='';
+      for(const l of leaks){
+        const sev=l.severity||'medium';
+        const icon=sev==='high'?'🔴':'🟡';
+        const sevLabel=sev==='high'?'High Priority':'Medium Priority';
+        const tip=tips[l.area]||'';
+        insightsHtml+=`<div class="insight-card">
+          <div class="insight-badge ${sev}">${icon}</div>
+          <div class="insight-body">
+            <div class="insight-sev ${sev}">${sevLabel}</div>
+            <div class="insight-text">${esc(l.message)}</div>
+            ${tip?`<div class="insight-tip">💡 ${tip}</div>`:''}
+          </div>
+        </div>`;
+      }
+
+      body=`
+        <div style="padding:12px 16px 4px;font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px">
+          ${leaks.length} Area${leaks.length>1?'s':''} to Improve
+        </div>
+        ${insightsHtml}
+        <div class="stat-card" style="margin-top:12px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:4px">💡 Pro Tip</div>
+          <div style="font-size:13px;color:var(--text2);line-height:1.5">Focus on one area at a time. Track your progress over multiple rounds to see real improvement.</div>
+        </div>
+      `;
+    }
+  }
+
+  v.innerHTML=`
+    <div class="page-header">
+      <button class="back-btn" onclick="nav('home')">← Back</button>
+      <div class="page-title">Statistics</div>
+    </div>
+    ${tabHtml}
+    ${body}
+  `;
+}
+
+function clubToggle(name){
+  S.editingClub=S.editingClub===name?null:name;
+  renderStats();
+}
+async function clubSave(origName){
+  const dist=parseInt((document.getElementById('club-edit-dist')||{}).value);
+  if(isNaN(dist)||dist<=0){alert('Enter a valid distance');return;}
+  await PUT(`/api/clubs/${encodeURIComponent(origName)}`,{name:origName,distance:dist,notes:''});
+  S.editingClub=null;
+  S.clubs=await GET('/api/clubs');
+  renderStats();
+}
+async function clubDelete(name){
+  if(!confirm(`Remove ${name} from your bag?`)) return;
+  await DEL(`/api/clubs/${encodeURIComponent(name)}`);
+  S.editingClub=null;
+  S.clubs=await GET('/api/clubs');
+  renderStats();
+}
+async function clubAdd(){
+  const name=(document.getElementById('club-new-name')||{}).value;
+  const dist=parseInt((document.getElementById('club-new-dist')||{}).value);
+  if(!name||isNaN(dist)||dist<=0){alert('Enter club and distance');return;}
+  await POST('/api/clubs',{name,distance:dist,notes:''});
+  S.editingClub=null;
+  S.clubs=await GET('/api/clubs');
+  renderStats();
+}
+
+/* ================================================================
+   RULEBOOK
+   ================================================================ */
+async function renderRulebook(){
+  const v=document.getElementById('v-rulebook');const info=await GET('/api/rulebook/info');
+  if(!info.available){v.innerHTML=`<div class="page-header"><button class="back-btn" onclick="nav('home')">← Back</button><div class="page-title">Rules of Golf</div></div><div class="empty"><div class="empty-icon">📖</div><div class="empty-text">Rulebook PDF not available</div></div>`;return;}
+  S.rbTotal=info.total_pages;
+  v.innerHTML=`<div class="page-header"><button class="back-btn" onclick="nav('home')">← Back</button><div class="page-title">Rules of Golf</div><div style="font-size:11px;color:var(--text2)">${info.version?.version||'2023'} Edition</div></div>
+    <div class="card"><div style="display:flex;gap:8px"><input class="form-input" id="rb-q" placeholder="🔍 Search rules..." style="flex:1"><button class="btn btn-primary" style="width:auto;padding:8px 16px" onclick="rbS()">Search</button></div></div>
+    <div id="rb-results"></div>
+    <div class="card"><div style="display:flex;gap:8px;align-items:center"><button class="btn" style="width:auto;padding:8px 12px;background:var(--bg)" onclick="rbPr()">◀</button><input type="number" class="form-input" id="rb-pn" value="${S.rbPage}" style="width:70px;text-align:center" min="1" max="${S.rbTotal}"><span style="color:var(--text2);font-size:13px">of ${S.rbTotal}</span><button class="btn" style="width:auto;padding:8px 12px;background:var(--bg)" onclick="rbNx()">▶</button><button class="btn btn-primary" style="width:auto;padding:8px 16px" onclick="rbGo()">Go</button></div></div>
+    <div id="rb-page"></div>`;
+  document.getElementById('rb-q').addEventListener('keydown',e=>{if(e.key==='Enter')rbS();});
+}
+async function rbS(){const q=(document.getElementById('rb-q')||{}).value?.trim();if(!q)return;const res=await GET(`/api/rulebook/search?q=${encodeURIComponent(q)}`);const el=document.getElementById('rb-results');
+  if(!res.length){el.innerHTML='<div class="card" style="font-size:13px">No results found</div>';return;}
+  let h='';for(const r of res.slice(0,20)){const sn=r.snippet.replace(new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi'),m=>`<mark>${m}</mark>`);h+=`<div class="rb-result" onclick="rbL(${r.page})"><div class="rb-result-page">Page ${r.page}</div><div class="rb-result-snippet">${sn}</div></div>`;}el.innerHTML=h;}
+async function rbL(p){S.rbPage=p;const data=await GET(`/api/rulebook/page/${p}`);document.getElementById('rb-page').innerHTML=`<div class="card"><div style="font-size:12px;font-weight:bold;color:var(--text2);margin-bottom:4px">Page ${p}</div><div class="rb-content">${esc(data.content||'No content')}</div></div>`;const inp=document.getElementById('rb-pn');if(inp)inp.value=p;}
+function rbPr(){if(S.rbPage>1)rbL(S.rbPage-1);}function rbNx(){if(S.rbPage<S.rbTotal)rbL(S.rbPage+1);}function rbGo(){const p=parseInt((document.getElementById('rb-pn')||{}).value);if(p>=1&&p<=S.rbTotal)rbL(p);}
+
+/* ================================================================
+   INIT
+   ================================================================ */
+async function init(){S.clubs=await GET('/api/clubs');renderHome();}
+init();
+</script>
+</body>
+</html>
