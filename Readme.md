@@ -40,10 +40,6 @@ Four tabs:
 - Supports multiple tee boxes per course (Black, Blue, White, Yellow, Red, Gold, etc.)
 - Courses grouped by club/facility
 
-### Rulebook
-- Browse the 2023 Rules of Golf PDF page by page
-- Full-text search with snippet previews
-
 ---
 
 ## Setup
@@ -131,5 +127,5 @@ webapp/
 ├── templates/
 │   ├── index.html      # Single-page app (HTML + CSS + JS, ~2200 lines)
 │   └── login.html      # Password gate
-└── data/               # JSON data files + rulebook PDF
+└── data/               # JSON data files
 ```
