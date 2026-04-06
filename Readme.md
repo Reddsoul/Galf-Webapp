@@ -1,6 +1,6 @@
 # Galf
 
-A personal golf companion web app designed to run on a Mac and be accessed from an iPhone over the local network. Built with Flask and a vanilla JS single-page frontend following Apple Human Interface Guidelines.
+A personal golf companion web app designed to run on a Mac and be accessed from an iPhone over the local network. Built with Flask and an html,css,js single-page frontend.
 
 ---
 
@@ -52,16 +52,10 @@ Four tabs:
 
 - Python 3.10+
 - Flask
-- PyMuPDF (`fitz`) — optional, required for the Rulebook feature
-
-```bash
-pip install flask pymupdf
-```
 
 ### Running
 
 ```bash
-cd webapp
 python app.py
 ```
 
