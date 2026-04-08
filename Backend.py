@@ -376,26 +376,32 @@ class GolfBackend:
                 total += r.get("holes_played", 0)
         return total
 
-    def get_best_round(self, holes_filter=None):
+    def get_best_round(self, holes_filter=None, is_sim=False):
         """
-        Get best serious solo round.
-        holes_filter: None for any, 18 for 18-hole only, 9 for 9-hole only
+        Get best round.
+        is_sim=False: best serious solo non-sim round (handicap / real game).
+        is_sim=True:  best sim round (any sim round regardless of is_serious).
+        holes_filter: None for any, 18 for 18-hole only, 9 for 9-hole only.
         """
-        serious_rounds = [r for r in self.rounds
+        if is_sim:
+            candidates = [r for r in self.rounds if r.get("is_sim", False)]
+        else:
+            candidates = [r for r in self.rounds
                           if r.get("is_serious")
-                          and r.get("round_type", "solo") == "solo"]
+                          and r.get("round_type", "solo") == "solo"
+                          and not r.get("is_sim", False)]
 
         if holes_filter:
-            serious_rounds = [r for r in serious_rounds if r.get("holes_played") == holes_filter]
+            candidates = [r for r in candidates if r.get("holes_played") == holes_filter]
 
-        if not serious_rounds:
+        if not candidates:
             return None
 
-        # For comparison, normalize to score vs par
+        # Normalize to score vs par so 9-hole and 18-hole rounds compare fairly
         def score_vs_par(r):
             return r["total_score"] - r.get("par", 36 if r.get("holes_played") == 9 else 72)
 
-        return min(serious_rounds, key=score_vs_par)
+        return min(candidates, key=score_vs_par)
 
     def get_score_differentials(self):
         """Return list of all score differentials for serious solo rounds."""
@@ -502,13 +508,20 @@ class GolfBackend:
             "total_holes_played": total_holes
         }
 
+    # Cache version — increment whenever the computation logic changes so stale
+    # caches are automatically invalidated on the next request.
+    _STATS_CACHE_VERSION = 2
+
     def get_advanced_statistics(self):
         """
         Calculate advanced statistics from detailed round data.
         Returns GIR, putting stats, strokes-to-green by par type, club usage, etc.
+        Note: sim rounds (is_sim=True) are excluded from all putting statistics.
         """
-        # Check cache first
-        if self.stats_cache.get("valid") and self.stats_cache.get("advanced_stats"):
+        # Check cache first (version-gated so logic changes bust the cache)
+        if (self.stats_cache.get("valid")
+                and self.stats_cache.get("version") == self._STATS_CACHE_VERSION
+                and self.stats_cache.get("advanced_stats")):
             return self.stats_cache["advanced_stats"]
         
         stats = {
@@ -529,27 +542,30 @@ class GolfBackend:
         for rd in self.rounds:
             if not rd.get("detailed_stats"):
                 continue
-            
+
             course = self.get_course_by_name(rd["course_name"])
             if not course:
                 continue
-            
+
+            # Feature 3: sim rounds are excluded from putting statistics only
+            is_sim = rd.get("is_sim", False)
+
             pars = course["pars"]
             detailed = rd["detailed_stats"]
-            
+
             for hole_idx, hole_data in enumerate(detailed):
                 if hole_idx >= len(pars):
                     continue
-                    
+
                 par = pars[hole_idx]
                 par_key = f"par{par}" if par in [3, 4, 5] else None
-                
+
                 strokes_to_green = hole_data.get("strokes_to_green")
                 putts = hole_data.get("putts")
                 clubs_used = hole_data.get("clubs_used", [])
                 score = hole_data.get("score")
-                
-                # GIR calculation
+
+                # GIR calculation (sim rounds included)
                 if strokes_to_green is not None:
                     gir_target = par - 2  # Par 3: 1 stroke, Par 4: 2 strokes, Par 5: 3 strokes
                     is_gir = strokes_to_green <= gir_target
@@ -557,35 +573,35 @@ class GolfBackend:
                     if par_key:
                         stats["gir"][par_key].append(1 if is_gir else 0)
                         stats["strokes_to_green"][par_key].append(strokes_to_green)
-                    
+
                     # Scramble tracking (missed GIR but made bogey or better)
                     if not is_gir and score is not None:
                         stats["scramble_opportunities"] += 1
                         if score <= par + 1:  # Bogey or better
                             stats["scramble_successes"] += 1
-                
-                # Putting stats
-                if putts is not None:
+
+                # Putting stats — exclude sim rounds (Feature 3)
+                if putts is not None and not is_sim:
                     stats["putts"]["overall"].append(putts)
                     stats["total_holes_with_putts"] += 1
                     if par_key:
                         stats["putts"][par_key].append(putts)
-                    
+
                     if putts >= 3:
                         stats["three_putt_count"] += 1
                     elif putts == 2:
                         stats["two_putt_count"] += 1
                     elif putts == 1:
                         stats["one_putt_count"] += 1
-                
+
                 # FIR tracking (fairway in regulation for par 4/5)
                 fir = hole_data.get("fir")
                 if fir is not None and par in [4, 5]:
                     stats["fir_attempts"] += 1
                     if fir:
                         stats["fir_hits"] += 1
-                
-                # Club usage tracking
+
+                # Club usage tracking (sim rounds included)
                 for club in clubs_used:
                     stats["club_usage"][club] = stats["club_usage"].get(club, 0) + 1
         
@@ -613,9 +629,10 @@ class GolfBackend:
             "scramble_successes": stats["scramble_successes"],
         }
         
-        # Cache the result
+        # Cache the result (include version so stale caches auto-invalidate)
         self.stats_cache["advanced_stats"] = result
         self.stats_cache["valid"] = True
+        self.stats_cache["version"] = self._STATS_CACHE_VERSION
         self.save_stats_cache()
         
         return result
@@ -789,6 +806,7 @@ def generate_scorecard_data(backend, round_data):
         "target_score": round_data.get("target_score", "N/A"),
         "round_type": round_data.get("round_type", "solo"),
         "is_serious": round_data.get("is_serious", False),
+        "is_sim": round_data.get("is_sim", False),
         "notes": round_data.get("notes", ""),
         "pars": pars,
         "scores": scores,

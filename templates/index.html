@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#F2F2F7">
-<title>Golf Stats</title>
+<title>Golf Stats DEV</title>
 <!-- No external libraries needed -->
 <style>
 /* ================================================================
@@ -256,6 +256,17 @@ textarea.form-input { min-height: 100px; resize: vertical; }
   font-weight: bold; color: var(--accent);
 }
 
+/* Club suggestion (Feature 1) */
+.entry-suggest {
+  font-size: 11px; color: var(--text2); padding: 3px 0 0; text-align: center;
+  letter-spacing: 0.1px;
+}
+
+/* Sim auto-putts display (Feature 3) */
+.entry-sim-putts {
+  font-size: 11px; color: var(--text2); padding: 2px 0 0; text-align: center;
+}
+
 /* ================================================================
    HOME PAGE
    ================================================================ */
@@ -305,15 +316,23 @@ textarea.form-input { min-height: 100px; resize: vertical; }
   cursor: pointer;
 }
 .home-best:active { opacity: 0.85; }
+/* 4-px tee-color stripe — same pattern as sc-header-stripe */
+.home-best-stripe { height: 4px; width: 100%; }
 .home-best-header {
-  padding: 14px 16px 10px;
+  padding: 12px 16px 10px;
   display: flex; align-items: flex-start; justify-content: space-between;
 }
 .home-best-label {
   font-size: 11px; font-weight: 700; color: var(--text2);
-  text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 3px;
+  text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px;
 }
-.home-best-meta { font-size: 12px; color: var(--text2); }
+.home-best-meta {
+  font-size: 12px; color: var(--text2);
+  display: flex; align-items: center; gap: 4px;
+}
+.home-best-tee-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+}
 .home-best-score { font-size: 26px; font-weight: 800; line-height: 1; }
 .home-best-diff { font-size: 13px; font-weight: 600; margin-top: 2px; }
 
@@ -382,19 +401,19 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 .sc-header-target { font-size: 11px; font-weight: 600; opacity: 0.65; margin-left: auto; }
 
 /* The actual scorecard table — horizontal, traditional layout */
-.sc-wrap { margin: 12px 16px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.sc-wrap { margin: 12px 16px; }
 .sc-label { font-size: 11px; font-weight: 700; color: var(--text2); text-transform: uppercase;
   letter-spacing: 0.5px; padding: 0 0 6px; }
 .sc-grid {
   display: grid; gap: 0; border: 1.5px solid var(--sep); background: var(--card);
-  min-width: 100%;
+  width: 100%;
 }
-.sc-grid-9 { grid-template-columns: 48px repeat(9, 1fr) 48px; }
+.sc-grid-9 { grid-template-columns: 44px repeat(9, 1fr) 44px; }
 .sc-cell {
-  padding: 8px 2px; text-align: center; font-size: 12px;
+  padding: 6px 1px; text-align: center; font-size: 12px;
   border-right: 0.5px solid var(--sep); border-bottom: 0.5px solid var(--sep);
   display: flex; align-items: center; justify-content: center;
-  min-height: 36px;
+  min-height: 34px; min-width: 0;
 }
 .sc-cell:last-child { border-right: none; }
 .sc-cell-header {
@@ -405,6 +424,16 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 .sc-cell-par { font-size: 12px; color: var(--text2); }
 .sc-cell-yard { font-size: 11px; color: var(--text2); }
 .sc-cell-total { font-weight: 800; font-size: 13px; background: var(--bg); }
+
+/* Responsive scorecard — shrink on narrow screens so nothing overflows */
+@media (max-width: 420px) {
+  .sc-wrap { margin: 8px 8px; }
+  .sc-grid-9 { grid-template-columns: 36px repeat(9, 1fr) 36px; }
+  .sc-cell { padding: 4px 0; font-size: 10px; min-height: 28px; }
+  .sc-cell-total { font-size: 11px; }
+  .sc-score { width: 22px; height: 22px; font-size: 10px; }
+  .home-best-holes .sc-score { width: 20px; height: 20px; font-size: 9px; }
+}
 
 /* Score markers — the core visual */
 .sc-score {
@@ -771,9 +800,12 @@ const S = {
   // Log round
   logCourse:null, logTee:null, logHoles:'full_18', logType:'solo',
   logSerious:true, logMode:'quick', logDate:'',
+  logIsSim:false,
   holesToScore:[], currentHoleIdx:0,
   holeScores:[], holeClubs:[],
+  holeSimPutts:null,
   clubOptions:[], clubFullNames:{},
+  clubUsage:{},
   // Scorecard
   viewRound:null, viewRoundIdx:null,
   // Yardbook
@@ -830,8 +862,57 @@ function esc(t){const d=document.createElement('div');d.textContent=t;return d.i
 /* ================================================================
    HOME — _show_home_page
    ================================================================ */
+// Build a single best-round card for the home page.
+// label: e.g. "Personal Best" or "Best Sim"
+async function buildBestCard(bestData, label) {
+  if(!bestData||!bestData.total_score||bestData._index==null) return '';
+  const sc=await GET(`/api/rounds/${bestData._index}/scorecard`);
+  const d=bestData.total_score-(bestData.par||72);
+  const ds=d>0?`+${d}`:d===0?'E':`${d}`;
+  const dsColor=d>0?'var(--red)':d<0?'var(--green)':'var(--text)';
+  const dateStr=(bestData.date||'').substring(0,10);
+  const teeColor=sc.tee_color||'White';
+  const teeCSS=teeColorCSS(teeColor);
+  // White tee dot needs a border so it's visible on white background
+  const teeDotBorder=teeColor==='White'?'1px solid rgba(0,0,0,0.18)':'none';
+  const scores=sc.scores||[]; const pars=sc.pars||[];
+  // Show only holes actually played
+  const holesChoice=sc.holes_choice||'full_18';
+  let hStart=0,hEnd=scores.length;
+  if(holesChoice==='front_9'){hStart=0;hEnd=Math.min(9,scores.length);}
+  else if(holesChoice==='back_9'){hStart=9;hEnd=Math.min(18,scores.length);}
+  let holeHtml='';
+  for(let i=hStart;i<hEnd;i++){
+    const s=scores[i],p=pars[i];
+    if(!s) continue;
+    const dif=s-p;
+    const cls=dif<=-2?'sc-eagle':dif===-1?'sc-birdie':dif===0?'sc-par-score':dif===1?'sc-bogey':'sc-dbl-bogey';
+    holeHtml+=`<div class="home-hole-cell"><div class="home-hole-num">${i+1}</div><div class="sc-score ${cls}">${s}</div></div>`;
+  }
+  return `
+    <div class="home-best" onclick="viewRound(${bestData._index})">
+      <div class="home-best-stripe" style="background:${teeCSS}"></div>
+      <div class="home-best-header">
+        <div>
+          <div class="home-best-label">${label}</div>
+          <div class="home-best-meta">
+            <span class="home-best-tee-dot" style="background:${teeCSS};border:${teeDotBorder}"></span>${esc(sc.course_name||'')} · ${dateStr}
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div class="home-best-score">${bestData.total_score}</div>
+          <div class="home-best-diff" style="color:${dsColor}">${ds}</div>
+        </div>
+      </div>
+      <div class="home-best-holes">${holeHtml}</div>
+    </div>`;
+}
+
 async function renderHome() {
-  const [stats,hc,best]=await Promise.all([GET('/api/stats'),GET('/api/stats/handicap'),GET('/api/stats/best-round')]);
+  const [stats,hc,best,bestSim]=await Promise.all([
+    GET('/api/stats'), GET('/api/stats/handicap'),
+    GET('/api/stats/best-round'), GET('/api/stats/best-round?sim=true')
+  ]);
   S.stats=stats; S.handicap=hc.handicap_index;
   const v=document.getElementById('v-home');
 
@@ -847,38 +928,11 @@ async function renderHome() {
     hcSub = [avgStr, `${stats.total_rounds} round${stats.total_rounds!==1?'s':''}`].filter(Boolean).join(' · ');
   }
 
-  // Best round mini scorecard
-  let bestHtml='';
-  if(best&&best.total_score&&best._index!=null){
-    const sc=await GET(`/api/rounds/${best._index}/scorecard`);
-    const d=best.total_score-(best.par||72);
-    const ds=d>0?`+${d}`:d===0?'E':`${d}`;
-    const dsColor=d>0?'var(--red)':d<0?'var(--green)':'var(--text)';
-    const dateStr=(best.date||'').substring(0,10);
-    const scores=sc.scores||[]; const pars=sc.pars||[];
-    let holeHtml='';
-    for(let i=0;i<scores.length;i++){
-      const s=scores[i],p=pars[i];
-      if(!s){holeHtml+=`<div class="home-hole-cell"><div class="home-hole-num">${i+1}</div><div class="sc-score sc-par-score" style="color:var(--sep)">—</div></div>`;continue;}
-      const dif=s-p;
-      const cls=dif<=-2?'sc-eagle':dif===-1?'sc-birdie':dif===0?'sc-par-score':dif===1?'sc-bogey':'sc-dbl-bogey';
-      holeHtml+=`<div class="home-hole-cell"><div class="home-hole-num">${i+1}</div><div class="sc-score ${cls}">${s}</div></div>`;
-    }
-    bestHtml=`
-      <div class="home-best" onclick="viewRound(${best._index})">
-        <div class="home-best-header">
-          <div>
-            <div class="home-best-label">Personal Best</div>
-            <div class="home-best-meta">${esc(sc.course_name||'')} · ${dateStr}</div>
-          </div>
-          <div style="text-align:right">
-            <div class="home-best-score">${best.total_score}</div>
-            <div class="home-best-diff" style="color:${dsColor}">${ds}</div>
-          </div>
-        </div>
-        <div class="home-best-holes">${holeHtml}</div>
-      </div>`;
-  }
+  // Build both best-round cards in parallel
+  const [bestHtml, bestSimHtml] = await Promise.all([
+    buildBestCard(best, 'Personal Best'),
+    buildBestCard(bestSim, 'Best Sim')
+  ]);
 
   const avgVal = stats.avg_score_18 ? stats.avg_score_18.toFixed(1) : stats.avg_score_9 ? stats.avg_score_9.toFixed(1) : '—';
   const avgLbl = stats.avg_score_18 ? 'Avg (18)' : 'Avg (9)';
@@ -887,13 +941,14 @@ async function renderHome() {
     <div class="home-hero">
       <div class="home-hero-stripe"></div>
       <div class="home-hero-body">
-        <div class="home-hc-label">Handicap Index</div>
+        <div class="home-hc-label">Handicap Index DEV</div>
         <div class="home-hc-value${hasHC?'':' hc-pending'}">${hcStr}</div>
         <div class="home-hc-sub">${hcSub}</div>
       </div>
     </div>
     <button class="home-log-btn" onclick="startLog()">⛳ Log New Round</button>
     ${bestHtml}
+    ${bestSimHtml}
     <div class="home-stats-row">
       <div class="home-stat-cell">
         <div class="home-stat-val">${stats.total_rounds}</div>
@@ -999,6 +1054,7 @@ function renderScorecard() {
   let pills=`<span class="sc-pill">${holesLabel}</span>`;
   pills+=`<span class="sc-pill">${sc.round_type==='scramble'?'Scramble':'Solo'}</span>`;
   if(!sc.is_serious) pills+=`<span class="sc-pill">Casual</span>`;
+  if(sc.is_sim) pills+=`<span class="sc-pill">Sim</span>`;
 
   // Tee dot pill
   const teeDotBorder=isDarkTee?'none':'1px solid rgba(0,0,0,0.2)';
@@ -1135,7 +1191,7 @@ async function startLog(){
   S.clubs=await GET('/api/clubs');
   const prefs=await GET('/api/prefs');
   S.logMode=prefs.entry_mode||'quick';
-  S.logType='solo'; S.logSerious=true; S.logHoles='full_18';
+  S.logType='solo'; S.logSerious=true; S.logHoles='full_18'; S.logIsSim=false;
   show('log-setup');
 }
 
@@ -1207,6 +1263,10 @@ function renderLogSetup() {
       <div class="check-row" style="padding-top:8px" id="ls-serious-row">
         <input type="checkbox" id="ls-serious" ${seriousChecked?'checked':''} ${seriousDisabled?'disabled':''} onchange="S.logSerious=this.checked">
         <label for="ls-serious" style="${seriousDisabled?'opacity:0.4':''}">Serious round (counts toward handicap)</label>
+      </div>
+      <div class="check-row" id="ls-sim-row">
+        <input type="checkbox" id="ls-sim" ${S.logIsSim?'checked':''} onchange="S.logIsSim=this.checked">
+        <label for="ls-sim">Simulator Round</label>
       </div>
     </div>
 
@@ -1309,7 +1369,7 @@ function abbrClub(name){
   return name.substring(0,3).toUpperCase();
 }
 
-function beginEntry(){
+async function beginEntry(){
   if(!S.logCourse){alert('Select a course');return;}
   if(!S.logTee){alert('Select a tee box');return;}
   S.logDate=document.getElementById('ls-date').value;
@@ -1320,11 +1380,53 @@ function beginEntry(){
   S.currentHoleIdx=0;
   S.holeScores=new Array(S.holesToScore.length).fill(null);
   S.holeClubs=Array.from({length:S.holesToScore.length},()=>[]);
+  // Initialize sim putts array (null = not yet rolled for this hole)
+  S.holeSimPutts=(S.logIsSim&&S.logMode==='detailed')?new Array(S.holesToScore.length).fill(null):null;
   const sorted=[...S.clubs].sort((a,b)=>(b.distance||0)-(a.distance||0));
   S.clubOptions=[];S.clubFullNames={};
   for(const c of sorted){const ab=abbrClub(c.name);S.clubOptions.push(ab);S.clubFullNames[ab]=c.name;}
   if(!S.clubOptions.includes('P')&&!sorted.some(c=>c.name.toLowerCase()==='putter')){S.clubOptions.push('P');S.clubFullNames['P']='Putter';}
+  // Fetch club usage for hole suggestions (Feature 1)
+  try{
+    const analytics=await GET('/api/stats/club-analytics');
+    S.clubUsage={};
+    for(const c of (analytics.ranked_clubs||[])) S.clubUsage[c.name]=c.count;
+  }catch(e){ S.clubUsage={}; }
   show('log-entry');
+}
+
+/* ================================================================
+   CLUB SUGGESTION (Feature 1)
+   Greedy: pick longest club ≤ remaining, subtract, repeat.
+   Uses clubUsage as tiebreaker for equal-distance clubs.
+   ================================================================ */
+function suggestClubs(yardage, clubs, clubUsage){
+  try{
+    if(!yardage||!clubs||!clubs.length) return '';
+    // Usable clubs: exclude putter, positive distance only
+    const usable=[...clubs]
+      .filter(c=>c.name.toLowerCase()!=='putter'&&(c.distance||0)>0)
+      .sort((a,b)=>{
+        if(b.distance!==a.distance) return (b.distance||0)-(a.distance||0);
+        return (clubUsage[b.name]||0)-(clubUsage[a.name]||0);
+      });
+    if(!usable.length) return '';
+    let remaining=yardage;
+    const result=[];
+    const driverUsed=new Set(); // Driver may only be picked once per hole
+    while(remaining>0){
+      const club=usable.find(c=>{
+        if((c.distance||0)>remaining) return false;
+        if(c.name.toLowerCase()==='driver'&&driverUsed.has('driver')) return false;
+        return true;
+      });
+      if(!club) break; // no club fits remaining distance — stop
+      result.push(abbrClub(club.name));
+      if(club.name.toLowerCase()==='driver') driverUsed.add('driver');
+      remaining-=club.distance;
+    }
+    return result.join(' → ');
+  }catch(e){ return ''; }
 }
 
 /* ================================================================
@@ -1342,12 +1444,27 @@ function renderLogEntry(){
   const lastH=hi===S.holesToScore.length-1;
   const nextLabel=lastH?'✓ Done':'Next →';
 
+  // Feature 3: Roll sim putts on first load of this hole
+  if(isD&&S.logIsSim&&S.holeSimPutts&&S.holeSimPutts[hi]===null){
+    const r=Math.random();
+    S.holeSimPutts[hi]=r<0.022?1:r<0.600?2:3;
+  }
+
   let score,clubsStr='';
   if(isD){score=S.holeClubs[hi].length||null;clubsStr=S.holeClubs[hi].length?S.holeClubs[hi].join(' → '):'Tap clubs in order';}
   else{score=S.holeScores[hi];}
   const scoreStr=score!=null&&score>0?String(score):'-';
   let diffStr='';
   if(score!=null&&score>0){const d=score-par;diffStr=d>0?`+${d}`:d<0?String(d):'E';}
+
+  // Feature 1: Compute club suggestion (detailed mode only, from tee yardage)
+  let suggestStr='';
+  if(isD){
+    const yardNum=yardages[holeNum]||0;
+    if(yardNum&&S.clubs&&S.clubs.length){
+      suggestStr=suggestClubs(yardNum,S.clubs,S.clubUsage||{});
+    }
+  }
 
   // Running total
   let total=0,done=0,parDone=0;
@@ -1402,6 +1519,8 @@ function renderLogEntry(){
         <div class="entry-stroke">${scoreStr}</div>
         ${isD?`<div class="entry-clubs-display">${esc(clubsStr)}</div>`:''}
         <div class="entry-diff">${diffStr}</div>
+        ${suggestStr?`<div class="entry-suggest">Suggested: ${esc(suggestStr)}</div>`:''}
+        ${isD&&S.logIsSim&&S.holeSimPutts&&S.holeSimPutts[hi]!==null?`<div class="entry-sim-putts">🎲 Sim putts: ${S.holeSimPutts[hi]}${S.holeClubs[hi].filter(c=>c==='P').length>0?' (overridden)':''}</div>`:''}
       </div>
       <button class="entry-nav-btn" onclick="nextH()" ${hi>=S.holesToScore.length-1?'disabled':''}>▶</button>
     </div>
@@ -1444,10 +1563,20 @@ function renderLogNotes(){
   const headerBg=isDark?teeCSS_:(teeColor==='White'?'#F8F8F8':teeCSS_);
   const headerFg=isDark?'#FFF':'#1C1C1E';
 
-  // Compute scores per hole
+  // Compute scores per hole (sim rounds add auto-putts to the preview total)
   const scores=[];
   for(let i=0;i<S.holesToScore.length;i++){
-    scores.push(isD?S.holeClubs[i].length:(S.holeScores[i]||0));
+    if(isD){
+      const clubs=S.holeClubs[i];
+      const tappedPutts=clubs.filter(c=>c==='P').length;
+      let sc=clubs.length;
+      if(S.logIsSim&&S.holeSimPutts&&S.holeSimPutts[i]!=null&&tappedPutts===0){
+        sc=clubs.filter(c=>c!=='P').length+S.holeSimPutts[i];
+      }
+      scores.push(sc);
+    }else{
+      scores.push(S.holeScores[i]||0);
+    }
   }
   const total=scores.reduce((a,b)=>a+b,0);
   const parTotal=S.holesToScore.reduce((a,hi)=>a+course.pars[hi],0);
@@ -1535,15 +1664,31 @@ function renderLogNotes(){
 }
 async function submitRound(){
   const isD=S.logMode==='detailed';const course=S.logCourse;const scores=[];const det=[];
-  for(let i=0;i<S.holesToScore.length;i++){const hn=S.holesToScore[i];
-    if(isD){const clubs=[...S.holeClubs[i]];const sc=clubs.length;scores.push(sc);const putts=clubs.filter(c=>c==='P').length;det.push({score:sc,putts,strokes_to_green:sc-putts,clubs_used:clubs.map(c=>S.clubFullNames[c]||c)});}
-    else{scores.push(S.holeScores[i]);det.push({score:S.holeScores[i]});}}
+  for(let i=0;i<S.holesToScore.length;i++){
+    if(isD){
+      const clubs=[...S.holeClubs[i]];
+      const tappedPutts=clubs.filter(c=>c==='P').length;
+      let sc,putts,stg,allClubs;
+      // Feature 3: use auto-rolled sim putts when no P's were tapped by the user
+      if(S.logIsSim&&S.holeSimPutts&&S.holeSimPutts[i]!=null&&tappedPutts===0){
+        putts=S.holeSimPutts[i];
+        const shotClubs=clubs.filter(c=>c!=='P');
+        sc=shotClubs.length+putts;
+        stg=shotClubs.length;
+        allClubs=[...shotClubs,...Array(putts).fill('P')];
+      }else{
+        sc=clubs.length;putts=tappedPutts;stg=sc-putts;allClubs=clubs;
+      }
+      scores.push(sc);
+      det.push({score:sc,putts,strokes_to_green:stg,clubs_used:allClubs.map(c=>S.clubFullNames[c]||c)});
+    }else{scores.push(S.holeScores[i]);det.push({score:S.holeScores[i]});}
+  }
   const total=scores.reduce((a,b)=>a+b,0);const parP=S.holesToScore.reduce((a,hi)=>a+course.pars[hi],0);
   const fullScores=new Array(course.pars.length).fill(null);const fullDet=new Array(course.pars.length).fill(null).map(()=>({}));
   for(let i=0;i<S.holesToScore.length;i++){fullScores[S.holesToScore[i]]=scores[i];fullDet[S.holesToScore[i]]=det[i];}
   const now=new Date();const dateStr=S.logDate+' '+String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
   const notes=(document.getElementById('ln-notes')||{}).value||'';
-  await POST('/api/rounds',{course_name:course.name,tee_color:S.logTee,scores:fullScores,is_serious:S.logSerious,round_type:S.logType,notes,holes_played:S.holesToScore.length,holes_choice:S.logHoles,total_score:total,date:dateStr,entry_mode:S.logMode,detailed_stats:fullDet});
+  await POST('/api/rounds',{course_name:course.name,tee_color:S.logTee,scores:fullScores,is_serious:S.logSerious,is_sim:S.logIsSim||false,round_type:S.logType,notes,holes_played:S.holesToScore.length,holes_choice:S.logHoles,total_score:total,date:dateStr,entry_mode:S.logMode,detailed_stats:fullDet});
   const diff=total-parP;alert(`Round Saved\nScore: ${total} (${diff>0?'+':''}${diff})\nCourse: ${course.name}\nHoles: ${S.holesToScore.length}`);
   nav('rounds');
 }

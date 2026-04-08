@@ -2,7 +2,6 @@
 """
 Galf — Golf companion web app.
 Flask wrapper around Backend.py. Run with: python app.py
-Access from iPhone at http://<mac-local-ip>:5000
 """
 
 import os
@@ -35,13 +34,18 @@ backend = GolfBackend()
 # ---------------------------------------------------------------------------
 # Auth helpers
 # ---------------------------------------------------------------------------
+# def login_required(f):
+#     @wraps(f)
+#     def decorated(*args, **kwargs):
+#         if not session.get("authenticated"):
+#             if request.is_json or request.path.startswith("/api/"):
+#                 return jsonify({"error": "Not authenticated"}), 401
+#             return redirect(url_for("login"))
+#         return f(*args, **kwargs)
+#     return decorated
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not session.get("authenticated"):
-            if request.is_json or request.path.startswith("/api/"):
-                return jsonify({"error": "Not authenticated"}), 401
-            return redirect(url_for("login"))
         return f(*args, **kwargs)
     return decorated
 
@@ -221,7 +225,8 @@ def api_stroke_leaks():
 @login_required
 def api_best_round():
     rounds = backend.get_rounds()
-    best = backend.get_best_round()
+    is_sim = request.args.get("sim", "false").lower() == "true"
+    best = backend.get_best_round(is_sim=is_sim)
     if best:
         result = dict(best)
         try:
