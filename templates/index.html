@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#F2F2F7">
+<meta name="theme-color" content="#EEF2EB">
 <title>Golf Stats DEV</title>
 <!-- No external libraries needed -->
 <style>
@@ -13,9 +13,9 @@
    EXACT COLORS FROM Frontend.py GolfApp.COLORS
    ================================================================ */
 :root {
-  --bg: #F2F2F7;
+  --bg: #EEF2EB;
   --card: #FFFFFF;
-  --accent: #007AFF;
+  --accent: #1B6B3A;
   --green: #34C759;
   --red: #FF3B30;
   --orange: #FF9500;
@@ -54,7 +54,7 @@ body {
 #tabbar {
   display: flex;
   background: var(--card);
-  border-top: 1px solid var(--bg);
+  border-top: 1px solid #d0ddd0;
   padding: 8px 0 calc(12px + var(--safe-b));
   flex-shrink: 0;
 }
@@ -92,6 +92,7 @@ body {
   background: var(--card);
   padding: 16px;
   margin: 8px 16px;
+  border-radius: 12px;
 }
 .card-sm { padding: 12px; }
 
@@ -278,12 +279,13 @@ textarea.form-input { min-height: 100px; resize: vertical; }
   box-shadow: 0 2px 16px rgba(0,0,0,0.08);
 }
 .home-hero-stripe {
-  height: 4px;
-  background: linear-gradient(90deg, var(--green) 0%, var(--accent) 100%);
+  height: 6px;
+  background: linear-gradient(90deg, #34C759 0%, #1B6B3A 60%, #0D3D22 100%);
 }
 .home-hero-body {
   padding: 22px 20px 26px;
   text-align: center;
+  background: linear-gradient(160deg, #f8fbf8 0%, #eef5ee 100%);
 }
 .home-hc-label {
   font-size: 11px; font-weight: 700; color: var(--text2);
@@ -379,7 +381,7 @@ textarea.form-input { min-height: 100px; resize: vertical; }
    Circles for birdie/eagle, squares for bogey+, tee-color theming
    ================================================================ */
 .sc-header-card {
-  margin: 0 16px 0; position: relative; overflow: hidden;
+  margin: 0 16px 0; position: relative; overflow: hidden; border-radius: 12px;
 }
 .sc-header-stripe {
   position: absolute; top: 0; left: 0; right: 0; height: 4px;
@@ -406,7 +408,7 @@ textarea.form-input { min-height: 100px; resize: vertical; }
   letter-spacing: 0.5px; padding: 0 0 6px; }
 .sc-grid {
   display: grid; gap: 0; border: 1.5px solid var(--sep); background: var(--card);
-  width: 100%;
+  width: 100%; border-radius: 8px; overflow: hidden;
 }
 .sc-grid-9 { grid-template-columns: 44px repeat(9, 1fr) 44px; }
 .sc-cell {
@@ -485,7 +487,7 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 
 /* Notes card */
 .sc-notes {
-  background: var(--card); margin: 8px 16px; padding: 16px;
+  background: var(--card); margin: 8px 16px; padding: 16px; border-radius: 12px;
 }
 .sc-notes-title { font-size: 12px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 0.3px; }
 .sc-notes-body { font-size: 14px; margin-top: 6px; line-height: 1.5; }
@@ -504,7 +506,7 @@ textarea.form-input { min-height: 100px; resize: vertical; }
    STATISTICS — redesigned with clear visual hierarchy
    ================================================================ */
 .stat-card {
-  background: var(--card); margin: 8px 16px; padding: 20px;
+  background: var(--card); margin: 8px 16px; padding: 20px; border-radius: 12px;
 }
 .stat-card-title {
   font-size: 11px; font-weight: 700; color: var(--text2); text-transform: uppercase;
@@ -532,7 +534,7 @@ textarea.form-input { min-height: 100px; resize: vertical; }
   margin: 8px 16px;
 }
 .stat-mini {
-  background: var(--card); padding: 16px; text-align: center;
+  background: var(--card); padding: 16px; text-align: center; border-radius: 12px;
 }
 .stat-mini-val { font-size: 24px; font-weight: 700; }
 .stat-mini-label { font-size: 11px; color: var(--text2); margin-top: 2px; }
@@ -554,7 +556,7 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 /* Insight cards — cleaner */
 .insight-card {
   background: var(--card); margin: 8px 16px; padding: 16px;
-  display: flex; gap: 14px;
+  display: flex; gap: 14px; border-radius: 12px;
 }
 .insight-badge {
   width: 40px; height: 40px; border-radius: 12px;

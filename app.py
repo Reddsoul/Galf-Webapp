@@ -271,7 +271,7 @@ def get_local_ip():
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("GALF_PORT", 5001))
+    port = int(os.environ.get("GALF_PORT", 5003))
     ip = get_local_ip()
     print(f"\n{'='*50}")
     print(f"  Galf is running!")
