@@ -187,85 +187,95 @@ textarea.form-input { min-height: 100px; resize: vertical; }
    ================================================================ */
 .entry-topbar {
   background: var(--card);
-  padding: 12px 16px;
+  padding: 14px 18px;
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
-.entry-hole-num { font-size: 36px; font-weight: bold; color: var(--accent); }
+.entry-hole-num {
+  display: flex; flex-direction: column; align-items: flex-start; line-height: 1;
+}
+.entry-hole-label {
+  font-size: 11px; font-weight: 700; color: var(--text2);
+  text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 1px;
+}
+.entry-hole-digit {
+  font-size: 56px; font-weight: 800; color: var(--accent);
+  letter-spacing: -2px; line-height: 1;
+}
 .entry-course-info { text-align: right; }
-.entry-course-name { font-size: 14px; font-weight: bold; }
-.entry-hole-info { color: var(--text2); font-size: 13px; }
-.entry-tee-info { color: var(--text2); font-size: 10px; }
+.entry-course-name { font-size: 15px; font-weight: 700; }
+.entry-hole-info { color: var(--text2); font-size: 14px; margin-top: 2px; }
+.entry-tee-info { color: var(--text2); font-size: 11px; margin-top: 1px; }
 
 .entry-middle {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px 0;
+  padding: 16px 0;
   flex: 1;
 }
 .entry-nav-btn {
-  font-size: 24px; background: none; border: none;
-  cursor: pointer; padding: 8px 20px; color: var(--text);
+  font-size: 28px; background: none; border: none;
+  cursor: pointer; padding: 10px 22px; color: var(--text);
 }
 .entry-nav-btn:disabled { color: var(--sep); }
 .entry-center { text-align: center; flex: 1; }
-.entry-stroke { font-size: 72px; font-weight: bold; }
-.entry-clubs-display { font-size: 11px; color: var(--text2); padding: 8px 0 0; max-width: 250px; margin: 0 auto; }
-.entry-diff { font-size: 14px; color: var(--accent); padding: 4px 0 0; }
+.entry-stroke { font-size: 100px; font-weight: 800; letter-spacing: -4px; line-height: 1; }
+.entry-clubs-display { font-size: 12px; color: var(--text2); padding: 10px 0 0; max-width: 250px; margin: 0 auto; }
+.entry-diff { font-size: 20px; font-weight: 700; color: var(--accent); padding: 6px 0 0; }
 
 /* Number pad: 3 cols, bottom row = Forfeit / 0 / Next */
 .numpad { padding: 0 16px 8px; }
 .numpad-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 4px;
+  gap: 5px;
 }
 .numpad-btn {
-  padding: 16px 0; font-size: 20px; font-weight: bold;
+  padding: 18px 0; font-size: 22px; font-weight: 700;
   border: none; cursor: pointer; background: var(--card);
-  color: var(--text); font-family: inherit;
+  color: var(--text); font-family: inherit; border-radius: 10px;
 }
-.numpad-btn:active { background: #E5E5EA; }
-.numpad-btn.forfeit { background: var(--red); color: #fff; font-size: 14px; }
-.numpad-btn.next-hole { background: var(--green); color: #fff; font-size: 14px; }
+.numpad-btn:active { background: #D8DDD8; }
+.numpad-btn.forfeit { background: var(--red); color: #fff; font-size: 15px; border-radius: 10px; }
+.numpad-btn.next-hole { background: var(--green); color: #fff; font-size: 15px; border-radius: 10px; }
 
 /* Club grid: 3 cols, last row = Forfeit / Undo / Next */
 .club-grid-container { padding: 0 16px 8px; }
-.club-grid-hint { font-size: 11px; color: var(--text2); padding: 0 0 8px; text-align: center; }
+.club-grid-hint { font-size: 12px; color: var(--text2); padding: 0 0 8px; text-align: center; }
 .club-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 4px;
+  gap: 5px;
 }
 .club-grid-btn {
-  padding: 14px 0; font-size: 13px; font-weight: bold;
+  padding: 16px 0; font-size: 15px; font-weight: 700;
   border: none; cursor: pointer; background: var(--card);
-  color: var(--text); text-align: center;
+  color: var(--text); text-align: center; border-radius: 10px;
 }
-.club-grid-btn:active { background: #E5E5EA; }
+.club-grid-btn:active { background: #D8DDD8; }
 .club-grid-btn.putter { background: #90EE90; }
 .club-grid-btn.empty-cell { visibility: hidden; }
-.club-grid-btn.action-forfeit { background: var(--red); color: #fff; font-size: 12px; font-weight: 600; }
-.club-grid-btn.action-undo { background: #FFCC00; color: var(--text); font-size: 12px; font-weight: 600; }
-.club-grid-btn.action-next { background: var(--green); color: #fff; font-size: 12px; font-weight: 600; }
+.club-grid-btn.action-forfeit { background: var(--red); color: #fff; font-size: 14px; font-weight: 600; }
+.club-grid-btn.action-undo { background: #FFCC00; color: var(--text); font-size: 14px; font-weight: 600; }
+.club-grid-btn.action-next { background: var(--green); color: #fff; font-size: 14px; font-weight: 600; }
 
 /* Running total */
 .running-total {
-  text-align: center; padding: 8px; font-size: 14px;
-  font-weight: bold; color: var(--accent);
+  text-align: center; padding: 8px; font-size: 16px;
+  font-weight: 700; color: var(--accent);
 }
 
 /* Club suggestion (Feature 1) */
 .entry-suggest {
-  font-size: 11px; color: var(--text2); padding: 3px 0 0; text-align: center;
+  font-size: 12px; color: var(--text2); padding: 4px 0 0; text-align: center;
   letter-spacing: 0.1px;
 }
 
 /* Sim auto-putts display (Feature 3) */
 .entry-sim-putts {
-  font-size: 11px; color: var(--text2); padding: 2px 0 0; text-align: center;
+  font-size: 12px; color: var(--text2); padding: 3px 0 0; text-align: center;
 }
 
 /* ================================================================
@@ -1508,7 +1518,10 @@ function renderLogEntry(){
 
   v.innerHTML=`
     <div class="entry-topbar">
-      <div class="entry-hole-num">${holeNum+1}</div>
+      <div class="entry-hole-num">
+        <div class="entry-hole-label">Hole</div>
+        <div class="entry-hole-digit">${holeNum+1}</div>
+      </div>
       <div class="entry-course-info">
         <div class="entry-course-name">${esc(S.logCourse.name).substring(0,20)}</div>
         <div class="entry-hole-info">Par ${par} · ${yard} yds</div>
