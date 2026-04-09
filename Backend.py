@@ -4,11 +4,11 @@ from statistics import mean
 from datetime import datetime
 
 # --- Data files ---
-COURSES_FILE = 'Data/courses.json'
-ROUNDS_FILE = 'Data/rounds.json'
-CLUBS_FILE = 'Data/clubs.json'
-STATS_CACHE_FILE = 'Data/stats_cache.json'
-USER_PREFS_FILE = 'Data/user_prefs.json'  # User preferences (entry mode, etc.)
+COURSES_FILE = 'data/courses.json'
+ROUNDS_FILE = 'data/rounds.json'
+CLUBS_FILE = 'data/clubs.json'
+STATS_CACHE_FILE = 'data/stats_cache.json'
+USER_PREFS_FILE = 'data/user_prefs.json'  # User preferences (entry mode, etc.)
 
 
 # Club categories for analytics

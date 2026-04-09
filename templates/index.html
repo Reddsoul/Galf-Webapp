@@ -6,7 +6,10 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#EEF2EB">
-<title>Golf Stats DEV</title>
+<title>Golf Stats</title>
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon/Favicon-16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon/Favicon-32.png">
+<link rel="apple-touch-icon" sizes="96x96" href="/favicon/Favicon-96.png">
 <!-- No external libraries needed -->
 <style>
 /* ================================================================
@@ -19,10 +22,32 @@
   --green: #34C759;
   --red: #FF3B30;
   --orange: #FF9500;
-  --text: #000000;
-  --text2: #8E8E93;
+  --text: #1C1C1E;
+  --text2: #636366;
+  --text3: #AEAEB2;
   --sep: #C6C6C8;
+  --hero-grad-start: #f4f9f4;
+  --hero-grad-end: #e8f2e8;
+  --active-overlay: rgba(0,0,0,0.06);
   --safe-b: env(safe-area-inset-bottom, 0px);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1C1C1E;
+    --card: #2C2C2E;
+    --accent: #34C759;
+    --green: #30D158;
+    --red: #FF453A;
+    --orange: #FF9F0A;
+    --text: #FFFFFF;
+    --text2: #8E8E93;
+    --text3: #48484A;
+    --sep: #38383A;
+    --hero-grad-start: #242426;
+    --hero-grad-end: #1C2B1C;
+    --active-overlay: rgba(255,255,255,0.08);
+  }
 }
 
 /* ================================================================
@@ -54,8 +79,8 @@ body {
 #tabbar {
   display: flex;
   background: var(--card);
-  border-top: 1px solid #d0ddd0;
-  padding: 8px 0 calc(12px + var(--safe-b));
+  border-top: 1px solid var(--sep);
+  padding: 6px 0 calc(10px + var(--safe-b));
   flex-shrink: 0;
 }
 .tab {
@@ -63,6 +88,7 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 1px;
   cursor: pointer;
   text-decoration: none;
@@ -70,19 +96,21 @@ body {
   -webkit-touch-callout: none;
 }
 .tab-icon { font-size: 20px; line-height: 1.2; }
-.tab-label { font-size: 10px; color: var(--text2); transition: color .15s; }
-.tab.active .tab-label { color: var(--accent); }
+.tab-icon img { width: 26px; height: 26px; object-fit: contain; display: block; }
+.tab-label { font-size: 10px; color: var(--text2); transition: color .15s; font-weight: 500; }
+.tab.active .tab-label { color: var(--accent); font-weight: 600; }
 
 /* ================================================================
    PAGE HEADER — _create_page_header:
    padx=16, pady=(16,8), Title.TLabel = Helvetica 24 bold
    ================================================================ */
-.page-header { padding: 16px 16px 8px; }
-.page-title { font-size: 24px; font-weight: bold; }
+.page-header { padding: 16px 16px 4px; }
+.page-title { font-size: 26px; font-weight: 800; letter-spacing: -0.5px; }
 .back-btn {
-  font-size: 13px; color: var(--accent); background:none; border:none;
-  padding: 2px 0; cursor:pointer; font-family:inherit; margin-bottom: 4px;
+  font-size: 15px; color: var(--accent); background:none; border:none;
+  padding: 4px 0 4px; cursor:pointer; font-family:inherit; margin-bottom: 2px;
   display: flex; align-items: center; gap: 2px;
+  min-height: 44px; font-weight: 500;
 }
 
 /* ================================================================
@@ -92,7 +120,8 @@ body {
   background: var(--card);
   padding: 16px;
   margin: 8px 16px;
-  border-radius: 12px;
+  border-radius: 14px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.05);
 }
 .card-sm { padding: 12px; }
 
@@ -126,10 +155,11 @@ body {
    ================================================================ */
 .btn {
   display: block; width: 100%; padding: 10px 16px;
-  font-size: 14px; font-weight: bold; border: none;
+  font-size: 14px; font-weight: bold; border: none; border-radius: 10px;
   cursor: pointer; text-align: center; font-family: inherit;
 }
-.btn:active { opacity: 0.7; }
+.btn:active { opacity: 0.82; transform: scale(0.97); }
+.btn { transition: transform 0.1s ease, opacity 0.1s ease; }
 .btn-primary { background: var(--accent); color: #fff; }
 .btn-green { background: var(--green); color: #fff; }
 .btn-red { background: var(--red); color: #fff; }
@@ -144,6 +174,7 @@ body {
   width: 100%; padding: 10px 12px; font-size: 15px;
   border: 1px solid var(--sep); background: var(--card);
   color: var(--text); font-family: inherit;
+  border-radius: 10px;
   -webkit-appearance: none; appearance: none;
 }
 .form-select {
@@ -158,7 +189,7 @@ textarea.form-input { min-height: 100px; resize: vertical; }
    ================================================================ */
 .radio-row { display: flex; gap: 2px; flex-wrap: wrap; padding: 4px 0; }
 .radio-opt {
-  padding: 6px 12px; font-size: 13px; cursor: pointer;
+  padding: 6px 12px; font-size: 13px; cursor: pointer; border-radius: 8px;
   border: 1px solid var(--sep); background: var(--card);
   font-family: inherit; color: var(--text);
 }
@@ -179,7 +210,7 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 }
 .tree-table td { padding: 8px 4px; border-bottom: 0.5px solid var(--sep); text-align: center; }
 .tree-table tr { cursor: pointer; }
-.tree-table tr:active { background: #E5E5EA; }
+.tree-table tr:active { background: var(--active-overlay); }
 .tree-table td:first-child { text-align: left; }
 
 /* ================================================================
@@ -200,8 +231,9 @@ textarea.form-input { min-height: 100px; resize: vertical; }
   text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 1px;
 }
 .entry-hole-digit {
-  font-size: 56px; font-weight: 800; color: var(--accent);
+  font-size: 60px; font-weight: 800; color: var(--accent);
   letter-spacing: -2px; line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 .entry-course-info { text-align: right; }
 .entry-course-name { font-size: 15px; font-weight: 700; }
@@ -221,7 +253,7 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 }
 .entry-nav-btn:disabled { color: var(--sep); }
 .entry-center { text-align: center; flex: 1; }
-.entry-stroke { font-size: 100px; font-weight: 800; letter-spacing: -4px; line-height: 1; }
+.entry-stroke { font-size: 96px; font-weight: 800; letter-spacing: -4px; line-height: 1; font-variant-numeric: tabular-nums; }
 .entry-clubs-display { font-size: 12px; color: var(--text2); padding: 10px 0 0; max-width: 250px; margin: 0 auto; }
 .entry-diff { font-size: 20px; font-weight: 700; color: var(--accent); padding: 6px 0 0; }
 
@@ -236,8 +268,9 @@ textarea.form-input { min-height: 100px; resize: vertical; }
   padding: 18px 0; font-size: 22px; font-weight: 700;
   border: none; cursor: pointer; background: var(--card);
   color: var(--text); font-family: inherit; border-radius: 10px;
+  transition: transform 0.1s ease;
 }
-.numpad-btn:active { background: #D8DDD8; }
+.numpad-btn:active { background: var(--active-overlay); transform: scale(0.95); }
 .numpad-btn.forfeit { background: var(--red); color: #fff; font-size: 15px; border-radius: 10px; }
 .numpad-btn.next-hole { background: var(--green); color: #fff; font-size: 15px; border-radius: 10px; }
 
@@ -253,12 +286,13 @@ textarea.form-input { min-height: 100px; resize: vertical; }
   padding: 16px 0; font-size: 15px; font-weight: 700;
   border: none; cursor: pointer; background: var(--card);
   color: var(--text); text-align: center; border-radius: 10px;
+  transition: transform 0.1s ease;
 }
-.club-grid-btn:active { background: #D8DDD8; }
-.club-grid-btn.putter { background: #90EE90; }
+.club-grid-btn:active { background: var(--active-overlay); transform: scale(0.95); }
+.club-grid-btn.putter { background: rgba(52,199,89,0.15); color: var(--green); }
 .club-grid-btn.empty-cell { visibility: hidden; }
 .club-grid-btn.action-forfeit { background: var(--red); color: #fff; font-size: 14px; font-weight: 600; }
-.club-grid-btn.action-undo { background: #FFCC00; color: var(--text); font-size: 14px; font-weight: 600; }
+.club-grid-btn.action-undo { background: var(--orange); color: #fff; font-size: 14px; font-weight: 600; }
 .club-grid-btn.action-next { background: var(--green); color: #fff; font-size: 14px; font-weight: 600; }
 
 /* Running total */
@@ -282,101 +316,115 @@ textarea.form-input { min-height: 100px; resize: vertical; }
    HOME PAGE
    ================================================================ */
 .home-hero {
-  margin: 16px 16px 10px;
+  margin: 12px 16px 8px;
   background: var(--card);
   border-radius: 20px;
   overflow: hidden;
-  box-shadow: 0 2px 16px rgba(0,0,0,0.08);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.04);
 }
 .home-hero-stripe {
-  height: 6px;
-  background: linear-gradient(90deg, #34C759 0%, #1B6B3A 60%, #0D3D22 100%);
+  height: 5px;
+  background: linear-gradient(90deg, #34C759 0%, #1B6B3A 55%, #0D3D22 100%);
 }
 .home-hero-body {
-  padding: 22px 20px 26px;
-  text-align: center;
-  background: linear-gradient(160deg, #f8fbf8 0%, #eef5ee 100%);
+  padding: 14px 20px 14px;
+  background: linear-gradient(160deg, var(--hero-grad-start) 0%, var(--hero-grad-end) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 .home-hc-label {
   font-size: 11px; font-weight: 700; color: var(--text2);
-  text-transform: uppercase; letter-spacing: 1.2px;
+  text-transform: uppercase; letter-spacing: 1.4px;
 }
 .home-hc-value {
-  font-size: 86px; font-weight: 800; color: var(--text);
-  line-height: 1; margin: 6px 0 10px;
-  font-variant-numeric: tabular-nums; letter-spacing: -3px;
+  font-size: 88px; font-weight: 800; color: var(--text);
+  line-height: 1; margin: -4px 0 0;
+  font-variant-numeric: tabular-nums; letter-spacing: -4px;
+  text-align: right;
 }
-.home-hc-value.hc-pending { font-size: 64px; color: var(--text2); letter-spacing: 0; }
-.home-hc-sub { font-size: 13px; color: var(--text2); }
+.home-hc-value.hc-pending { font-size: 60px; color: var(--text2); letter-spacing: -1px; }
+.home-hc-sub { font-size: 12px; color: var(--text2); line-height: 1.5; margin-top: 4px; }
+.home-hero-left { flex: 1; }
+.home-hero-right { text-align: right; flex-shrink: 0; }
 
-.home-log-btn {
-  display: block; width: calc(100% - 32px); margin: 0 16px 10px;
-  padding: 18px 0; font-size: 17px; font-weight: 700;
-  background: var(--green); color: #fff;
-  border: none; border-radius: 14px; cursor: pointer;
-  font-family: inherit; letter-spacing: -0.2px;
-  box-shadow: 0 3px 10px rgba(52,199,89,0.30);
+#log-btn-bar {
+  display: none;
+  padding: 10px 16px 8px;
+  background: var(--bg);
+  flex-shrink: 0;
 }
-.home-log-btn:active { opacity: 0.82; }
+.home-log-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; padding: 18px 0; font-size: 17px; font-weight: 700;
+  background: var(--green); color: #fff;
+  border: none; border-radius: 16px; cursor: pointer;
+  font-family: inherit; letter-spacing: -0.2px;
+  box-shadow: 0 4px 14px rgba(52,199,89,0.35);
+  transition: transform 0.1s ease, opacity 0.1s ease;
+}
+.home-log-btn:active { opacity: 0.82; transform: scale(0.98); }
 
 .home-best {
   margin: 0 16px 10px;
   background: var(--card);
   border-radius: 16px;
   overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.07), 0 0 0 0.5px rgba(0,0,0,0.04);
   cursor: pointer;
+  transition: transform 0.1s ease, opacity 0.1s ease;
 }
-.home-best:active { opacity: 0.85; }
+.home-best:active { opacity: 0.85; transform: scale(0.985); }
 /* 4-px tee-color stripe — same pattern as sc-header-stripe */
 .home-best-stripe { height: 4px; width: 100%; }
 .home-best-header {
-  padding: 12px 16px 10px;
+  padding: 12px 14px 8px;
   display: flex; align-items: flex-start; justify-content: space-between;
 }
 .home-best-label {
-  font-size: 11px; font-weight: 700; color: var(--text2);
-  text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px;
+  font-size: 10px; font-weight: 700; color: var(--text2);
+  text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 4px;
 }
 .home-best-meta {
   font-size: 12px; color: var(--text2);
   display: flex; align-items: center; gap: 4px;
 }
 .home-best-tee-dot {
-  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
 }
-.home-best-score { font-size: 26px; font-weight: 800; line-height: 1; }
-.home-best-diff { font-size: 13px; font-weight: 600; margin-top: 2px; }
+.home-best-score { font-size: 30px; font-weight: 800; line-height: 1; letter-spacing: -1px; }
+.home-best-diff { font-size: 13px; font-weight: 700; margin-top: 2px; }
 
+/* Two-row grid: 9 columns — front 9 on row 1, back 9 on row 2 */
 .home-best-holes {
-  display: flex; overflow-x: auto; padding: 0 12px 14px; gap: 3px;
-  -webkit-overflow-scrolling: touch; scrollbar-width: none;
+  display: grid; grid-template-columns: repeat(9, 1fr);
+  padding: 0 10px 10px; gap: 3px 2px;
 }
-.home-best-holes::-webkit-scrollbar { display: none; }
 .home-hole-cell {
-  display: flex; flex-direction: column; align-items: center; gap: 3px;
-  min-width: 26px; flex-shrink: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
 }
-.home-hole-num { font-size: 9px; color: var(--text2); font-weight: 600; }
+.home-hole-num { font-size: 9px; color: var(--text3); font-weight: 600; }
 /* Reuse sc-score markers at a smaller size inside the best card */
 .home-best-holes .sc-score {
-  width: 24px; height: 24px; font-size: 11px;
+  width: 22px; height: 22px; font-size: 10px;
 }
 
 .home-stats-row {
-  display: flex; gap: 8px; margin: 0 16px 20px;
+  display: flex; gap: 8px; margin: 0 16px 16px;
 }
 .home-stat-cell {
-  flex: 1; background: var(--card); border-radius: 12px;
-  padding: 14px 10px 12px; text-align: center;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+  flex: 1; background: var(--card); border-radius: 16px;
+  padding: 16px 12px 14px; text-align: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06), 0 0 0 0.5px rgba(0,0,0,0.04);
+  transition: transform 0.1s ease, opacity 0.1s ease;
 }
 .home-stat-cell.tappable { cursor: pointer; }
-.home-stat-cell.tappable:active { opacity: 0.8; }
-.home-stat-val { font-size: 22px; font-weight: 700; }
+.home-stat-cell.tappable:active { opacity: 0.8; transform: scale(0.96); }
+.home-stat-val { font-size: 26px; font-weight: 800; letter-spacing: -1px; text-align: center; line-height: 1; }
 .home-stat-lbl {
   font-size: 10px; color: var(--text2); font-weight: 600;
-  text-transform: uppercase; letter-spacing: 0.5px; margin-top: 3px;
+  text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; text-align: center;
 }
 
 /* Pin keypads to bottom of screen during log entry */
@@ -391,8 +439,11 @@ textarea.form-input { min-height: 100px; resize: vertical; }
    Circles for birdie/eagle, squares for bogey+, tee-color theming
    ================================================================ */
 .sc-header-card {
-  margin: 0 16px 0; position: relative; overflow: hidden; border-radius: 12px;
+  margin: 0 16px 0; position: relative; overflow: hidden; border-radius: 16px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.08);
 }
+.sc-header-course { font-size: 19px; font-weight: 700; line-height: 1.2; letter-spacing: -0.2px; }
+.sc-header-total { font-size: 48px; font-weight: 800; letter-spacing: -2px; line-height: 1; font-variant-numeric: tabular-nums; }
 .sc-header-stripe {
   position: absolute; top: 0; left: 0; right: 0; height: 4px;
 }
@@ -401,10 +452,8 @@ textarea.form-input { min-height: 100px; resize: vertical; }
   gap: 12px; padding: 18px 18px 14px;
 }
 .sc-header-left { flex: 1; min-width: 0; }
-.sc-header-course { font-size: 19px; font-weight: 700; line-height: 1.2; }
 .sc-header-meta { font-size: 12px; opacity: 0.65; margin-top: 5px; }
 .sc-header-right { text-align: right; flex-shrink: 0; }
-.sc-header-total { font-size: 44px; font-weight: 800; letter-spacing: -2px; line-height: 1; }
 .sc-header-diff { font-size: 16px; font-weight: 700; margin-top: 3px; }
 .sc-header-footer {
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
@@ -444,7 +493,7 @@ textarea.form-input { min-height: 100px; resize: vertical; }
   .sc-cell { padding: 4px 0; font-size: 10px; min-height: 28px; }
   .sc-cell-total { font-size: 11px; }
   .sc-score { width: 22px; height: 22px; font-size: 10px; }
-  .home-best-holes .sc-score { width: 20px; height: 20px; font-size: 9px; }
+  .home-best-holes .sc-score { width: 18px; height: 18px; font-size: 9px; }
 }
 
 /* Score markers — the core visual */
@@ -506,7 +555,7 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 .sc-pills { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
 .sc-pill {
   font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 100px;
-  background: rgba(255,255,255,0.2);
+  background: rgba(128,128,128,0.18);
 }
 
 /* Actions row */
@@ -516,17 +565,18 @@ textarea.form-input { min-height: 100px; resize: vertical; }
    STATISTICS — redesigned with clear visual hierarchy
    ================================================================ */
 .stat-card {
-  background: var(--card); margin: 8px 16px; padding: 20px; border-radius: 12px;
+  background: var(--card); margin: 8px 16px; padding: 20px; border-radius: 16px;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.05);
 }
 .stat-card-title {
   font-size: 11px; font-weight: 700; color: var(--text2); text-transform: uppercase;
-  letter-spacing: 0.5px; margin-bottom: 12px;
+  letter-spacing: 0.8px; margin-bottom: 14px;
 }
 
 /* Hero number — big centered stat */
 .stat-hero { text-align: center; padding: 8px 0 4px; }
-.stat-hero-val { font-size: 44px; font-weight: 700; letter-spacing: -2px; }
-.stat-hero-label { font-size: 13px; color: var(--text2); margin-top: 2px; }
+.stat-hero-val { font-size: 44px; font-weight: 800; letter-spacing: -2px; font-variant-numeric: tabular-nums; }
+.stat-hero-label { font-size: 13px; color: var(--text2); margin-top: 4px; }
 
 /* Ring gauge for percentages */
 .stat-ring {
@@ -544,10 +594,11 @@ textarea.form-input { min-height: 100px; resize: vertical; }
   margin: 8px 16px;
 }
 .stat-mini {
-  background: var(--card); padding: 16px; text-align: center; border-radius: 12px;
+  background: var(--card); padding: 16px; text-align: center; border-radius: 16px;
+  box-shadow: 0 1px 5px rgba(0,0,0,0.05);
 }
-.stat-mini-val { font-size: 24px; font-weight: 700; }
-.stat-mini-label { font-size: 11px; color: var(--text2); margin-top: 2px; }
+.stat-mini-val { font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.stat-mini-label { font-size: 11px; color: var(--text2); margin-top: 3px; font-weight: 500; }
 
 /* 3-col breakdown inside a card */
 .stat-trio { display: flex; margin-top: 16px; }
@@ -566,10 +617,11 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 /* Insight cards — cleaner */
 .insight-card {
   background: var(--card); margin: 8px 16px; padding: 16px;
-  display: flex; gap: 14px; border-radius: 12px;
+  display: flex; gap: 14px; border-radius: 16px;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.05);
 }
 .insight-badge {
-  width: 40px; height: 40px; border-radius: 12px;
+  width: 44px; height: 44px; border-radius: 12px;
   display: flex; align-items: center; justify-content: center;
   font-size: 20px; flex-shrink: 0;
 }
@@ -605,12 +657,18 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 .diff-val { font-size: 18px; font-weight: 700; width: 52px; text-align: right; }
 
 /* Club list — redesigned */
-.club-items-card {
-  background: var(--card); border-radius: 16px; margin: 0 16px 10px;
-  overflow: hidden; box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+.club-items-card { margin: 0 16px 10px; box-shadow: 0 1px 6px rgba(0,0,0,0.06); }
+.club-section-label {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 0 20px 6px; margin-top: 4px;
 }
-.club-item { cursor: pointer; }
+.club-section-label-title { font-size: 13px; font-weight: 700; }
+.club-section-label-sub { font-size: 11px; color: var(--text2); }
+.club-item { cursor: pointer; background: var(--card); overflow: hidden; }
 .club-item + .club-item { border-top: 0.5px solid var(--sep); }
+.club-item.is-first { border-radius: 12px 12px 0 0; }
+.club-item.is-last { border-radius: 0 0 12px 12px; }
+.club-item.is-solo { border-radius: 12px; }
 .club-item-main {
   display: flex; align-items: center; gap: 10px; padding: 13px 14px;
 }
@@ -638,6 +696,7 @@ textarea.form-input { min-height: 100px; resize: vertical; }
   flex: 1; padding: 13px; background: var(--green); color: #fff;
   border: none; border-radius: 10px; font-size: 15px; font-weight: 600;
   cursor: pointer; font-family: inherit;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
 }
 .club-edit-save:active { opacity: 0.8; }
 .club-edit-cancel {
@@ -675,7 +734,7 @@ textarea.form-input { min-height: 100px; resize: vertical; }
    ================================================================ */
 .course-hero {
   background: var(--card); padding: 20px 16px; margin: 0 16px 8px;
-  text-align: center;
+  text-align: center; border-radius: 12px;
 }
 .course-hero-name { font-size: 22px; font-weight: bold; letter-spacing: -0.3px; }
 .course-hero-club { font-size: 14px; color: var(--text2); margin-top: 2px; }
@@ -691,7 +750,7 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 .tee-pill {
   display: flex; align-items: center; gap: 6px; padding: 8px 14px;
   background: var(--card); cursor: pointer; font-size: 13px; font-weight: 500;
-  border: 2px solid transparent; transition: border-color .15s;
+  border: 2px solid transparent; border-radius: 10px; transition: border-color .15s;
 }
 .tee-pill.active { border-color: var(--accent); }
 .tee-pill:active { opacity: 0.7; }
@@ -714,12 +773,12 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 .hole-grid .par-3 { color: var(--green); font-weight: 600; }
 .hole-grid .par-4 { color: var(--text); }
 .hole-grid .par-5 { color: var(--accent); font-weight: 600; }
-.hole-grid .nine-sep td { border-top: 2px solid var(--sep); font-weight: 700; background: rgba(0,122,255,0.04); }
+.hole-grid .nine-sep td { border-top: 2px solid var(--sep); font-weight: 700; background: rgba(27,107,58,0.05); }
 .hole-grid .total-row td { border-top: 2px solid var(--accent); font-weight: 700; font-size: 13px; }
 
 /* Tee detail card */
 .tee-detail {
-  background: var(--card); margin: 8px 16px; padding: 16px;
+  background: var(--card); margin: 8px 16px; padding: 16px; border-radius: 12px;
 }
 .tee-detail-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .tee-detail-color { font-size: 16px; font-weight: 700; }
@@ -738,29 +797,22 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 .hole-input-field {
   flex: 1; padding: 8px; font-size: 15px; border: 1px solid var(--sep);
   background: var(--card); color: var(--text); font-family: inherit;
-  text-align: center; min-width: 0;
+  text-align: center; min-width: 0; border-radius: 8px;
 }
 .hole-input-field:focus { outline: none; border-color: var(--accent); }
 .hole-input-label { font-size: 10px; color: var(--text2); text-align: center; flex-shrink: 0; width: 40px; }
 
 /* Tee editor card */
 .tee-editor-card {
-  border: 1.5px solid var(--sep); padding: 12px; margin: 6px 0; position: relative;
+  border: 1.5px solid var(--sep); border-radius: 10px; padding: 12px; margin: 6px 0; position: relative;
 }
 .tee-editor-remove {
-  position: absolute; top: 8px; right: 8px; background: none; border: none;
-  color: var(--red); font-size: 18px; cursor: pointer; padding: 4px;
+  position: absolute; top: 4px; right: 4px; background: none; border: none;
+  color: var(--red); font-size: 18px; cursor: pointer;
+  padding: 10px; min-width: 44px; min-height: 44px;
+  display: flex; align-items: center; justify-content: center;
 }
 
-/* ================================================================
-   RULEBOOK
-   ================================================================ */
-.rb-content { white-space: pre-wrap; font-size: 14px; line-height: 1.6; padding: 16px; }
-.rb-result { padding: 12px 16px; border-bottom: 0.5px solid var(--sep); cursor: pointer; }
-.rb-result:active { background: var(--bg); }
-.rb-result-page { font-size: 11px; font-weight: bold; color: var(--accent); margin-bottom: 2px; }
-.rb-result-snippet { font-size: 13px; line-height: 1.4; }
-mark { background: rgba(255,204,0,0.4); padding: 0 2px; }
 
 /* ================================================================
    MISC
@@ -770,10 +822,47 @@ mark { background: rgba(255,204,0,0.4); padding: 0 2px; }
 .empty-icon { font-size: 48px; margin-bottom: 12px; }
 .empty-text { font-size: 14px; }
 .view { display: none; }
-.view.active { display: block; }
-.badge-red { color: #FF3B30; }
-.badge-green { color: #34C759; }
+.view.active { display: block; animation: fadeIn 0.18s ease-out; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+.badge-red { color: var(--red); }
+.badge-green { color: var(--green); }
 .badge-even { color: var(--text); }
+
+/* ================================================================
+   LOADING SKELETON
+   ================================================================ */
+.skeleton {
+  background: linear-gradient(90deg, var(--sep) 25%, var(--bg) 50%, var(--sep) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+  border-radius: 8px;
+}
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.skeleton-card {
+  background: var(--card); border-radius: 20px; margin: 12px 16px 8px;
+  overflow: hidden;
+}
+.skeleton-line { height: 14px; margin: 8px 0; }
+.skeleton-line-sm { height: 10px; margin: 6px 0; width: 60%; }
+.skeleton-num { height: 80px; width: 120px; margin: 0 auto; border-radius: 12px; }
+
+/* ================================================================
+   REDUCED MOTION
+   ================================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ================================================================
+   MISC — improved dark-mode tree-table header
+   ================================================================ */
+.tree-table th { background: var(--bg); color: var(--text2); }
 </style>
 </head>
 <body>
@@ -789,17 +878,21 @@ mark { background: rgba(255,204,0,0.4); padding: 0 2px; }
     <div id="v-course-detail" class="view"></div>
     <div id="v-course-editor" class="view"></div>
     <div id="v-stats" class="view"></div>
-    <div id="v-rulebook" class="view"></div>
+  </div>
+
+  <!-- Primary action bar — shown only on Home, lives above the tab bar -->
+  <div id="log-btn-bar">
+    <button class="home-log-btn" onclick="startLog()"><img src="/favicon/golf-ball-w-96.png" style="width:22px;height:22px;object-fit:contain"> Log New Round</button>
   </div>
 
   <!-- Tab bar: exactly 3 tabs matching _create_tab_bar -->
   <nav id="tabbar">
-    <a class="tab" data-tab="rounds" onclick="nav('rounds')">
-      <span class="tab-icon">🏌️</span><span class="tab-label">Rounds</span></a>
-    <a class="tab active" data-tab="home" onclick="nav('home')">
-      <span class="tab-icon">🏠</span><span class="tab-label">Home</span></a>
-    <a class="tab" data-tab="courses" onclick="nav('courses')">
-      <span class="tab-icon">⛳</span><span class="tab-label">Courses</span></a>
+    <a class="tab" data-tab="rounds" onclick="nav('rounds')" aria-label="Rounds">
+      <span class="tab-icon"><img src="/favicon/golf-cart-96.png" alt=""></span><span class="tab-label"></span></a>
+    <a class="tab active" data-tab="home" onclick="nav('home')" aria-label="Home">
+      <span class="tab-icon"><img src="/favicon/Favicon-96.png" style="width:50px;height:50px" alt=""></span><span class="tab-label"></span></a>
+    <a class="tab" data-tab="courses" onclick="nav('courses')" aria-label="Courses">
+      <span class="tab-icon"><img src="/favicon/golf-ball-96.png" alt=""></span><span class="tab-label"></span></a>
   </nav>
 </div>
 
@@ -820,10 +913,6 @@ const S = {
   clubUsage:{},
   // Scorecard
   viewRound:null, viewRoundIdx:null,
-  // Yardbook
-  ybCourse:null, ybHole:1, ybMap:null,
-  // Rulebook
-  rbPage:1, rbTotal:0,
   // Course editor
   editCourse:null,
 };
@@ -860,11 +949,13 @@ function show(name) {
   content.style.overflowY = isEntry ? 'hidden' : '';
   content.style.height = isEntry ? '100%' : '';
   content.scrollTop=0;
+  const fab=document.getElementById('log-btn-bar');
+  if(fab) fab.style.display=name==='home'?'block':'none';
   const r={
     home:renderHome, rounds:renderRounds, scorecard:renderScorecard,
     'log-setup':renderLogSetup, 'log-entry':renderLogEntry, 'log-notes':renderLogNotes,
     courses:renderCourses, 'course-detail':renderCourseDetail, 'course-editor':renderCourseEditor,
-    stats:renderStats, rulebook:renderRulebook
+    stats:renderStats
   };
   if(r[name]) r[name]();
 }
@@ -921,12 +1012,13 @@ async function buildBestCard(bestData, label) {
 }
 
 async function renderHome() {
+  const v=document.getElementById('v-home');
+  v.innerHTML='<div class="skeleton-card"><div class="skeleton skeleton-num" style="margin:20px auto"></div><div class="skeleton skeleton-line" style="margin:8px 20px"></div><div class="skeleton skeleton-line-sm" style="margin:4px 20px"></div></div>';
   const [stats,hc,best,bestSim]=await Promise.all([
     GET('/api/stats'), GET('/api/stats/handicap'),
     GET('/api/stats/best-round'), GET('/api/stats/best-round?sim=true')
   ]);
   S.stats=stats; S.handicap=hc.handicap_index;
-  const v=document.getElementById('v-home');
 
   // Handicap hero
   const hasHC = S.handicap!==null;
@@ -935,30 +1027,30 @@ async function renderHome() {
   if(!hasHC){
     const rem=Math.max(0,54-(stats.total_holes_played||0));
     hcSub = rem>0 ? `Play ${rem} more holes to establish` : 'Calculating…';
-  } else {
-    const avgStr = stats.avg_score_18 ? `Avg ${stats.avg_score_18.toFixed(1)} (18-hole)` : stats.avg_score_9 ? `Avg ${stats.avg_score_9.toFixed(1)} (9-hole)` : '';
-    hcSub = [avgStr, `${stats.total_rounds} round${stats.total_rounds!==1?'s':''}`].filter(Boolean).join(' · ');
   }
 
   // Build both best-round cards in parallel
   const [bestHtml, bestSimHtml] = await Promise.all([
-    buildBestCard(best, 'Personal Best'),
+    buildBestCard(best, 'Best IRL'),
     buildBestCard(bestSim, 'Best Sim')
   ]);
 
   const avgVal = stats.avg_score_18 ? stats.avg_score_18.toFixed(1) : stats.avg_score_9 ? stats.avg_score_9.toFixed(1) : '—';
-  const avgLbl = stats.avg_score_18 ? 'Avg (18)' : 'Avg (9)';
+  const avgLbl = stats.avg_score_18 ? 'Avg · 18' : 'Avg · 9';
 
   v.innerHTML=`
     <div class="home-hero">
       <div class="home-hero-stripe"></div>
       <div class="home-hero-body">
-        <div class="home-hc-label">Handicap Index DEV</div>
-        <div class="home-hc-value${hasHC?'':' hc-pending'}">${hcStr}</div>
-        <div class="home-hc-sub">${hcSub}</div>
+        <div class="home-hero-left">
+          <div class="home-hc-label">Handicap Index</div>
+          ${hcSub?`<div class="home-hc-sub" style="margin-top:8px">${hcSub}</div>`:'<div class="home-hc-sub" style="margin-top:6px">WHS Official Index</div>'}
+        </div>
+        <div class="home-hero-right">
+          <div class="home-hc-value${hasHC?'':' hc-pending'}">${hcStr}</div>
+        </div>
       </div>
     </div>
-    <button class="home-log-btn" onclick="startLog()">⛳ Log New Round</button>
     ${bestHtml}
     ${bestSimHtml}
     <div class="home-stats-row">
@@ -971,7 +1063,7 @@ async function renderHome() {
         <div class="home-stat-lbl">${avgLbl}</div>
       </div>
       <div class="home-stat-cell tappable" onclick="show('stats')">
-        <div class="home-stat-val" style="font-size:20px;padding-top:2px">📊</div>
+        <div class="home-stat-val"><img src="${ico('golf-clubs')}" style="width:30px;height:30px;object-fit:contain;margin:1px auto 0;display:block"></div>
         <div class="home-stat-lbl">Stats</div>
       </div>
     </div>
@@ -983,8 +1075,9 @@ async function renderHome() {
    ================================================================ */
 let roundsFilter='all';
 async function renderRounds() {
-  const rounds=await GET(`/api/rounds?round_type=${roundsFilter}&sort=recent`);
   const v=document.getElementById('v-rounds');
+  v.innerHTML='<div class="page-header"><div class="page-title">My Rounds</div></div><div style="padding:0 16px"><div class="skeleton skeleton-line" style="margin:12px 0"></div><div class="skeleton skeleton-line" style="margin:8px 0"></div><div class="skeleton skeleton-line" style="margin:8px 0"></div></div>';
+  const rounds=await GET(`/api/rounds?round_type=${roundsFilter}&sort=recent`);
 
   let filterHtml='';
   for(const [lbl,val] of [['All','all'],['Solo','solo'],['Scramble','scramble']]){
@@ -993,7 +1086,7 @@ async function renderRounds() {
 
   let rows='';
   if(!rounds.length){
-    rows='<div class="empty"><div class="empty-icon">🏌️</div><div class="empty-text">No rounds yet</div></div>';
+    rows=`<div class="empty"><div class="empty-icon"><img src="${ico('Favicon')}" style="width:90px;height:90px;object-fit:contain;margin:1px auto 0;display:block"></div><div class="empty-text" style="font-size:16px;font-weight:600;margin-bottom:6px">No rounds yet</div><div style="font-size:13px;color:var(--text2);margin-bottom:16px">Log your first round to see it here.</div><button class="btn btn-green" style="max-width:200px;margin:0 auto" onclick="startLog()">Log a Round</button></div>`;
   } else {
     rows='<div style="padding:0 16px;overflow-x:auto"><table class="tree-table"><tr><th style="width:80px">Date</th><th>Course</th><th style="width:50px">Score</th><th style="width:45px">+/-</th><th style="width:45px">Holes</th></tr>';
     for(const rd of rounds){
@@ -1039,12 +1132,8 @@ function renderScorecard() {
   const teeColor=sc.tee_color||'White';
   const teeCSS=teeColorCSS(teeColor);
 
-  // Determine header colors based on tee
-  // Dark tees (Black) get light text, light tees get dark text
-  const darkTees=['Black','Blue','Green'];
-  const isDarkTee=darkTees.includes(teeColor);
-  const headerBg=isDarkTee?teeCSS:(teeColor==='White'?'#F8F8F8':teeCSS);
-  const headerFg=isDarkTee?'#FFFFFF':(teeColor==='Yellow'||teeColor==='Gold'?'#1C1C1E':'#1C1C1E');
+  const headerBg=teeColor==='White'?'#F8F8F8':teeCSS;
+  const headerFg=teeTextColor(headerBg);
   const headerBorder=teeColor==='White'?'1px solid var(--sep)':'none';
 
   // Date formatting
@@ -1069,7 +1158,7 @@ function renderScorecard() {
   if(sc.is_sim) pills+=`<span class="sc-pill">Sim</span>`;
 
   // Tee dot pill
-  const teeDotBorder=isDarkTee?'none':'1px solid rgba(0,0,0,0.2)';
+  const teeDotBorder=teeCSS==='#FFFFFF'?'1px solid rgba(0,0,0,0.2)':'none';
   const teePill=`<span class="sc-pill"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${teeCSS};border:${teeDotBorder};vertical-align:middle;margin-right:4px"></span>${teeColor} Tees</span>`;
 
   // Build scorecard grids — traditional horizontal format
@@ -1142,7 +1231,7 @@ function renderScorecard() {
     const f9=sc.front_9.score_total, b9=sc.back_9.score_total;
     const f9p=sc.front_9.par_total, b9p=sc.back_9.par_total;
     totalsHtml=`
-      <div style="background:var(--card);margin:0 16px;padding:12px 16px;display:flex;justify-content:space-around;text-align:center;border-top:2px solid ${teeCSS}">
+      <div style="background:var(--card);margin:0 16px;padding:12px 16px;display:flex;justify-content:space-around;text-align:center;border-top:2px solid ${teeCSS};border-radius:8px">
         <div><div style="font-size:11px;color:var(--text2)">OUT</div><div style="font-size:18px;font-weight:700">${f9||'—'}</div></div>
         <div><div style="font-size:11px;color:var(--text2)">OUT</div><div style="font-size:18px;font-weight:700">${b9||'—'}</div></div>
         <div><div style="font-size:11px;color:var(--text2)">TOTAL</div><div style="font-size:22px;font-weight:800">${sc.total_score}</div></div>
@@ -1153,7 +1242,7 @@ function renderScorecard() {
 
   v.innerHTML=`
     <div class="page-header">
-      <button class="back-btn" onclick="nav('rounds')">← Rounds</button>
+      <button class="back-btn" onclick="nav('rounds')" aria-label="Back to Rounds">‹ Rounds</button>
     </div>
 
     <!-- Tee-colored header card -->
@@ -1169,7 +1258,7 @@ function renderScorecard() {
           <div class="sc-header-diff" style="color:${diffColor}">${ds}</div>
         </div>
       </div>
-      <div class="sc-header-footer" style="border-top-color:${isDarkTee?'rgba(255,255,255,0.15)':'rgba(0,0,0,0.1)'}">
+      <div class="sc-header-footer" style="border-top-color:${headerFg==='#FFFFFF'?'rgba(255,255,255,0.15)':'rgba(0,0,0,0.1)'}">
         ${teePill}${pills}${targetHtml}
       </div>
     </div>
@@ -1182,9 +1271,8 @@ function renderScorecard() {
     ${sc.notes?`<div class="sc-notes"><div class="sc-notes-title">Notes</div><div class="sc-notes-body">${esc(sc.notes)}</div></div>`:''}
 
     <div class="sc-actions">
-      <button class="btn btn-red" style="flex:0;padding:10px 20px;font-size:13px" onclick="delRound(${S.viewRoundIdx})">🗑 Delete</button>
+      <button class="btn btn-red" style="flex:0;padding:10px 20px;font-size:13px;display:flex;align-items:center;gap:6px" onclick="delRound(${S.viewRoundIdx})"><img src="/favicon/trash-96.png" style="width:16px;height:16px;object-fit:contain"> Delete</button>
       <div style="flex:1"></div>
-      <button class="btn" style="flex:0;padding:10px 20px;font-size:13px;background:var(--bg)" onclick="nav('rounds')">← Back</button>
     </div>
   `;
 }
@@ -1210,7 +1298,7 @@ async function startLog(){
 function renderLogSetup() {
   const v=document.getElementById('v-log-setup');
   if(!S.courses.length){
-    v.innerHTML=`<div class="page-header"><button class="back-btn" onclick="nav('home')">← Back</button><div class="page-title">Log Round</div></div>
+    v.innerHTML=`<div class="page-title">Log Round</div></div>
       <div class="card"><div style="font-size:14px;font-weight:bold">No courses added yet</div><div style="font-size:11px;color:var(--text2);padding:12px 0">Add a course before logging a round.</div>
       <button class="btn btn-primary" onclick="nav('courses')">➕ Add Course</button></div>`;
     return;
@@ -1328,7 +1416,10 @@ function lsClubChanged(){
   courses.forEach((c,i)=>{
     const tp=c.pars.reduce((a,b)=>a+b,0);
     const sel=S.logCourse&&S.logCourse.name===c.name;
-    html+=`<div style="display:flex;align-items:center;padding:12px;cursor:pointer;border:2px solid ${sel?'var(--accent)':'transparent'};background:${sel?'rgba(0,122,255,0.06)':'var(--bg)'};margin-bottom:4px" onclick="lsPickCourse('${esc(c.name)}')">
+    const solo=courses.length===1;
+    const br=solo?'10px':i===0?'10px 10px 0 0':i===courses.length-1?'0 0 10px 10px':'0';
+    const borderTop=i>0&&!solo?'border-top:0.5px solid var(--sep);':'';
+    html+=`<div style="display:flex;align-items:center;padding:12px;cursor:pointer;border-radius:${br};overflow:hidden;border:2px solid ${sel?'var(--accent)':'transparent'};background:${sel?'rgba(0,122,255,0.06)':'var(--bg)'};${borderTop}" onclick="lsPickCourse('${esc(c.name)}')">
       <div style="flex:1">
         <div style="font-size:15px;font-weight:${sel?'600':'500'}">${esc(c.name)}</div>
         <div style="font-size:12px;color:var(--text2)">${c.pars.length} holes · Par ${tp}</div>
@@ -1481,8 +1572,8 @@ function renderLogEntry(){
   // Running total
   let total=0,done=0,parDone=0;
   for(let i=0;i<S.holesToScore.length;i++){const s=isD?S.holeClubs[i].length:S.holeScores[i];if(s!=null&&s>0){total+=s;done++;parDone+=S.logCourse.pars[S.holesToScore[i]];}}
-  let runStr=`0/${S.holesToScore.length} holes`;
-  if(done>0){const rd=total-parDone;const rds=rd>0?`+${rd}`:rd<0?String(rd):'E';runStr=`Total: ${total} (${rds}) · ${done}/${S.holesToScore.length}`;}
+  let runStr='';
+  if(done>0){const d=total-parDone;runStr=`${total} (${d>0?'+':''}${d===0?'E':d})`;}
 
   // Build bottom pad
   let bottomHtml='';
@@ -1503,7 +1594,6 @@ function renderLogEntry(){
     cells+=`<button class="club-grid-btn action-next" onclick="${lastH?'checkFinish()':'nextH()'}">${nextLabel}</button>`;
 
     bottomHtml=`<div class="club-grid-container">
-      <div class="club-grid-hint">Tap clubs in order of use</div>
       <div class="club-grid">${cells}</div>
     </div>`;
   } else {
@@ -1535,7 +1625,7 @@ function renderLogEntry(){
         ${isD?`<div class="entry-clubs-display">${esc(clubsStr)}</div>`:''}
         <div class="entry-diff">${diffStr}</div>
         ${suggestStr?`<div class="entry-suggest">Suggested: ${esc(suggestStr)}</div>`:''}
-        ${isD&&S.logIsSim&&S.holeSimPutts&&S.holeSimPutts[hi]!==null?`<div class="entry-sim-putts">🎲 Sim putts: ${S.holeSimPutts[hi]}${S.holeClubs[hi].filter(c=>c==='P').length>0?' (overridden)':''}</div>`:''}
+        ${isD&&S.logIsSim&&S.holeSimPutts&&S.holeSimPutts[hi]!==null?`<div class="entry-sim-putts">Sim putts: ${S.holeSimPutts[hi]}${S.holeClubs[hi].filter(c=>c==='P').length>0?' (overridden)':''}</div>`:''}
       </div>
       <button class="entry-nav-btn" onclick="nextH()" ${hi>=S.holesToScore.length-1?'disabled':''}>▶</button>
     </div>
@@ -1573,10 +1663,8 @@ function renderLogNotes(){
   const course=S.logCourse;
   const teeColor=S.logTee||'White';
   const teeCSS_=teeColorCSS(teeColor);
-  const darkTees=['Black','Blue','Green'];
-  const isDark=darkTees.includes(teeColor);
-  const headerBg=isDark?teeCSS_:(teeColor==='White'?'#F8F8F8':teeCSS_);
-  const headerFg=isDark?'#FFF':'#1C1C1E';
+  const headerBg=teeColor==='White'?'#F8F8F8':teeCSS_;
+  const headerFg=teeTextColor(headerBg);
 
   // Compute scores per hole (sim rounds add auto-putts to the preview total)
   const scores=[];
@@ -1645,35 +1733,47 @@ function renderLogNotes(){
     backGrid=buildMiniNine('BACK OUT',9,9);
   }
 
+  const holesLabel=S.logHoles==='front_9'?'Front 9':S.logHoles==='back_9'?'Back 9':'18 Holes';
+  let pills=`<span class="sc-pill">${holesLabel}</span>`;
+  pills+=`<span class="sc-pill">${S.logType==='scramble'?'Scramble':'Solo'}</span>`;
+  if(!S.logSerious) pills+=`<span class="sc-pill">Casual</span>`;
+  if(S.logIsSim) pills+=`<span class="sc-pill">Sim</span>`;
+  const teeDotBorder=teeCSS_==='#FFFFFF'?'1px solid rgba(0,0,0,0.2)':'none';
+  const teePill=`<span class="sc-pill"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${teeCSS_};border:${teeDotBorder};vertical-align:middle;margin-right:4px"></span>${teeColor} Tees</span>`;
+
   v.innerHTML=`
     <div class="page-header">
       <button class="back-btn" onclick="show('log-entry')">← Back to Scoring</button>
       <div class="page-title">Review & Save</div>
     </div>
 
-    <!-- Tee-colored header -->
     <div class="sc-header-card" style="background:${headerBg};color:${headerFg};border:${teeColor==='White'?'1px solid var(--sep)':'none'}">
       <div class="sc-header-stripe" style="background:${teeCSS_}"></div>
-      <div class="sc-header-course">${esc(course.name)}</div>
-      <div class="sc-header-meta">${S.logDate} · ${teeColor} Tees · ${S.holesToScore.length} holes</div>
-      <div class="sc-header-score-row" style="border-top-color:${isDark?'rgba(255,255,255,0.15)':'rgba(0,0,0,0.1)'}">
-        <div class="sc-header-total">${total}</div>
-        <div>
+      <div class="sc-header-main">
+        <div class="sc-header-left">
+          <div class="sc-header-course">${esc(course.name)}</div>
+          <div class="sc-header-meta">${S.logDate}</div>
+        </div>
+        <div class="sc-header-right">
+          <div class="sc-header-total">${total}</div>
           <div class="sc-header-diff" style="color:${diffColor}">${ds}</div>
         </div>
+      </div>
+      <div class="sc-header-footer" style="border-top-color:${headerFg==='#FFFFFF'?'rgba(255,255,255,0.15)':'rgba(0,0,0,0.1)'}">
+        ${teePill}${pills}
       </div>
     </div>
 
     ${frontGrid}
     ${backGrid}
 
-    <div class="card">
-      <div style="font-size:14px;font-weight:bold;margin-bottom:6px">Notes (optional)</div>
-      <textarea class="form-input" id="ln-notes" placeholder="How was the round?"></textarea>
+    <div class="sc-notes">
+      <div class="sc-notes-title">Notes (optional)</div>
+      <textarea class="form-input" id="ln-notes" placeholder="How was the round?" style="margin-top:6px"></textarea>
     </div>
 
-    <div style="padding:12px 16px">
-      <button class="btn btn-green" onclick="submitRound()">💾 Save Round</button>
+    <div class="sc-actions">
+      <button class="btn btn-green" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px" onclick="submitRound()"><img src="/favicon/save-96.png" style="width:16px;height:16px;object-fit:contain"> Save Round</button>
     </div>
   `;
 }
@@ -1716,20 +1816,22 @@ async function renderCourses(){
   const sorted=[...S.courses].sort((a,b)=>(a.club||'').localeCompare(b.club||'')||a.name.localeCompare(b.name));
   let rows='';
   if(!sorted.length){
-    rows='<div class="empty"><div class="empty-icon">⛳</div><div class="empty-text">No courses yet.<br>Add your first course to get started.</div></div>';
+    rows=`<div class="empty"><div class="empty-icon"><div class="empty-icon"><img src="${ico('golf-ball')}" style="width:90px;height:90px;object-fit:contain;margin:1px auto 0;display:block"></div><div class="empty-text">No courses yet.<br>Add your first course to get started.</div></div>`;
   } else {
     // Group by club
     const clubs={};
     for(const c of sorted){const k=c.club||'Other';if(!clubs[k])clubs[k]=[];clubs[k].push(c);}
     for(const [clubName,courses] of Object.entries(clubs)){
-      rows+=`<div style="padding:12px 16px 4px;font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px">${esc(clubName)}</div>`;
-      rows+='<div style="background:var(--card);margin:0 16px 8px">';
+      rows+=`<div class="club-section-label"><span class="club-section-label-title">${esc(clubName)}</span></div>`;
+      rows+='<div class="club-items-card">';
       for(let i=0;i<courses.length;i++){
         const c=courses[i];
         const tp=c.pars.reduce((a,b)=>a+b,0);
         const teeColors=c.tee_boxes.map(t=>t.color);
         let dots='';for(const tc of teeColors) dots+=`<span class="tee-dot" style="width:10px;height:10px;display:inline-block;background:${teeColorCSS(tc)}"></span>`;
-        rows+=`<div style="display:flex;align-items:center;padding:14px 16px;cursor:pointer;${i<courses.length-1?'border-bottom:0.5px solid var(--sep);':''}" onclick="viewCourse('${esc(c.name)}')">
+        const solo=courses.length===1;
+        const br=solo?'12px':i===0?'12px 12px 0 0':i===courses.length-1?'0 0 12px 12px':'0';
+        rows+=`<div style="display:flex;align-items:center;padding:14px 16px;cursor:pointer;background:var(--card);border-radius:${br};overflow:hidden;${i<courses.length-1?'border-bottom:0.5px solid var(--sep);':''}" onclick="viewCourse('${esc(c.name)}')">
           <div style="flex:1;min-width:0">
             <div style="font-size:16px;font-weight:500">${esc(c.name)}</div>
             <div style="font-size:12px;color:var(--text2);margin-top:2px;display:flex;align-items:center;gap:6px">
@@ -1746,16 +1848,63 @@ async function renderCourses(){
   v.innerHTML=`
     <div class="page-header"><div class="page-title">Courses</div></div>
     <div style="padding:0 16px 8px;display:flex;justify-content:flex-end">
-      <button class="btn btn-primary" style="width:auto;padding:8px 16px;font-size:13px" onclick="editCourse(null)">➕ Add New Course</button>
+      <button class="btn btn-primary" style="width:auto;padding:8px 16px;font-size:13px" onclick="editCourse(null)">+ Add New Course</button>
     </div>
     <div class="hint">Tap a course to view details</div>
     ${rows}
   `;
 }
 
+function parseColor(css){
+  if(css.startsWith('#')){
+    const h=css.slice(1);
+    return[parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)];
+  }
+  // Named color: resolve through a temporary DOM element
+  const el=document.createElement('div');
+  el.style.color=css;
+  document.body.appendChild(el);
+  const v=getComputedStyle(el).color.match(/\d+/g);
+  document.body.removeChild(el);
+  return v?[+v[0],+v[1],+v[2]]:[142,142,147];
+}
+
+function wcagLuminance(r,g,b){
+  const lin=x=>{x/=255;return x<=0.04045?x/12.92:Math.pow((x+0.055)/1.055,2.4);};
+  return 0.2126*lin(r)+0.7152*lin(g)+0.0722*lin(b);
+}
+
+// Returns '#FFFFFF' or '#1C1C1E' — whichever passes WCAG AA contrast on cssColor.
+function teeTextColor(cssColor){
+  // Design overrides: colors where convention beats pure luminance math.
+  // Red (#FF3B30) computes to dark text at 5.5:1, but white on red is the
+  // universal golf convention and looks far better in practice.
+  const overrides={'#FF3B30':'#FFFFFF','#34C759':'#FFFFFF'};
+  if(overrides[cssColor]) return overrides[cssColor];
+  const[r,g,b]=parseColor(cssColor);
+  const L=wcagLuminance(r,g,b);
+  // Crossover point where white and dark text have equal contrast is L≈0.179
+  return L<0.179?'#FFFFFF':'#1C1C1E';
+}
+
 function teeColorCSS(name){
-  const m={'Black':'#1C1C1E','Blue':'#007AFF','White':'#FFFFFF','Yellow':'#FFD60A','Red':'#FF3B30','Gold':'#FFB800','Green':'#34C759','Silver':'#C7C7CC'};
-  return m[name]||'#8E8E93';
+  // Golf-specific overrides: names that exist in CSS but map to the wrong shade,
+  // or names that need a specific brand/platform color.
+  const m={
+    'Black':'#1C1C1E',   // true near-black, not CSS black
+    'Blue':'#007AFF',    // iOS blue, CSS blue (#0000FF) is too saturated
+    'White':'#FFFFFF',
+    'Yellow':'#FFD60A',  // warm gold-yellow, CSS yellow is too harsh
+    'Red':'#FF3B30',     // iOS red
+    'Gold':'#FFB800',    // warm amber gold, CSS gold (#FFD700) is too yellow
+    'Green':'#34C759',   // bright fairway green, CSS green (#008000) is too dark
+    'Silver':'#C7C7CC',  // iOS system gray, CSS silver (#C0C0C0) is close but mismatched
+  };
+  if(m[name]) return m[name];
+  // For any other name (Purple, Pink, Brown, Maroon, Orange, Teal, etc.)
+  // try it as a CSS named color directly — covers ~140 colors automatically.
+  if(CSS.supports('color', name.toLowerCase())) return name.toLowerCase();
+  return '#8E8E93'; // fallback gray
 }
 
 function viewCourse(name){
@@ -1843,7 +1992,7 @@ async function renderCourseDetail(){
 
   v.innerHTML=`
     <div class="page-header">
-      <button class="back-btn" onclick="nav('courses')">← Courses</button>
+      <button class="back-btn" onclick="nav('courses')" aria-label="Back to Courses">‹ Courses</button>
     </div>
     <div class="course-hero">
       <div class="course-hero-name">${esc(c.name)}</div>
@@ -1860,15 +2009,17 @@ async function renderCourseDetail(){
     ${teeDetailHtml}
 
     <div class="hole-grid">
-      <table>
-        <tr><th>Hole</th><th>Par</th><th>Yards</th></tr>
-        ${holeRows}
-      </table>
+      <div style="border-radius:12px;overflow:hidden;background:var(--card)">
+        <table>
+          <tr><th>Hole</th><th>Par</th><th>Yards</th></tr>
+          ${holeRows}
+        </table>
+      </div>
     </div>
 
     <div style="padding:12px 16px;display:flex;gap:8px">
-      <button class="btn btn-primary" style="flex:1" onclick="editCourse('${esc(c.name)}')">✏️ Edit Course</button>
-      <button class="btn btn-red" style="flex:0;padding:10px 20px" onclick="deleteCourse('${esc(c.name)}')">🗑</button>
+      <button class="btn btn-primary" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px" onclick="editCourse('${esc(c.name)}')"><img src="/favicon/pencil-96.png" style="width:16px;height:16px;object-fit:contain"> Edit Course</button>
+      <button class="btn btn-red" style="flex:0;padding:10px 20px" onclick="deleteCourse('${esc(c.name)}')"><img src="/favicon/trash-96.png" style="width:18px;height:18px;object-fit:contain"></button>
     </div>
   `;
 }
@@ -1957,7 +2108,7 @@ function renderCourseEditor(){
     </div>
 
     <div style="padding:12px 16px;display:flex;gap:8px">
-      <button class="btn btn-green" style="flex:2" onclick="saveCourse()">💾 Save Course</button>
+      <button class="btn btn-green" style="flex:2;display:flex;align-items:center;justify-content:center;gap:6px" onclick="saveCourse()"><img src="/favicon/save-96.png" style="width:16px;height:16px;object-fit:contain"> Save Course</button>
       <button class="btn" style="flex:1;background:var(--bg)" onclick="${c?`viewCourse('${esc(c.name)}')`:'nav(\'courses\')'}">Cancel</button>
     </div>
   `;
@@ -2129,11 +2280,12 @@ function svgRing(pct, color, size=80, stroke=7) {
 }
 
 async function renderStats(){
+  const v=document.getElementById('v-stats');
+  v.innerHTML='<div class="page-header"><div class="page-title">Statistics</div></div><div class="skeleton-card" style="margin:8px 16px"><div class="skeleton skeleton-num" style="margin:20px auto;width:80px;height:80px"></div><div class="skeleton skeleton-line" style="margin:8px 20px"></div><div class="skeleton skeleton-line-sm" style="margin:4px 20px"></div></div>';
   const [stats,hc,adv,leaks,diffs]=await Promise.all([
     GET('/api/stats'),GET('/api/stats/handicap'),GET('/api/stats/advanced'),
     GET('/api/stats/stroke-leaks'),GET('/api/stats/differentials')
   ]);
-  const v=document.getElementById('v-stats');
   const idx=hc.handicap_index;
 
   const tabs=[['overview','Overview'],['perf','Performance'],['clubs','Clubs'],['analysis','Analysis']];
@@ -2206,7 +2358,7 @@ async function renderStats(){
   else if(statsTab==='perf'){
     if(!adv||!adv.total_holes_tracked){
       body=`<div class="stat-card" style="text-align:center;padding:40px 20px">
-        <div style="font-size:40px;margin-bottom:12px">📊</div>
+        <div style="font-size:40px;margin-bottom:12px"><div class="empty-icon"><img src="${ico('golf-clubs')}" style="width:90px;height:90px;object-fit:contain;margin:1px auto 0;display:block"></div>
         <div style="font-size:16px;font-weight:600">No Performance Data</div>
         <div style="font-size:13px;color:var(--text2);margin-top:8px;line-height:1.5">Use "Detailed" entry mode when<br>logging rounds to track these stats.</div>
       </div>`;
@@ -2310,12 +2462,14 @@ async function renderStats(){
     const maxDist=sorted.length?Math.max(...sorted.map(c=>c.distance||0),1):300;
 
     let itemsHtml='';
-    for(const c of sorted){
+    for(let i=0;i<sorted.length;i++){
+      const c=sorted[i];
       const isExp=S.editingClub===c.name;
       const usage=usageMap[c.name];
       const barPct=totalShots>0&&maxUsage>0?Math.round((usage?.count||0)/maxUsage*100):Math.round((c.distance||0)/maxDist*100);
       const usageLbl=usage?`${usage.percentage}% of shots`:'';
-      itemsHtml+=`<div class="club-item${isExp?' expanded':''}">
+      const posClass=sorted.length===1?'is-solo':i===0?'is-first':i===sorted.length-1?'is-last':'';
+      itemsHtml+=`<div class="club-item${isExp?' expanded':''}${posClass?' '+posClass:''}">
         <div class="club-item-main" onclick="clubToggle('${esc(c.name)}')">
           <div class="club-item-name">${esc(c.name)}</div>
           <div class="club-item-bar-wrap"><div class="club-item-bar" style="width:${barPct}%"></div></div>
@@ -2332,7 +2486,7 @@ async function renderStats(){
             <span style="font-size:13px;color:var(--text2)">yd</span>
           </div>
           <div class="club-edit-actions">
-            <button class="club-edit-save" onclick="clubSave('${esc(c.name)}')">Save</button>
+            <button class="club-edit-save" onclick="clubSave('${esc(c.name)}')"><img src="/favicon/save-96.png" style="width:15px;height:15px;object-fit:contain"> Save</button>
             <button class="club-edit-delete" onclick="clubDelete('${esc(c.name)}')">Remove</button>
             <button class="club-edit-cancel" onclick="clubToggle(null)">Cancel</button>
           </div>
@@ -2347,18 +2501,17 @@ async function renderStats(){
 
     const sortLbl=totalShots>0?'Sorted by usage':'Sorted by distance';
     const bagHtml=sorted.length?`
-      <div class="club-items-card">
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px 8px">
-          <div style="font-size:13px;font-weight:700">My Bag</div>
-          <div style="font-size:11px;color:var(--text2)">${sortLbl}</div>
-        </div>
-        ${itemsHtml}
-      </div>`:`<div class="empty" style="padding:40px 0"><div class="empty-icon">🏌️</div><div class="empty-text">No clubs in bag yet</div></div>`;
+      <div class="club-section-label">
+        <span class="club-section-label-title">My Bag</span>
+        <span class="club-section-label-sub">${sortLbl}</span>
+      </div>
+      <div class="club-items-card">${itemsHtml}</div>`
+      :`<div class="empty" style="padding:40px 0"><div class="empty-icon">🏌️</div><div class="empty-text">No clubs in bag yet</div></div>`;
 
     const addSection=isAdding?`
+      <div class="club-section-label"><span class="club-section-label-title">Add Club</span></div>
       <div class="club-items-card">
-        <div style="padding:12px 14px 6px;font-size:13px;font-weight:700">Add Club</div>
-        <div class="club-item-edit" style="border-top:none">
+        <div class="club-item is-solo club-item-edit" style="border-top:none">
           <div class="club-edit-row">
             <div class="club-edit-lbl">Club</div>
             <select class="form-select" id="club-new-name" style="flex:1">
@@ -2371,7 +2524,7 @@ async function renderStats(){
             <span style="font-size:13px;color:var(--text2)">yd</span>
           </div>
           <div class="club-edit-actions">
-            <button class="club-edit-save" onclick="clubAdd()">Add to Bag</button>
+            <button class="club-edit-save" onclick="clubAdd()"><img src="/favicon/save-96.png" style="width:15px;height:15px;object-fit:contain"> Add to Bag</button>
             <button class="club-edit-cancel" onclick="clubToggle(null)">Cancel</button>
           </div>
         </div>
@@ -2450,7 +2603,6 @@ async function renderStats(){
 
   v.innerHTML=`
     <div class="page-header">
-      <button class="back-btn" onclick="nav('home')">← Back</button>
       <div class="page-title">Statistics</div>
     </div>
     ${tabHtml}
@@ -2487,30 +2639,39 @@ async function clubAdd(){
   renderStats();
 }
 
+
 /* ================================================================
-   RULEBOOK
+   THEME-AWARE ICONS
+   Returns the correct icon path for the current color scheme.
+   Pattern: /favicon/{name}-96.png (light) or /favicon/{name}-w-96.png (dark)
    ================================================================ */
-async function renderRulebook(){
-  const v=document.getElementById('v-rulebook');const info=await GET('/api/rulebook/info');
-  if(!info.available){v.innerHTML=`<div class="page-header"><button class="back-btn" onclick="nav('home')">← Back</button><div class="page-title">Rules of Golf</div></div><div class="empty"><div class="empty-icon">📖</div><div class="empty-text">Rulebook PDF not available</div></div>`;return;}
-  S.rbTotal=info.total_pages;
-  v.innerHTML=`<div class="page-header"><button class="back-btn" onclick="nav('home')">← Back</button><div class="page-title">Rules of Golf</div><div style="font-size:11px;color:var(--text2)">${info.version?.version||'2023'} Edition</div></div>
-    <div class="card"><div style="display:flex;gap:8px"><input class="form-input" id="rb-q" placeholder="🔍 Search rules..." style="flex:1"><button class="btn btn-primary" style="width:auto;padding:8px 16px" onclick="rbS()">Search</button></div></div>
-    <div id="rb-results"></div>
-    <div class="card"><div style="display:flex;gap:8px;align-items:center"><button class="btn" style="width:auto;padding:8px 12px;background:var(--bg)" onclick="rbPr()">◀</button><input type="number" class="form-input" id="rb-pn" value="${S.rbPage}" style="width:70px;text-align:center" min="1" max="${S.rbTotal}"><span style="color:var(--text2);font-size:13px">of ${S.rbTotal}</span><button class="btn" style="width:auto;padding:8px 12px;background:var(--bg)" onclick="rbNx()">▶</button><button class="btn btn-primary" style="width:auto;padding:8px 16px" onclick="rbGo()">Go</button></div></div>
-    <div id="rb-page"></div>`;
-  document.getElementById('rb-q').addEventListener('keydown',e=>{if(e.key==='Enter')rbS();});
+function ico(name) {
+  const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  return `/favicon/${name}${dark?'-w':''}-96.png`;
 }
-async function rbS(){const q=(document.getElementById('rb-q')||{}).value?.trim();if(!q)return;const res=await GET(`/api/rulebook/search?q=${encodeURIComponent(q)}`);const el=document.getElementById('rb-results');
-  if(!res.length){el.innerHTML='<div class="card" style="font-size:13px">No results found</div>';return;}
-  let h='';for(const r of res.slice(0,20)){const sn=r.snippet.replace(new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi'),m=>`<mark>${m}</mark>`);h+=`<div class="rb-result" onclick="rbL(${r.page})"><div class="rb-result-page">Page ${r.page}</div><div class="rb-result-snippet">${sn}</div></div>`;}el.innerHTML=h;}
-async function rbL(p){S.rbPage=p;const data=await GET(`/api/rulebook/page/${p}`);document.getElementById('rb-page').innerHTML=`<div class="card"><div style="font-size:12px;font-weight:bold;color:var(--text2);margin-bottom:4px">Page ${p}</div><div class="rb-content">${esc(data.content||'No content')}</div></div>`;const inp=document.getElementById('rb-pn');if(inp)inp.value=p;}
-function rbPr(){if(S.rbPage>1)rbL(S.rbPage-1);}function rbNx(){if(S.rbPage<S.rbTotal)rbL(S.rbPage+1);}function rbGo(){const p=parseInt((document.getElementById('rb-pn')||{}).value);if(p>=1&&p<=S.rbTotal)rbL(p);}
+
+function updateTabIcons() {
+  const t = (sel, name) => { const el=document.querySelector(sel); if(el) el.src=ico(name); };
+  t('[data-tab="rounds"] .tab-icon img', 'golf-cart');
+  t('[data-tab="home"] .tab-icon img', 'Favicon');
+  t('[data-tab="courses"] .tab-icon img', 'golf-ball');
+}
+
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  updateTabIcons();
+  const id = (document.querySelector('.view.active')||{}).id;
+  const name = id ? id.replace('v-','') : '';
+  const r = {home:renderHome,rounds:renderRounds,scorecard:renderScorecard,
+    'log-setup':renderLogSetup,'log-entry':renderLogEntry,'log-notes':renderLogNotes,
+    courses:renderCourses,'course-detail':renderCourseDetail,'course-editor':renderCourseEditor,
+    stats:renderStats};
+  if(r[name]) r[name]();
+});
 
 /* ================================================================
    INIT
    ================================================================ */
-async function init(){S.clubs=await GET('/api/clubs');renderHome();}
+async function init(){S.clubs=await GET('/api/clubs');updateTabIcons();nav('home');}
 init();
 </script>
 </body>
