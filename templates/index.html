@@ -6,10 +6,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#EEF2EB">
-<title>Golf Stats</title>
-<link rel="icon" type="image/png" sizes="16x16" href="/favicon/Favicon-16.png">
-<link rel="icon" type="image/png" sizes="32x32" href="/favicon/Favicon-32.png">
-<link rel="apple-touch-icon" sizes="96x96" href="/favicon/Favicon-96.png">
+<title>Galf</title>
+<link rel="icon" type="image/png" sizes="96x96" href="/static/Favicon-96.png">
+<link rel="apple-touch-icon" sizes="96x96" href="/static/Favicon-96.png">
 <!-- No external libraries needed -->
 <style>
 /* ================================================================
@@ -878,17 +877,17 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 
   <!-- Primary action bar — shown only on Home, lives above the tab bar -->
   <div id="log-btn-bar">
-    <button class="home-log-btn" onclick="startLog()"><img src="/favicon/golf-ball-w-96.png" style="width:22px;height:22px;object-fit:contain"> Log New Round</button>
+    <button class="home-log-btn" onclick="startLog()"><img src="/static/golf-ball-w-96.png" style="width:22px;height:22px;object-fit:contain"> Log New Round</button>
   </div>
 
   <!-- Tab bar: exactly 3 tabs matching _create_tab_bar -->
   <nav id="tabbar">
     <a class="tab" data-tab="rounds" onclick="nav('rounds')" aria-label="Rounds">
-      <span class="tab-icon"><img src="/favicon/golf-cart-96.png" alt=""></span><span class="tab-label"></span></a>
+      <span class="tab-icon"><img src="/static/golf-cart-96.png" alt=""></span><span class="tab-label"></span></a>
     <a class="tab active" data-tab="home" onclick="nav('home')" aria-label="Home">
-      <span class="tab-icon"><img src="/favicon/Favicon-96.png" style="width:50px;height:50px" alt=""></span><span class="tab-label"></span></a>
+      <span class="tab-icon"><img src="/static/Favicon-96.png" style="width:50px;height:50px" alt=""></span><span class="tab-label"></span></a>
     <a class="tab" data-tab="courses" onclick="nav('courses')" aria-label="Courses">
-      <span class="tab-icon"><img src="/favicon/golf-course-96.png" alt=""></span><span class="tab-label"></span></a>
+      <span class="tab-icon"><img src="/static/golf-course-96.png" alt=""></span><span class="tab-label"></span></a>
   </nav>
 </div>
 
@@ -1267,7 +1266,7 @@ function renderScorecard() {
     ${sc.notes?`<div class="sc-notes"><div class="sc-notes-title">Notes</div><div class="sc-notes-body">${esc(sc.notes)}</div></div>`:''}
 
     <div class="sc-actions">
-      <button class="btn btn-red" style="flex:0;padding:10px 20px;font-size:13px;display:flex;align-items:center;gap:6px" onclick="delRound(${S.viewRoundIdx})"><img src="/favicon/trash-96.png" style="width:16px;height:16px;object-fit:contain"> Delete</button>
+      <button class="btn btn-red" style="flex:0;padding:10px 20px;font-size:13px;display:flex;align-items:center;gap:6px" onclick="delRound(${S.viewRoundIdx})"><img src="/static/trash-96.png" style="width:16px;height:16px;object-fit:contain"> Delete</button>
       <div style="flex:1"></div>
     </div>
   `;
@@ -1761,7 +1760,7 @@ function renderLogNotes(){
     </div>
 
     <div class="sc-actions">
-      <button class="btn btn-green" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px" onclick="submitRound()"><img src="/favicon/save-96.png" style="width:16px;height:16px;object-fit:contain"> Save Round</button>
+      <button class="btn btn-green" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px" onclick="submitRound()"><img src="/static/save-96.png" style="width:16px;height:16px;object-fit:contain"> Save Round</button>
     </div>
   `;
 }
@@ -2005,8 +2004,8 @@ async function renderCourseDetail(){
     </div>
 
     <div style="padding:12px 16px;display:flex;gap:8px">
-      <button class="btn btn-primary" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px" onclick="editCourse('${esc(c.name)}')"><img src="/favicon/pencil-96.png" style="width:16px;height:16px;object-fit:contain"> Edit Course</button>
-      <button class="btn btn-red" style="flex:0;padding:10px 20px" onclick="deleteCourse('${esc(c.name)}')"><img src="/favicon/trash-96.png" style="width:18px;height:18px;object-fit:contain"></button>
+      <button class="btn btn-primary" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px" onclick="editCourse('${esc(c.name)}')"><img src="/static/pencil-96.png" style="width:16px;height:16px;object-fit:contain"> Edit Course</button>
+      <button class="btn btn-red" style="flex:0;padding:10px 20px" onclick="deleteCourse('${esc(c.name)}')"><img src="/static/trash-96.png" style="width:18px;height:18px;object-fit:contain"></button>
     </div>
   `;
 }
@@ -2095,7 +2094,7 @@ function renderCourseEditor(){
     </div>
 
     <div style="padding:12px 16px;display:flex;gap:8px">
-      <button class="btn btn-green" style="flex:2;display:flex;align-items:center;justify-content:center;gap:6px" onclick="saveCourse()"><img src="/favicon/save-96.png" style="width:16px;height:16px;object-fit:contain"> Save Course</button>
+      <button class="btn btn-green" style="flex:2;display:flex;align-items:center;justify-content:center;gap:6px" onclick="saveCourse()"><img src="/static/save-96.png" style="width:16px;height:16px;object-fit:contain"> Save Course</button>
       <button class="btn" style="flex:1;background:var(--bg)" onclick="${c?`viewCourse('${esc(c.name)}')`:'nav(\'courses\')'}">Cancel</button>
     </div>
   `;
@@ -2473,7 +2472,7 @@ async function renderStats(){
             <span style="font-size:13px;color:var(--text2)">yd</span>
           </div>
           <div class="club-edit-actions">
-            <button class="club-edit-save" onclick="clubSave('${esc(c.name)}')"><img src="/favicon/save-96.png" style="width:15px;height:15px;object-fit:contain"> Save</button>
+            <button class="club-edit-save" onclick="clubSave('${esc(c.name)}')"><img src="/static/save-96.png" style="width:15px;height:15px;object-fit:contain"> Save</button>
             <button class="club-edit-delete" onclick="clubDelete('${esc(c.name)}')">Remove</button>
             <button class="club-edit-cancel" onclick="clubToggle(null)">Cancel</button>
           </div>
@@ -2493,7 +2492,7 @@ async function renderStats(){
         <span class="club-section-label-sub">${sortLbl}</span>
       </div>
       <div class="club-items-card">${itemsHtml}</div>`
-      :`<div class="empty" style="padding:40px 0"><div class="empty-icon">🏌️</div><div class="empty-text">No clubs in bag yet</div></div>`;
+      :`<div class="empty" style="padding:40px 0"><div class="empty-icon"><img src="/static/golf-clubs-96.png" style="width:40px;height:40px;opacity:0.5"></div><div class="empty-text">No clubs in bag yet</div></div>`;
 
     const addSection=isAdding?`
       <div class="club-section-label"><span class="club-section-label-title">Add Club</span></div>
@@ -2511,7 +2510,7 @@ async function renderStats(){
             <span style="font-size:13px;color:var(--text2)">yd</span>
           </div>
           <div class="club-edit-actions">
-            <button class="club-edit-save" onclick="clubAdd()"><img src="/favicon/save-96.png" style="width:15px;height:15px;object-fit:contain"> Add to Bag</button>
+            <button class="club-edit-save" onclick="clubAdd()"><img src="/static/save-96.png" style="width:15px;height:15px;object-fit:contain"> Add to Bag</button>
             <button class="club-edit-cancel" onclick="clubToggle(null)">Cancel</button>
           </div>
         </div>
@@ -2525,7 +2524,7 @@ async function renderStats(){
   else if(statsTab==='analysis'){
     if(!adv||!adv.total_holes_tracked){
       body=`<div class="stat-card" style="text-align:center;padding:40px 20px">
-        <div style="font-size:40px;margin-bottom:12px">📊</div>
+        <div style="font-size:40px;margin-bottom:12px"><img src="/static/Favicon-96.png" style="width:40px;height:40px"></div>
         <div style="font-size:16px;font-weight:600">No Data Available</div>
         <div style="font-size:13px;color:var(--text2);margin-top:8px;line-height:1.5">Use "Detailed" entry mode when<br>logging rounds to track stats.</div>
       </div>`;
@@ -2630,11 +2629,11 @@ async function clubAdd(){
 /* ================================================================
    THEME-AWARE ICONS
    Returns the correct icon path for the current color scheme.
-   Pattern: /favicon/{name}-96.png (light) or /favicon/{name}-w-96.png (dark)
+   Pattern: /static/{name}-96.png (light) or /static/{name}-w-96.png (dark)
    ================================================================ */
 function ico(name) {
   const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-  return `/favicon/${name}${dark?'-w':''}-96.png`;
+  return `/static/${name}${dark?'-w':''}-96.png`;
 }
 
 function updateTabIcons() {

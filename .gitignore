@@ -2,4 +2,5 @@ data/
 __pycache__/
 .gitignore
 .claude
-*.md
+claude.md
+.gitignore

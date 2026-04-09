@@ -17,7 +17,7 @@ from Backend import GolfBackend, generate_scorecard_data
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))
 os.chdir(_APP_DIR)  # Backend.py expects data/ relative to cwd
 
-_FAVICON_DIR = os.path.join(_APP_DIR, "favicon")
+_FAVICON_DIR = os.path.join(_APP_DIR, "static")
 
 app = Flask(__name__,
     template_folder=os.path.join(_APP_DIR, "templates"))
@@ -38,7 +38,7 @@ def favicon_ico():
     return send_from_directory(_FAVICON_DIR, "Favicon-32.png", mimetype="image/png")
 
 
-@app.route("/favicon/<path:filename>")
+@app.route("/static/<path:filename>")
 def favicon_files(filename):
     return send_from_directory(_FAVICON_DIR, filename)
 
