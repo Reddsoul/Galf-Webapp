@@ -35,7 +35,7 @@ def index():
 
 @app.route("/favicon.ico")
 def favicon_ico():
-    return send_from_directory(_FAVICON_DIR, "Favicon-32.png", mimetype="image/png")
+    return send_from_directory(_FAVICON_DIR, "Favicon-96.png", mimetype="image/png")
 
 
 @app.route("/static/<path:filename>")
@@ -89,7 +89,10 @@ def api_rounds():
 @app.route("/api/rounds", methods=["POST"])
 def api_add_round():
     data = request.get_json()
-    backend.add_round(data)
+    try:
+        backend.add_round(data)
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
     return jsonify({"ok": True})
 
 

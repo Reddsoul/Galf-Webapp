@@ -858,6 +858,32 @@ textarea.form-input { min-height: 100px; resize: vertical; }
    MISC — improved dark-mode tree-table header
    ================================================================ */
 .tree-table th { background: var(--bg); color: var(--text2); }
+
+/* ================================================================
+   ROUND DRAFT RESTORE BANNER
+   ================================================================ */
+.draft-banner {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--accent); color: #fff;
+  border-radius: 14px; margin: 12px 16px 4px; padding: 12px 14px;
+  gap: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  .draft-banner { background: #1A4D2B; border: 1px solid var(--accent); }
+}
+.draft-banner-info { flex: 1; min-width: 0; }
+.draft-banner-title { font-size: 14px; font-weight: 700; color: #fff; }
+.draft-banner-sub { font-size: 12px; color: rgba(255,255,255,0.75); margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.draft-banner-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.draft-btn-resume {
+  background: #fff; color: var(--accent); border: none; border-radius: 8px;
+  font-size: 13px; font-weight: 700; padding: 6px 12px; cursor: pointer;
+}
+.draft-btn-discard {
+  background: rgba(255,255,255,0.18); color: #fff; border: none; border-radius: 8px;
+  font-size: 13px; font-weight: 600; padding: 6px 10px; cursor: pointer;
+}
 </style>
 </head>
 <body>
@@ -924,6 +950,72 @@ const GET=p=>api(p);
 const POST=(p,d)=>api(p,{method:'POST',body:JSON.stringify(d)});
 const PUT=(p,d)=>api(p,{method:'PUT',body:JSON.stringify(d)});
 const DEL=p=>api(p,{method:'DELETE'});
+
+/* ================================================================
+   ROUND DRAFT — localStorage persistence for in-progress rounds
+   Saves after every score/club action so a navigation away or
+   Safari reload won't lose the holes already entered.
+   ================================================================ */
+const DRAFT_KEY = 'galf_draft_v1';
+
+function saveDraft() {
+  if (!S.logCourse || !S.holesToScore.length) return;
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({
+      courseName: S.logCourse.name,
+      logTee: S.logTee,
+      logHoles: S.logHoles,
+      logType: S.logType,
+      logSerious: S.logSerious,
+      logMode: S.logMode,
+      logDate: S.logDate,
+      logIsSim: S.logIsSim,
+      holesToScore: S.holesToScore,
+      currentHoleIdx: S.currentHoleIdx,
+      holeScores: S.holeScores,
+      holeClubs: S.holeClubs,
+      holeSimPutts: S.holeSimPutts,
+    }));
+  } catch(e) {}
+}
+
+function clearDraft() {
+  try { localStorage.removeItem(DRAFT_KEY); } catch(e) {}
+}
+
+function getDraft() {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch(e) { return null; }
+}
+
+function resumeDraft(draft) {
+  if (!draft) return;
+  const course = S.courses.find(c => c.name === draft.courseName);
+  if (!course) { clearDraft(); renderLogSetup(); return; }
+  S.logCourse = course;
+  S.logTee = draft.logTee;
+  S.logHoles = draft.logHoles;
+  S.logType = draft.logType;
+  S.logSerious = draft.logSerious;
+  S.logMode = draft.logMode;
+  S.logDate = draft.logDate;
+  S.logIsSim = draft.logIsSim;
+  S.holesToScore = draft.holesToScore;
+  S.currentHoleIdx = draft.currentHoleIdx;
+  S.holeScores = draft.holeScores;
+  S.holeClubs = draft.holeClubs;
+  S.holeSimPutts = draft.holeSimPutts;
+  // Rebuild club abbreviation lookup
+  const sorted = [...S.clubs].sort((a,b) => (b.distance||0)-(a.distance||0));
+  S.clubOptions = []; S.clubFullNames = {};
+  for (const c of sorted) { const ab = abbrClub(c.name); S.clubOptions.push(ab); S.clubFullNames[ab] = c.name; }
+  if (!S.clubOptions.includes('P') && !sorted.some(c => c.name.toLowerCase() === 'putter')) {
+    S.clubOptions.push('P'); S.clubFullNames['P'] = 'Putter';
+  }
+  show('log-entry');
+}
 
 /* ================================================================
    NAVIGATION — mirrors show_page + _update_tab_bar
@@ -1313,10 +1405,31 @@ function renderLogSetup() {
   const seriousDisabled=S.logType==='scramble';
   const seriousChecked=S.logSerious&&!seriousDisabled;
 
+  const _draft = getDraft();
+  const _draftBanner = (() => {
+    if (!_draft) return '';
+    const dc = S.courses.find(c => c.name === _draft.courseName);
+    if (!dc) { clearDraft(); return ''; }
+    const hole = (_draft.currentHoleIdx || 0) + 1;
+    const total = (_draft.holesToScore || []).length;
+    return `<div class="draft-banner">
+      <div class="draft-banner-info">
+        <div class="draft-banner-title">Resume in-progress round?</div>
+        <div class="draft-banner-sub">${esc(_draft.courseName)} · Hole ${hole} of ${total}</div>
+      </div>
+      <div class="draft-banner-actions">
+        <button class="draft-btn-resume" onclick="resumeDraft(getDraft())">Resume</button>
+        <button class="draft-btn-discard" onclick="clearDraft();renderLogSetup()">Discard</button>
+      </div>
+    </div>`;
+  })();
+
   v.innerHTML=`
     <div class="page-header">
       <div class="page-title">Log Round</div>
     </div>
+
+    ${_draftBanner}
 
     <div class="card">
       <div style="font-size:14px;font-weight:bold;margin-bottom:8px">Club / Facility</div>
@@ -1489,6 +1602,7 @@ async function beginEntry(){
     S.clubUsage={};
     for(const c of (analytics.ranked_clubs||[])) S.clubUsage[c.name]=c.count;
   }catch(e){ S.clubUsage={}; }
+  saveDraft();
   show('log-entry');
 }
 
@@ -1621,12 +1735,12 @@ function renderLogEntry(){
   `;
 }
 
-function inputScore(n){let c=S.holeScores[S.currentHoleIdx];if(c===null)c=n;else{c=c*10+n;if(c>20)c=n;}S.holeScores[S.currentHoleIdx]=c;renderLogEntry();}
-function forfeitHole(){if(confirm('Forfeit this hole?\nThis records a score of 0.')){if(S.logMode==='detailed'){S.holeClubs[S.currentHoleIdx]=['X'];}else{S.holeScores[S.currentHoleIdx]=0;}renderLogEntry();}}
-function addClub(c){S.holeClubs[S.currentHoleIdx].push(c);renderLogEntry();}
-function undoClub(){S.holeClubs[S.currentHoleIdx].pop();renderLogEntry();}
-function prevH(){if(S.currentHoleIdx>0){S.currentHoleIdx--;renderLogEntry();}}
-function nextH(){if(S.currentHoleIdx<S.holesToScore.length-1){S.currentHoleIdx++;renderLogEntry();}}
+function inputScore(n){let c=S.holeScores[S.currentHoleIdx];if(c===null)c=n;else{c=c*10+n;if(c>20)c=n;}S.holeScores[S.currentHoleIdx]=c;saveDraft();renderLogEntry();}
+function forfeitHole(){if(confirm('Forfeit this hole?\nThis records a score of 0.')){if(S.logMode==='detailed'){S.holeClubs[S.currentHoleIdx]=['X'];}else{S.holeScores[S.currentHoleIdx]=0;}saveDraft();renderLogEntry();}}
+function addClub(c){S.holeClubs[S.currentHoleIdx].push(c);saveDraft();renderLogEntry();}
+function undoClub(){S.holeClubs[S.currentHoleIdx].pop();saveDraft();renderLogEntry();}
+function prevH(){if(S.currentHoleIdx>0){S.currentHoleIdx--;saveDraft();renderLogEntry();}}
+function nextH(){if(S.currentHoleIdx<S.holesToScore.length-1){S.currentHoleIdx++;saveDraft();renderLogEntry();}}
 function checkFinish(){
   const isD=S.logMode==='detailed';
   const inc=[];
@@ -1638,6 +1752,7 @@ function checkFinish(){
     alert(`Please enter scores for holes: ${inc.slice(0,5).join(', ')}${inc.length>5?' (+'+( inc.length-5)+' more)':''}`);
     return;
   }
+  saveDraft();
   show('log-notes');
 }
 
@@ -1790,7 +1905,9 @@ async function submitRound(){
   for(let i=0;i<S.holesToScore.length;i++){fullScores[S.holesToScore[i]]=scores[i];fullDet[S.holesToScore[i]]=det[i];}
   const now=new Date();const dateStr=S.logDate+' '+String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
   const notes=(document.getElementById('ln-notes')||{}).value||'';
-  await POST('/api/rounds',{course_name:course.name,tee_color:S.logTee,scores:fullScores,is_serious:S.logSerious,is_sim:S.logIsSim||false,round_type:S.logType,notes,holes_played:S.holesToScore.length,holes_choice:S.logHoles,total_score:total,date:dateStr,entry_mode:S.logMode,detailed_stats:fullDet});
+  const res=await POST('/api/rounds',{course_name:course.name,tee_color:S.logTee,scores:fullScores,is_serious:S.logSerious,is_sim:S.logIsSim||false,round_type:S.logType,notes,holes_played:S.holesToScore.length,holes_choice:S.logHoles,total_score:total,date:dateStr,entry_mode:S.logMode,detailed_stats:fullDet});
+  if(res&&res.ok===false){alert('Error saving round: '+(res.error||'Unknown error'));return;}
+  clearDraft();
   const diff=total-parP;alert(`Round Saved\nScore: ${total} (${diff>0?'+':''}${diff})\nCourse: ${course.name}\nHoles: ${S.holesToScore.length}`);
   nav('rounds');
 }
@@ -2023,6 +2140,7 @@ async function deleteCourse(name){
 // Temp storage for yardages while editing — keyed by tee color
 let ceYardages = {};
 let ceActiveTee = '';
+let cePars = [];
 
 function renderCourseEditor(){
   const v=document.getElementById('v-course-editor');
@@ -2030,7 +2148,8 @@ function renderCourseEditor(){
   const title=c?'Edit Course':'Add New Course';
   const numHoles=c?c.pars.length:18;
 
-  // Initialize yardages storage from course data
+  // Initialize pars and yardages storage from course data
+  cePars = c ? [...c.pars] : new Array(numHoles).fill(4);
   ceYardages = {};
   const tees=c?c.tee_boxes:[{color:'White',rating:72.0,slope:113}];
   for(const t of tees){
@@ -2079,6 +2198,14 @@ function renderCourseEditor(){
     </div>
 
     <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none" onclick="toggleParGrid()">
+        <div style="font-size:14px;font-weight:bold">Hole Pars</div>
+        <span id="ce-par-chevron" style="font-size:12px;color:var(--text2);transition:transform .2s">▼</span>
+      </div>
+      <div id="ce-par-grid" style="margin-top:8px"></div>
+    </div>
+
+        <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <div style="font-size:14px;font-weight:bold">Tee Boxes</div>
         <button class="btn btn-primary" style="width:auto;padding:6px 14px;font-size:12px" onclick="addTeeBox()">+ Add Tee</button>
@@ -2087,7 +2214,7 @@ function renderCourseEditor(){
     </div>
 
     <div class="card">
-      <div style="font-size:14px;font-weight:bold;margin-bottom:4px">Hole Pars & Yardages</div>
+      <div style="font-size:14px;font-weight:bold;margin-bottom:4px">Yardages by Tee</div>
       <div style="font-size:11px;color:var(--text2);margin-bottom:8px">Select a tee color to edit its yardages</div>
       <div class="tee-pills" id="ce-tee-pills" style="padding:4px 0 12px;justify-content:flex-start"></div>
       <div id="ce-hole-grid"></div>
@@ -2099,8 +2226,36 @@ function renderCourseEditor(){
     </div>
   `;
 
+  refreshCeParGrid();
   refreshCeTeePills();
   refreshCeHoleGrid();
+}
+
+function toggleParGrid(){
+  const grid=document.getElementById('ce-par-grid');
+  const chev=document.getElementById('ce-par-chevron');
+  if(!grid) return;
+  const collapsed=grid.style.display==='none';
+  grid.style.display=collapsed?'':'none';
+  if(chev) chev.style.transform=collapsed?'':'rotate(-90deg)';
+}
+
+/** Render the static par-per-hole grid (shown once, independent of active tee) */
+function refreshCeParGrid(){
+  const container=document.getElementById('ce-par-grid');
+  if(!container) return;
+  const numHoles=cePars.length;
+  let html=`<div class="hole-input-row" style="border-bottom:1px solid var(--sep)">
+    <div class="hole-input-num" style="font-size:10px">Hole</div>
+    <div class="hole-input-label" style="flex:1">Par</div>
+  </div>`;
+  for(let i=0;i<numHoles;i++){
+    html+=`<div class="hole-input-row">
+      <div class="hole-input-num">${i+1}</div>
+      <input class="hole-input-field ce-par-input" type="number" value="${cePars[i]||4}" min="3" max="6" data-hole="${i}">
+    </div>`;
+  }
+  container.innerHTML=html;
 }
 
 /** Save current yardage inputs into ceYardages before switching tees */
@@ -2116,7 +2271,7 @@ function ceStashCurrentYards(){
 function refreshCeTeePills(){
   const colors=getCurrentTeeColors();
   // Ensure ceYardages has an entry for every color
-  const numHoles=document.querySelectorAll('.ce-par-input').length || (S.editCourse?S.editCourse.pars.length:18);
+  const numHoles=cePars.length||18;
   for(const col of colors){
     if(!ceYardages[col]) ceYardages[col]=new Array(numHoles).fill(0);
   }
@@ -2157,22 +2312,18 @@ function ceSwitchTee(color){
 function refreshCeHoleGrid(){
   const container=document.getElementById('ce-hole-grid');
   if(!container) return;
-  const c=S.editCourse;
-  const numHoles=c?c.pars.length:18;
+  const numHoles=cePars.length;
   const yards=ceYardages[ceActiveTee]||[];
 
   let html=`<div class="hole-input-row" style="border-bottom:1px solid var(--sep)">
     <div class="hole-input-num" style="font-size:10px">Hole</div>
-    <div class="hole-input-label" style="flex:1">Par</div>
     <div class="hole-input-label" style="flex:1">${esc(ceActiveTee)} Yds</div>
   </div>`;
 
   for(let i=0;i<numHoles;i++){
-    const par=c?c.pars[i]:4;
     const yd=yards[i]||'';
     html+=`<div class="hole-input-row">
       <div class="hole-input-num">${i+1}</div>
-      <input class="hole-input-field ce-par-input" type="number" value="${par}" min="3" max="6" data-hole="${i}">
       <input class="hole-input-field ce-yard-input" type="number" value="${yd||''}" placeholder="—" data-hole="${i}">
     </div>`;
   }

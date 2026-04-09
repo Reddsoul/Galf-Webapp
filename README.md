@@ -138,8 +138,8 @@ You'll see:
 ```
 ==================================================
   Galf is running!
-  Local:   http://127.0.0.1:5002
-  Network: http://192.168.1.42:5002
+  Local:   http://127.0.0.1:5003
+  Network: http://192.168.1.42:5003
 ==================================================
 ```
 
@@ -167,7 +167,7 @@ It will launch full-screen like a native app, complete with the <span style="dis
 ```bash
 nohup python3 app.py &
 ```
-Stop it later: `kill $(lsof -ti:5002)`
+Stop it later: `kill $(lsof -ti:5003)`
 
 **Always-on (Docker):**
 
@@ -184,7 +184,7 @@ services:
       - ./webapp/data:/app/data
     command: sh -c "pip install flask -q && python app.py"
     ports:
-      - "5002:5002"
+      - "5003:5003"
     restart: unless-stopped
 ```
 
@@ -232,12 +232,12 @@ tailscale ip
 Make sure Galf is running on your server machine (`python3 app.py`), then open Safari on your iPhone and go to:
 
 ```
-http://<tailscale-ip>:5002
+http://<tailscale-ip>:5003
 ```
 
 Replace `<tailscale-ip>` with the `100.x.x.x` address from Step 2. You can bookmark this URL or update the home screen shortcut to use it.
 
-> **Tip:** Tailscale device names also work. If your machine is named `macmini` in Tailscale, you can use `http://macmini:5002` instead of the IP.
+> **Tip:** Tailscale device names also work. If your machine is named `macmini` in Tailscale, you can use `http://macmini:5003` instead of the IP.
 
 ---
 
@@ -280,6 +280,6 @@ Copy the `data/` folder somewhere safe. `data/rounds.json` is your complete golf
 
 **"No module named flask"** — run `pip3 install flask` and try again.
 
-**Can't reach the app from iPhone** — both devices must be on the same Wi-Fi. Use the `192.168.x.x` address, not `127.0.0.1`. Check your firewall isn't blocking port 5002.
+**Can't reach the app from iPhone** — both devices must be on the same Wi-Fi. Use the `192.168.x.x` address, not `127.0.0.1`. Check your firewall isn't blocking port 5003.
 
-**Data doesn't save** — make sure the `data/` folder exists inside `galf-webapp/`. Run `mkdir data` from that directory.
+**Data doesn't save** — the app creates the `data/` folder automatically. If it still fails, check that the process has write permission to the `webapp/` directory.

@@ -46,8 +46,10 @@ def load_json(filename):
 
 
 def save_json(filename, data):
-    with open(filename, 'w') as f:
+    tmp = filename + ".tmp"
+    with open(tmp, 'w') as f:
         json.dump(data, f, indent=2)
+    os.replace(tmp, filename)
 
 
 class GolfBackend:
@@ -71,7 +73,7 @@ class GolfBackend:
                         if key not in data:
                             data[key] = value
                     return data
-            except:
+            except (json.JSONDecodeError, ValueError, TypeError, OSError):
                 pass
         return defaults.copy()
     
@@ -128,11 +130,13 @@ class GolfBackend:
                 self.courses[i] = course_data
                 break
         save_json(COURSES_FILE, self.courses)
+        self.invalidate_stats_cache()
 
     def delete_course(self, name):
         """Remove a course by name."""
         self.courses = [c for c in self.courses if c["name"] != name]
         save_json(COURSES_FILE, self.courses)
+        self.invalidate_stats_cache()
 
     # ---- Rounds ----
     def get_rounds(self):
@@ -141,8 +145,10 @@ class GolfBackend:
     def add_round(self, round_data):
         course = self.get_course_by_name(round_data["course_name"])
         if not course:
-            return
-        box = next(b for b in course["tee_boxes"] if b["color"] == round_data["tee_color"])
+            raise ValueError(f"Course not found: {round_data.get('course_name')}")
+        box = next((b for b in course["tee_boxes"] if b["color"] == round_data["tee_color"]), None)
+        if not box:
+            raise ValueError(f"Tee box not found: {round_data.get('tee_color')}")
         par = sum(course["pars"])
         round_data["target_score"] = par + round(box["handicap"])
         round_data["tee_rating"] = box["rating"]
