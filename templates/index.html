@@ -295,11 +295,6 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 .club-grid-btn.action-undo { background: var(--orange); color: #fff; font-size: 14px; font-weight: 600; }
 .club-grid-btn.action-next { background: var(--green); color: #fff; font-size: 14px; font-weight: 600; }
 
-/* Running total */
-.running-total {
-  text-align: center; padding: 8px; font-size: 16px;
-  font-weight: 700; color: var(--accent);
-}
 
 /* Club suggestion (Feature 1) */
 .entry-suggest {
@@ -327,27 +322,28 @@ textarea.form-input { min-height: 100px; resize: vertical; }
   background: linear-gradient(90deg, #34C759 0%, #1B6B3A 55%, #0D3D22 100%);
 }
 .home-hero-body {
-  padding: 14px 20px 14px;
+  padding: 21px 30px 21px;
   background: linear-gradient(160deg, var(--hero-grad-start) 0%, var(--hero-grad-end) 100%);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
 }
 .home-hc-label {
-  font-size: 11px; font-weight: 700; color: var(--text2);
+  font-size: 23; font-weight: 700; color: var(--text2);
   text-transform: uppercase; letter-spacing: 1.4px;
 }
 .home-hc-value {
-  font-size: 88px; font-weight: 800; color: var(--text);
+  font-size: clamp(56px, 22vw, 104px); font-weight: 800; color: var(--text);
   line-height: 1; margin: -4px 0 0;
   font-variant-numeric: tabular-nums; letter-spacing: -4px;
-  text-align: right;
+  text-align: right; white-space: nowrap;
 }
-.home-hc-value.hc-pending { font-size: 60px; color: var(--text2); letter-spacing: -1px; }
-.home-hc-sub { font-size: 12px; color: var(--text2); line-height: 1.5; margin-top: 4px; }
-.home-hero-left { flex: 1; }
-.home-hero-right { text-align: right; flex-shrink: 0; }
+.home-hc-value.hc-long { font-size: clamp(44px, 17vw, 82px); letter-spacing: -3px; }
+.home-hc-value.hc-pending { font-size: clamp(40px, 15vw, 72px); color: var(--text2); letter-spacing: -1px; }
+.home-hc-sub { font-size: 15px; color: var(--text2); line-height: 1.5; margin-top: 4px; }
+.home-hero-left { flex: 1; min-width: 0; overflow: hidden; }
+.home-hero-right { text-align: right; flex-shrink: 0; max-width: 55%; }
 
 #log-btn-bar {
   display: none;
@@ -892,7 +888,7 @@ textarea.form-input { min-height: 100px; resize: vertical; }
     <a class="tab active" data-tab="home" onclick="nav('home')" aria-label="Home">
       <span class="tab-icon"><img src="/favicon/Favicon-96.png" style="width:50px;height:50px" alt=""></span><span class="tab-label"></span></a>
     <a class="tab" data-tab="courses" onclick="nav('courses')" aria-label="Courses">
-      <span class="tab-icon"><img src="/favicon/golf-ball-96.png" alt=""></span><span class="tab-label"></span></a>
+      <span class="tab-icon"><img src="/favicon/golf-course-96.png" alt=""></span><span class="tab-label"></span></a>
   </nav>
 </div>
 
@@ -1014,15 +1010,16 @@ async function buildBestCard(bestData, label) {
 async function renderHome() {
   const v=document.getElementById('v-home');
   v.innerHTML='<div class="skeleton-card"><div class="skeleton skeleton-num" style="margin:20px auto"></div><div class="skeleton skeleton-line" style="margin:8px 20px"></div><div class="skeleton skeleton-line-sm" style="margin:4px 20px"></div></div>';
-  const [stats,hc,best,bestSim]=await Promise.all([
+  const [stats,hc,best,bestSim,adv]=await Promise.all([
     GET('/api/stats'), GET('/api/stats/handicap'),
-    GET('/api/stats/best-round'), GET('/api/stats/best-round?sim=true')
+    GET('/api/stats/best-round'), GET('/api/stats/best-round?sim=true'),
+    GET('/api/stats/advanced')
   ]);
   S.stats=stats; S.handicap=hc.handicap_index;
 
   // Handicap hero
   const hasHC = S.handicap!==null;
-  const hcStr = hasHC ? S.handicap.toFixed(1) : '--';
+  const hcStr = hasHC ? String(Math.ceil(S.handicap)) : '--';
   let hcSub='';
   if(!hasHC){
     const rem=Math.max(0,54-(stats.total_holes_played||0));
@@ -1035,8 +1032,8 @@ async function renderHome() {
     buildBestCard(bestSim, 'Best Sim')
   ]);
 
-  const avgVal = stats.avg_score_18 ? stats.avg_score_18.toFixed(1) : stats.avg_score_9 ? stats.avg_score_9.toFixed(1) : '—';
-  const avgLbl = stats.avg_score_18 ? 'Avg · 18' : 'Avg · 9';
+  const girVal = adv && adv.gir_overall != null ? adv.gir_overall + '%' : '—';
+  const girLbl = 'GIR';
 
   v.innerHTML=`
     <div class="home-hero">
@@ -1044,7 +1041,7 @@ async function renderHome() {
       <div class="home-hero-body">
         <div class="home-hero-left">
           <div class="home-hc-label">Handicap Index</div>
-          ${hcSub?`<div class="home-hc-sub" style="margin-top:8px">${hcSub}</div>`:'<div class="home-hc-sub" style="margin-top:6px">WHS Official Index</div>'}
+          ${hcSub?`<div class="home-hc-sub" style="margin-top:8px">${hcSub}</div>`:''}
         </div>
         <div class="home-hero-right">
           <div class="home-hc-value${hasHC?'':' hc-pending'}">${hcStr}</div>
@@ -1059,8 +1056,8 @@ async function renderHome() {
         <div class="home-stat-lbl">Rounds</div>
       </div>
       <div class="home-stat-cell">
-        <div class="home-stat-val">${avgVal}</div>
-        <div class="home-stat-lbl">${avgLbl}</div>
+        <div class="home-stat-val">${girVal}</div>
+        <div class="home-stat-lbl">${girLbl}</div>
       </div>
       <div class="home-stat-cell tappable" onclick="show('stats')">
         <div class="home-stat-val"><img src="${ico('golf-clubs')}" style="width:30px;height:30px;object-fit:contain;margin:1px auto 0;display:block"></div>
@@ -1242,7 +1239,6 @@ function renderScorecard() {
 
   v.innerHTML=`
     <div class="page-header">
-      <button class="back-btn" onclick="nav('rounds')" aria-label="Back to Rounds">‹ Rounds</button>
     </div>
 
     <!-- Tee-colored header card -->
@@ -1320,7 +1316,6 @@ function renderLogSetup() {
 
   v.innerHTML=`
     <div class="page-header">
-      <button class="back-btn" onclick="nav('home')">← Back</button>
       <div class="page-title">Log Round</div>
     </div>
 
@@ -1569,12 +1564,6 @@ function renderLogEntry(){
     }
   }
 
-  // Running total
-  let total=0,done=0,parDone=0;
-  for(let i=0;i<S.holesToScore.length;i++){const s=isD?S.holeClubs[i].length:S.holeScores[i];if(s!=null&&s>0){total+=s;done++;parDone+=S.logCourse.pars[S.holesToScore[i]];}}
-  let runStr='';
-  if(done>0){const d=total-parDone;runStr=`${total} (${d>0?'+':''}${d===0?'E':d})`;}
-
   // Build bottom pad
   let bottomHtml='';
   if(isD){
@@ -1629,7 +1618,6 @@ function renderLogEntry(){
       </div>
       <button class="entry-nav-btn" onclick="nextH()" ${hi>=S.holesToScore.length-1?'disabled':''}>▶</button>
     </div>
-    <div class="running-total">${runStr}</div>
     ${bottomHtml}
   `;
 }
@@ -1816,7 +1804,7 @@ async function renderCourses(){
   const sorted=[...S.courses].sort((a,b)=>(a.club||'').localeCompare(b.club||'')||a.name.localeCompare(b.name));
   let rows='';
   if(!sorted.length){
-    rows=`<div class="empty"><div class="empty-icon"><div class="empty-icon"><img src="${ico('golf-ball')}" style="width:90px;height:90px;object-fit:contain;margin:1px auto 0;display:block"></div><div class="empty-text">No courses yet.<br>Add your first course to get started.</div></div>`;
+    rows=`<div class="empty"><div class="empty-icon"><div class="empty-icon"><img src="${ico('golf-course')}" style="width:90px;height:90px;object-fit:contain;margin:1px auto 0;display:block"></div><div class="empty-text">No courses yet.<br>Add your first course to get started.</div></div>`;
   } else {
     // Group by club
     const clubs={};
@@ -1992,7 +1980,6 @@ async function renderCourseDetail(){
 
   v.innerHTML=`
     <div class="page-header">
-      <button class="back-btn" onclick="nav('courses')" aria-label="Back to Courses">‹ Courses</button>
     </div>
     <div class="course-hero">
       <div class="course-hero-name">${esc(c.name)}</div>
@@ -2417,7 +2404,7 @@ async function renderStats(){
             ${svgRing(scrPct, scrColor, 64, 6)}
             <div class="stat-mini-label" style="margin-top:6px">Scramble Rate</div>
           </div>
-          <div class="stat-mini">
+          <div class="stat-mini" style="text-align:center">
             <div class="stat-mini-val" style="font-size:20px">${adv.avg_strokes_to_green_par4!=null?adv.avg_strokes_to_green_par4.toFixed(1):'—'}</div>
             <div class="stat-mini-label">Avg STG (Par 4)</div>
             <div style="font-size:10px;color:var(--text2)">Target: 2.0</div>
@@ -2654,7 +2641,7 @@ function updateTabIcons() {
   const t = (sel, name) => { const el=document.querySelector(sel); if(el) el.src=ico(name); };
   t('[data-tab="rounds"] .tab-icon img', 'golf-cart');
   t('[data-tab="home"] .tab-icon img', 'Favicon');
-  t('[data-tab="courses"] .tab-icon img', 'golf-ball');
+  t('[data-tab="courses"] .tab-icon img', 'golf-course');
 }
 
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
