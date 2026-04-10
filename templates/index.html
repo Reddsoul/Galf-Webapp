@@ -1779,16 +1779,14 @@ function suggestClubs(yardage, clubs, clubUsage){
     if(!usable.length) return '';
     let remaining=yardage;
     const result=[];
-    const driverUsed=new Set(); // Driver may only be picked once per hole
     while(remaining>0){
       const club=usable.find(c=>{
         if((c.distance||0)>remaining) return false;
-        if(c.name.toLowerCase()==='driver'&&driverUsed.has('driver')) return false;
+        if(c.name.toLowerCase()==='driver'&&result.length>0) return false; // driver: first shot only
         return true;
       });
       if(!club) break; // no club fits remaining distance — stop
       result.push(abbrClub(club.name));
-      if(club.name.toLowerCase()==='driver') driverUsed.add('driver');
       remaining-=club.distance;
     }
     return result.join(' → ');
@@ -1823,12 +1821,27 @@ function renderLogEntry(){
   let diffStr='';
   if(score!=null&&score>0){const d=score-par;diffStr=d>0?`+${d}`:d<0?String(d):'E';}
 
-  // Feature 1: Compute club suggestion (detailed mode only, from tee yardage)
+  // Feature 1: Compute club suggestion (detailed mode only)
+  // If clubs already played, subtract their carry from hole yardage and re-suggest for the remainder.
   let suggestStr='';
   if(isD){
     const yardNum=yardages[holeNum]||0;
     if(yardNum&&S.clubs&&S.clubs.length){
-      suggestStr=suggestClubs(yardNum,S.clubs,S.clubUsage||{});
+      const played=S.holeClubs[hi].filter(c=>c!=='X'&&c!=='P');
+      if(played.length===0){
+        const s=suggestClubs(yardNum,S.clubs,S.clubUsage||{});
+        if(s) suggestStr=`Suggested: ${s}`;
+      } else {
+        const distByAbbr={};
+        for(const cl of S.clubs) distByAbbr[abbrClub(cl.name)]=cl.distance||0;
+        const playedDist=played.reduce((sum,c)=>sum+(distByAbbr[c]||0),0);
+        const remaining=yardNum-playedDist;
+        if(remaining>0){
+          const noDriver=S.clubs.filter(c=>c.name.toLowerCase()!=='driver');
+          const s=suggestClubs(remaining,noDriver,S.clubUsage||{});
+          if(s) suggestStr=`~${remaining} yds → ${s}`;
+        }
+      }
     }
   }
 
@@ -1881,7 +1894,7 @@ function renderLogEntry(){
         <div class="entry-stroke">${scoreStr}</div>
         ${isD?`<div class="entry-clubs-display">${esc(clubsStr)}</div>`:''}
         <div class="entry-diff">${diffStr}</div>
-        ${suggestStr?`<div class="entry-suggest">Suggested: ${esc(suggestStr)}</div>`:''}
+        ${suggestStr?`<div class="entry-suggest">${esc(suggestStr)}</div>`:''}
         ${isD&&S.logIsSim&&S.holeSimPutts&&S.holeSimPutts[hi]!==null?`<div class="entry-sim-putts">Sim putts: ${S.holeSimPutts[hi]}${S.holeClubs[hi].filter(c=>c==='P').length>0?' (overridden)':''}</div>`:''}
       </div>
       <button class="entry-nav-btn" onclick="nextH()" ${hi>=S.holesToScore.length-1?'disabled':''}>▶</button>

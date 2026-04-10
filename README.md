@@ -5,6 +5,8 @@
 
 A personal golf companion that lives on your iPhone. Log rounds, track your WHS handicap, analyze your game, and manage your club bag — all from a mobile-friendly web app you self-host.
 
+For a full screen-by-screen reference, see [MANUAL.md](MANUAL.md).
+
 ---
 
 ## The Three Tabs
@@ -14,15 +16,15 @@ The app has exactly three tabs at the bottom of the screen:
 <table>
 <tr>
 <td align="center" width="80"><span style="display:inline-flex;align-items:center;justify-content:center;background:#1B6B3A;border-radius:14px;padding:10px;line-height:0"><img src="static/Favicon-96.png" width="40" height="40"></span></td>
-<td><strong>Home</strong><br>Your live WHS/USGA Handicap Index, personal best scorecard, and quick access to Stats. Tapping any stat cell opens the full Stats screen.</td>
+<td><strong>Home</strong><br>Your live WHS/USGA Handicap Index (requires 54 logged holes to establish), personal best scorecard for IRL and simulator rounds, and quick access to Stats. Tapping any stat cell opens the full Stats screen.</td>
 </tr>
 <tr>
 <td align="center"><span style="display:inline-flex;align-items:center;justify-content:center;background:#1B6B3A;border-radius:14px;padding:10px;line-height:0"><img src="static/golf-cart-96.png" width="40" height="40"></span></td>
-<td><strong>Rounds</strong><br>Full history of every round you've played. Filter by solo or scramble, sort by date, best, or worst. Tap any round to view its scorecard.</td>
+<td><strong>Rounds</strong><br>Full history of every round you've played, sorted most-recent first. Filter by Solo or Scramble. Tap any round to view its scorecard.</td>
 </tr>
 <tr>
 <td align="center"><span style="display:inline-flex;align-items:center;justify-content:center;background:#1B6B3A;border-radius:14px;padding:10px;line-height:0"><img src="static/golf-course-96.png" width="40" height="40"></span></td>
-<td><strong>Courses</strong><br>Your personal course library. Store hole pars, tee boxes with slope and course rating. Supports multiple tee colors per course.</td>
+<td><strong>Courses</strong><br>Your personal course library. Store hole pars, per-tee yardages, slope rating, and course rating. Supports multiple tee colors per course.</td>
 </tr>
 </table>
 
@@ -35,12 +37,16 @@ The app has exactly three tabs at the bottom of the screen:
 The **Log New Round** button — marked with the golf ball icon — sits above the tab bar on the Home screen.
 
 1. Tap **Log New Round**
-2. Pick your course, tee color, and hole count (9 or 18)
-3. Choose an entry mode:
+2. Pick your course, tee color, and hole count (18 Holes / Front 9 / Back 9)
+3. Set the date, round type (Solo or Scramble), and whether it counts toward your handicap (Serious vs. Casual)
+4. Optionally mark as a **Simulator** round — these are tracked separately and never affect your real handicap
+5. Choose an entry mode:
    - **Quick** — score only, one number per hole
-   - **Detailed** — score + club used + putts + fairway hit + GIR per hole (powers the Stats screen)
-4. Tap through each hole, enter your score, tap **Next**
-5. On the last hole tap **Finish** — the round saves and your handicap updates immediately
+   - **Detailed** — tap clubs in the order you hit them; score = number of clubs tapped (including putts). Putts are counted from Putter taps. GIR is derived automatically. Powers the Stats screen.
+6. Tap through each hole and enter your score
+7. On the last hole tap **Finish** — a review screen shows the full scorecard. Add optional notes, then tap **Save Round**. Your handicap updates immediately.
+
+> In Detailed mode, if your course has yardages and you have clubs in your bag, Galf suggests a club sequence for each hole's distance. For simulator rounds, putts are auto-rolled (with realistic distribution) and applied if you don't tap the Putter yourself.
 
 ---
 
@@ -50,7 +56,7 @@ You need at least one course before you can log a round.
 
 1. Go to the **Courses** tab
 2. Tap **+**
-3. Fill in the course name, par for all 18 holes, and at least one tee box — color, slope rating, and course rating (all found on the physical scorecard)
+3. Fill in the course name, club/facility name, par for all 18 holes, and at least one tee box — color, slope rating, and course rating (all found on the physical scorecard). Yardages per tee are optional but enable club suggestions during Detailed entry.
 4. Tap <span style="display:inline-flex;align-items:center;justify-content:center;background:#1B6B3A;border-radius:6px;padding:2px;line-height:0;vertical-align:middle"><img src="static/save-96.png" width="14" height="14"></span> **Save Course**
 
 To edit a course later, tap its name then <span style="display:inline-flex;align-items:center;justify-content:center;background:#1B6B3A;border-radius:6px;padding:2px;line-height:0;vertical-align:middle"><img src="static/pencil-96.png" width="14" height="14"></span> **Edit Course**.
@@ -60,7 +66,7 @@ To delete it, tap the <span style="display:inline-flex;align-items:center;justif
 
 ### <span style="display:inline-flex;align-items:center;justify-content:center;background:#1B6B3A;border-radius:8px;padding:3px;line-height:0;vertical-align:middle"><img src="static/golf-clubs-96.png" width="20" height="20"></span> Setting Up Your Bag
 
-Your bag lives in **Stats → Clubs**. The <span style="display:inline-flex;align-items:center;justify-content:center;background:#1B6B3A;border-radius:6px;padding:2px;line-height:0;vertical-align:middle"><img src="static/golf-clubs-96.png" width="14" height="14"></span> clubs icon appears as a placeholder when the bag is empty — once you add clubs they show as a list sorted by distance.
+Your bag lives in **Stats → Clubs**. The <span style="display:inline-flex;align-items:center;justify-content:center;background:#1B6B3A;border-radius:6px;padding:2px;line-height:0;vertical-align:middle"><img src="static/golf-clubs-96.png" width="14" height="14"></span> clubs icon appears as a placeholder when the bag is empty — once you add clubs they show as a list sorted by distance (or by usage frequency once you have Detailed rounds).
 
 1. Open the **Home** tab and tap any stat to reach the Stats screen
 2. Tap the **Clubs** sub-tab
@@ -78,12 +84,12 @@ Tap any stat cell on the **Home** screen to open the Stats screen. It has four s
 
 | Sub-tab | What it shows |
 |---|---|
-| **Overview** | Handicap Index, recent trend, round count |
-| **Performance** | GIR %, putts per round, fairways hit, scrambling rate |
-| **Clubs** | Your bag sorted by carry distance |
-| **Analysis** | Stroke leaks — where you're losing shots vs. par |
+| **Overview** | Handicap Index, round count, top 8 score differentials, progress toward 54-hole threshold |
+| **Performance** | GIR %, putts per round, scrambling rate, average strokes to green — requires Detailed rounds |
+| **Clubs** | Your bag sorted by carry distance (or usage frequency once Detailed rounds exist) |
+| **Analysis** | Stroke leaks — where you're losing shots vs. par — requires Detailed rounds |
 
-> Analysis only populates if you use **Detailed** entry mode. Quick mode captures scores only.
+> Performance and Analysis only populate if you use **Detailed** entry mode. Quick mode captures scores only.
 
 ---
 
@@ -181,7 +187,6 @@ services:
     working_dir: /app
     volumes:
       - ./webapp:/app
-      - ./webapp/data:/app/data
     command: sh -c "pip install flask -q && python app.py"
     ports:
       - "5003:5003"
@@ -241,8 +246,13 @@ Replace `<tailscale-ip>` with the `100.x.x.x` address from Step 2. You can bookm
 
 ---
 
-## Changing the port
+## Environment Variables
 
+| Variable | Default | Effect |
+|---|---|---|
+| `GALF_PORT` | `5003` | Port the server listens on |
+
+Example:
 ```bash
 GALF_PORT=8080 python3 app.py
 ```
@@ -253,17 +263,17 @@ GALF_PORT=8080 python3 app.py
 
 ```
 webapp/
-├── app.py              Flask routes (thin layer only)
-├── Backend.py          All business logic: handicap, stats, scoring
+├── app.py              Flask routes (thin layer only — no business logic)
+├── Backend.py          All business logic: handicap, stats, scoring, data I/O
 ├── templates/
 │   └── index.html      Entire frontend — HTML + CSS + JS, one file
 ├── static/             Icons used throughout the UI
-└── data/               Auto-created; holds all your golf data
-    ├── courses.json
-    ├── rounds.json
-    ├── clubs.json
-    ├── user_prefs.json
-    └── stats_cache.json
+└── data/               Auto-created on first run; holds all your golf data
+    ├── courses.json     Course definitions (pars, tee boxes, yardages)
+    ├── rounds.json      Every logged round — your golf history
+    ├── clubs.json       Club bag with carry distances
+    ├── user_prefs.json  Entry mode preference
+    └── stats_cache.json Cached stats, auto-invalidated on new rounds
 ```
 
 ---
