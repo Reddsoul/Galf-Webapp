@@ -353,11 +353,14 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 .home-log-btn {
   display: flex; align-items: center; justify-content: center; gap: 8px;
   width: 100%; padding: 18px 0; font-size: 17px; font-weight: 700;
-  background: var(--green); color: #fff;
+  background: var(--accent); color: #fff;
   border: none; border-radius: 16px; cursor: pointer;
   font-family: inherit; letter-spacing: -0.2px;
-  box-shadow: 0 4px 14px rgba(52,199,89,0.35);
+  box-shadow: 0 4px 14px rgba(27,107,58,0.38);
   transition: transform 0.1s ease, opacity 0.1s ease;
+}
+@media (prefers-color-scheme: dark) {
+  .home-log-btn { box-shadow: 0 4px 14px rgba(52,199,89,0.35); }
 }
 .home-log-btn:active { opacity: 0.82; transform: scale(0.98); }
 
@@ -414,7 +417,12 @@ textarea.form-input { min-height: 100px; resize: vertical; }
   box-shadow: 0 2px 8px rgba(0,0,0,0.06), 0 0 0 0.5px rgba(0,0,0,0.04);
   transition: transform 0.1s ease, opacity 0.1s ease;
 }
-.home-stat-cell.tappable { cursor: pointer; }
+.home-stat-cell.tappable {
+  cursor: pointer;
+  background: var(--accent);
+}
+.home-stat-cell.tappable .home-stat-val { color: #fff; }
+.home-stat-cell.tappable .home-stat-lbl { color: rgba(255,255,255,0.78); }
 .home-stat-cell.tappable:active { opacity: 0.8; transform: scale(0.96); }
 .home-stat-val { font-size: 26px; font-weight: 800; letter-spacing: -1px; text-align: center; line-height: 1; }
 .home-stat-lbl {
@@ -765,9 +773,9 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 }
 .hole-grid td { padding: 8px 4px; border-bottom: 0.5px solid var(--sep); }
 .hole-grid .hole-num { font-weight: 700; color: var(--text2); width: 32px; }
-.hole-grid .par-3 { color: var(--green); font-weight: 600; }
+.hole-grid .par-3 { color: var(--text); }
 .hole-grid .par-4 { color: var(--text); }
-.hole-grid .par-5 { color: var(--accent); font-weight: 600; }
+.hole-grid .par-5 { color: var(--text); }
 .hole-grid .nine-sep td { border-top: 2px solid var(--sep); font-weight: 700; background: rgba(27,107,58,0.05); }
 .hole-grid .total-row td { border-top: 2px solid var(--accent); font-weight: 700; font-size: 13px; }
 
@@ -853,6 +861,152 @@ textarea.form-input { min-height: 100px; resize: vertical; }
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ================================================================
+   INTERACTIVITY SIGNIFIERS
+   Norman: signifiers must indicate what action is possible.
+   HIG: every control should provide visual feedback for each state.
+
+   - cursor: not-allowed on disabled elements (Norman: constraints)
+   - cursor: pointer on label (Norman: signifier for associated checkbox)
+   - Hover states wrapped in (hover: hover) so they apply only on
+     pointer devices (Mac/iPad trackpad), never on touch-only phones.
+   ================================================================ */
+
+/* Disabled-state cursor — Norman: constraints signal what can't be done */
+button:disabled,
+input:disabled { cursor: not-allowed; }
+
+/* Checkbox label — Norman: signifier that the label text is also a tap target */
+.check-row label { cursor: pointer; }
+
+@media (hover: hover) {
+  /* --- Primary action buttons (btn family) --- */
+  /* Norman: affordance — solid button should look pressable on hover */
+  .btn:hover { opacity: 0.86; }
+  .home-log-btn:hover { opacity: 0.9; transform: scale(0.99); }
+
+  /* --- Navigation --- */
+  /* HIG: every interactive element needs a distinct hover state */
+  .back-btn:hover { opacity: 0.65; }
+  .tab:hover .tab-label { color: var(--accent); }
+
+  /* --- Tappable home cards --- */
+  .home-best:hover { opacity: 0.9; transform: scale(0.99); }
+  .home-stat-cell.tappable:hover { opacity: 0.82; }
+
+  /* --- Segmented/radio options --- */
+  /* Norman: signifier — show reactivity before the user commits */
+  .radio-opt:not(.active):hover { background: var(--active-overlay); }
+
+  /* --- Tee pills --- */
+  /* Border appears on hover before selection — previews the selected state */
+  .tee-pill:not(.active):hover { border-color: var(--text3); }
+
+  /* --- Stats tab selector --- */
+  .stats-tab:not(.active):hover {
+    color: var(--text);
+    background: var(--active-overlay);
+  }
+
+  /* --- Rounds table rows --- */
+  .tree-table tr:hover { background: var(--active-overlay); }
+
+  /* --- Score-entry navigation arrows --- */
+  /* Color shift signals the arrow is live (no-op on disabled, already grayed) */
+  .entry-nav-btn:not(:disabled):hover { color: var(--accent); }
+
+  /* --- Numpad digit keys --- */
+  .numpad-btn:not(.forfeit):not(.next-hole):hover {
+    background: var(--active-overlay);
+  }
+  /* Colored action keys dim slightly so the color stays the signifier */
+  .numpad-btn.forfeit:hover,
+  .numpad-btn.next-hole:hover { opacity: 0.84; }
+
+  /* --- Club grid keys --- */
+  .club-grid-btn:not(.action-forfeit):not(.action-undo):not(.action-next):not(.empty-cell):hover {
+    background: var(--active-overlay);
+  }
+  .club-grid-btn.action-forfeit:hover,
+  .club-grid-btn.action-undo:hover,
+  .club-grid-btn.action-next:hover { opacity: 0.84; }
+
+  /* --- Club list items --- */
+  .club-item:hover { background: var(--active-overlay); }
+
+  /* --- Club edit inline action buttons --- */
+  /* Save: dim to signal "about to commit" */
+  .club-edit-save:hover { opacity: 0.84; }
+  /* Delete: red tint reinforces destructive affordance */
+  .club-edit-delete:hover {
+    background: rgba(255, 59, 48, 0.1);
+    border-radius: 8px;
+  }
+  /* Cancel: text darkens — subtle, non-committal */
+  .club-edit-cancel:hover { color: var(--text); }
+
+  /* --- Club add button --- */
+  .club-add-btn:hover { background: var(--active-overlay); }
+
+  /* --- Draft-banner action buttons --- */
+  .draft-btn-resume:hover  { opacity: 0.84; }
+  .draft-btn-discard:hover { opacity: 0.72; }
+
+  /* --- Tee editor remove (×) button --- */
+  /* Red tint on hover matches the color of the icon — Norman: mapping */
+  .tee-editor-remove:hover {
+    background: rgba(255, 59, 48, 0.1);
+    border-radius: 8px;
+  }
+
+  /* --- Form inputs & selects --- */
+  /* Hover border is lighter than focus border — clear state ladder:
+     default → hover (text3) → focus (accent) */
+  .form-input:hover:not(:focus),
+  .form-select:hover:not(:focus) { border-color: var(--text3); }
+  .hole-input-field:hover:not(:focus) { border-color: var(--text3); }
+}
+
+/* ================================================================
+   TOUCH :ACTIVE STATES
+   -webkit-tap-highlight-color is cleared globally, so every
+   tappable element must supply its own pressed-state feedback.
+   Without this, the element gives zero visual response on tap.
+   HIG: "Provide immediate feedback" — Norman: "Feedback"
+   ================================================================ */
+
+/* Back navigation */
+.back-btn:active { opacity: 0.55; }
+
+/* Tab bar — brief scale-down when switching tabs */
+.tab:active { opacity: 0.7; }
+
+/* Stats tab selector */
+.stats-tab:not(.active):active {
+  background: var(--active-overlay);
+  color: var(--text);
+}
+
+/* Hole nav arrows ◀ ▶ */
+.entry-nav-btn:not(:disabled):active { color: var(--accent); opacity: 0.7; }
+
+/* Club inline edit: text-only buttons need explicit feedback */
+.club-edit-cancel:active { opacity: 0.55; }
+.club-edit-delete:active  { opacity: 0.6; background: rgba(255,59,48,0.1); border-radius: 8px; }
+
+/* Draft banner buttons */
+.draft-btn-resume:active  { opacity: 0.75; }
+.draft-btn-discard:active { opacity: 0.6; }
+
+/* Tee editor remove × */
+.tee-editor-remove:active { opacity: 0.6; background: rgba(255,59,48,0.12); border-radius: 8px; }
+
+/* Dynamically-built course list rows (renderCourses) */
+.course-row:active { background: var(--active-overlay) !important; }
+
+/* Dynamically-built course picker rows in log setup (lsClubChanged) */
+.ls-course-row:active { opacity: 0.75; }
 
 /* ================================================================
    MISC — improved dark-mode tree-table header
@@ -1151,7 +1305,7 @@ async function renderHome() {
         <div class="home-stat-lbl">${girLbl}</div>
       </div>
       <div class="home-stat-cell tappable" onclick="show('stats')">
-        <div class="home-stat-val"><img src="${ico('golf-clubs')}" style="width:30px;height:30px;object-fit:contain;margin:1px auto 0;display:block"></div>
+        <div class="home-stat-val"><img src="/static/golf-clubs-w-96.png" style="width:30px;height:30px;object-fit:contain;margin:1px auto 0;display:block"></div>
         <div class="home-stat-lbl">Stats</div>
       </div>
     </div>
@@ -1273,7 +1427,7 @@ function renderScorecard() {
     let parTotal=0;
     for(let i=0;i<pars.length;i++){
       parTotal+=pars[i];
-      const pc=pars[i]===3?'color:var(--green)':pars[i]===5?'color:var(--accent)':'';
+      const pc='';
       parRow+=`<div class="sc-cell sc-cell-par" style="${pc}">${pars[i]}</div>`;
     }
     parRow+=`<div class="sc-cell sc-cell-total">${parTotal}</div>`;
@@ -1330,6 +1484,7 @@ function renderScorecard() {
 
   v.innerHTML=`
     <div class="page-header">
+      <button class="back-btn" onclick="nav('rounds')">← Rounds</button>
     </div>
 
     <!-- Tee-colored header card -->
@@ -1486,7 +1641,7 @@ function renderLogSetup() {
     </div>
 
     <div class="card">
-      <button class="btn btn-green" onclick="beginEntry()">▶ Start Entering Scores</button>
+      <button class="btn btn-primary" onclick="beginEntry()">▶ Start Entering Scores</button>
     </div>
   `;
 
@@ -1526,7 +1681,7 @@ function lsClubChanged(){
     const solo=courses.length===1;
     const br=solo?'10px':i===0?'10px 10px 0 0':i===courses.length-1?'0 0 10px 10px':'0';
     const borderTop=i>0&&!solo?'border-top:0.5px solid var(--sep);':'';
-    html+=`<div style="display:flex;align-items:center;padding:12px;cursor:pointer;border-radius:${br};overflow:hidden;border:2px solid ${sel?'var(--accent)':'transparent'};background:${sel?'rgba(0,122,255,0.06)':'var(--bg)'};${borderTop}" onclick="lsPickCourse('${esc(c.name)}')">
+    html+=`<div class="ls-course-row" style="display:flex;align-items:center;padding:12px;cursor:pointer;border-radius:${br};overflow:hidden;border:2px solid ${sel?'var(--accent)':'transparent'};background:${sel?'rgba(0,122,255,0.06)':'var(--bg)'};${borderTop}" onclick="lsPickCourse('${esc(c.name)}')">
       <div style="flex:1">
         <div style="font-size:15px;font-weight:${sel?'600':'500'}">${esc(c.name)}</div>
         <div style="font-size:12px;color:var(--text2)">${c.pars.length} holes · Par ${tp}</div>
@@ -1808,7 +1963,7 @@ function renderLogNotes(){
 
     let parRow='<div class="sc-cell sc-cell-header" style="font-weight:700;font-size:10px;color:var(--text2)">PAR</div>';
     let pt=0;
-    for(const p of pars){pt+=p;const pc=p===3?'color:var(--green)':p===5?'color:var(--accent)':'';parRow+=`<div class="sc-cell sc-cell-par" style="${pc}">${p}</div>`;}
+    for(const p of pars){pt+=p;parRow+=`<div class="sc-cell sc-cell-par">${p}</div>`;}
     parRow+=`<div class="sc-cell sc-cell-total">${pt}</div>`;
 
     let scoreRow='<div class="sc-cell sc-cell-header" style="font-weight:700;font-size:10px">SCORE</div>';
@@ -1935,7 +2090,7 @@ async function renderCourses(){
         let dots='';for(const tc of teeColors) dots+=`<span class="tee-dot" style="width:10px;height:10px;display:inline-block;background:${teeColorCSS(tc)}"></span>`;
         const solo=courses.length===1;
         const br=solo?'12px':i===0?'12px 12px 0 0':i===courses.length-1?'0 0 12px 12px':'0';
-        rows+=`<div style="display:flex;align-items:center;padding:14px 16px;cursor:pointer;background:var(--card);border-radius:${br};overflow:hidden;${i<courses.length-1?'border-bottom:0.5px solid var(--sep);':''}" onclick="viewCourse('${esc(c.name)}')">
+        rows+=`<div class="course-row" style="display:flex;align-items:center;padding:14px 16px;cursor:pointer;background:var(--card);border-radius:${br};overflow:hidden;${i<courses.length-1?'border-bottom:0.5px solid var(--sep);':''}" onclick="viewCourse('${esc(c.name)}')">
           <div style="flex:1;min-width:0">
             <div style="font-size:16px;font-weight:500">${esc(c.name)}</div>
             <div style="font-size:12px;color:var(--text2);margin-top:2px;display:flex;align-items:center;gap:6px">
@@ -2096,6 +2251,7 @@ async function renderCourseDetail(){
 
   v.innerHTML=`
     <div class="page-header">
+      <button class="back-btn" onclick="nav('courses')">← Courses</button>
     </div>
     <div class="course-hero">
       <div class="course-hero-name">${esc(c.name)}</div>
