@@ -91,7 +91,7 @@ def api_add_round():
     data = request.get_json()
     try:
         backend.add_round(data)
-    except ValueError as e:
+    except (ValueError, KeyError) as e:
         return jsonify({"ok": False, "error": str(e)}), 400
     return jsonify({"ok": True})
 

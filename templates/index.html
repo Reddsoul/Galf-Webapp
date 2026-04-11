@@ -1465,7 +1465,7 @@ function renderScorecard() {
   }
 
   const frontGrid=buildNine('FRONT OUT', sc.front_9.pars, sc.front_9.scores, sc.front_9.yardages, 0);
-  const backGrid=buildNine('BACK OUT', sc.back_9.pars, sc.back_9.scores, sc.back_9.yardages, 9);
+  const backGrid=buildNine('BACK IN', sc.back_9.pars, sc.back_9.scores, sc.back_9.yardages, 9);
 
   // Totals summary row (when full 18 or to show combined)
   let totalsHtml='';
@@ -1475,7 +1475,7 @@ function renderScorecard() {
     totalsHtml=`
       <div style="background:var(--card);margin:0 16px;padding:12px 16px;display:flex;justify-content:space-around;text-align:center;border-top:2px solid ${teeCSS};border-radius:8px">
         <div><div style="font-size:11px;color:var(--text2)">OUT</div><div style="font-size:18px;font-weight:700">${f9||'—'}</div></div>
-        <div><div style="font-size:11px;color:var(--text2)">OUT</div><div style="font-size:18px;font-weight:700">${b9||'—'}</div></div>
+        <div><div style="font-size:11px;color:var(--text2)">IN</div><div style="font-size:18px;font-weight:700">${b9||'—'}</div></div>
         <div><div style="font-size:11px;color:var(--text2)">TOTAL</div><div style="font-size:22px;font-weight:800">${sc.total_score}</div></div>
         <div><div style="font-size:11px;color:var(--text2)">PAR</div><div style="font-size:18px;font-weight:700">${f9p+b9p}</div></div>
         <div><div style="font-size:11px;color:var(--text2)">+/−</div><div style="font-size:18px;font-weight:700;color:${diffColor}">${ds}</div></div>
@@ -1815,7 +1815,7 @@ function renderLogEntry(){
   }
 
   let score,clubsStr='';
-  if(isD){score=S.holeClubs[hi].length||null;clubsStr=S.holeClubs[hi].length?S.holeClubs[hi].join(' → '):'Tap clubs in order';}
+  if(isD){const isForfeited=S.holeClubs[hi].length===1&&S.holeClubs[hi][0]==='X';if(isForfeited){score=par+2;clubsStr='Forfeited';}else{score=S.holeClubs[hi].length||null;clubsStr=S.holeClubs[hi].length?S.holeClubs[hi].join(' → '):'Tap clubs in order';}}
   else{score=S.holeScores[hi];}
   const scoreStr=score!=null&&score>0?String(score):'-';
   let diffStr='';
@@ -1904,7 +1904,7 @@ function renderLogEntry(){
 }
 
 function inputScore(n){let c=S.holeScores[S.currentHoleIdx];if(c===null)c=n;else{c=c*10+n;if(c>20)c=n;}S.holeScores[S.currentHoleIdx]=c;saveDraft();renderLogEntry();}
-function forfeitHole(){if(confirm('Forfeit this hole?\nThis records a score of 0.')){if(S.logMode==='detailed'){S.holeClubs[S.currentHoleIdx]=['X'];}else{S.holeScores[S.currentHoleIdx]=0;}saveDraft();renderLogEntry();}}
+function forfeitHole(){const holeNum=S.holesToScore[S.currentHoleIdx];const par=S.logCourse.pars[holeNum];const maxScore=par+2;if(confirm(`Forfeit this hole?\nThis records a score of ${maxScore} (double bogey).`)){if(S.logMode==='detailed'){S.holeClubs[S.currentHoleIdx]=['X'];}else{S.holeScores[S.currentHoleIdx]=maxScore;}saveDraft();renderLogEntry();}}
 function addClub(c){S.holeClubs[S.currentHoleIdx].push(c);saveDraft();renderLogEntry();}
 function undoClub(){S.holeClubs[S.currentHoleIdx].pop();saveDraft();renderLogEntry();}
 function prevH(){if(S.currentHoleIdx>0){S.currentHoleIdx--;saveDraft();renderLogEntry();}}
@@ -1941,12 +1941,17 @@ function renderLogNotes(){
   for(let i=0;i<S.holesToScore.length;i++){
     if(isD){
       const clubs=S.holeClubs[i];
-      const tappedPutts=clubs.filter(c=>c==='P').length;
-      let sc=clubs.length;
-      if(S.logIsSim&&S.holeSimPutts&&S.holeSimPutts[i]!=null&&tappedPutts===0){
-        sc=clubs.filter(c=>c!=='P').length+S.holeSimPutts[i];
+      const isForfeited=clubs.length===1&&clubs[0]==='X';
+      if(isForfeited){
+        scores.push(course.pars[S.holesToScore[i]]+2);
+      }else{
+        const tappedPutts=clubs.filter(c=>c==='P').length;
+        let sc=clubs.length;
+        if(S.logIsSim&&S.holeSimPutts&&S.holeSimPutts[i]!=null&&tappedPutts===0){
+          sc=clubs.filter(c=>c!=='P').length+S.holeSimPutts[i];
+        }
+        scores.push(sc);
       }
-      scores.push(sc);
     }else{
       scores.push(S.holeScores[i]||0);
     }
@@ -1997,10 +2002,10 @@ function renderLogNotes(){
   if(S.logHoles==='front_9'){
     frontGrid=buildMiniNine('FRONT OUT',0,9);
   } else if(S.logHoles==='back_9'){
-    backGrid=buildMiniNine('BACK OUT',9,9);
+    backGrid=buildMiniNine('BACK IN',9,9);
   } else {
     frontGrid=buildMiniNine('FRONT OUT',0,9);
-    backGrid=buildMiniNine('BACK OUT',9,9);
+    backGrid=buildMiniNine('BACK IN',9,9);
   }
 
   const holesLabel=S.logHoles==='front_9'?'Front 9':S.logHoles==='back_9'?'Back 9':'18 Holes';
@@ -2052,17 +2057,22 @@ async function submitRound(){
   for(let i=0;i<S.holesToScore.length;i++){
     if(isD){
       const clubs=[...S.holeClubs[i]];
-      const tappedPutts=clubs.filter(c=>c==='P').length;
+      const isForfeited=clubs.length===1&&clubs[0]==='X';
       let sc,putts,stg,allClubs;
-      // Feature 3: use auto-rolled sim putts when no P's were tapped by the user
-      if(S.logIsSim&&S.holeSimPutts&&S.holeSimPutts[i]!=null&&tappedPutts===0){
-        putts=S.holeSimPutts[i];
-        const shotClubs=clubs.filter(c=>c!=='P');
-        sc=shotClubs.length+putts;
-        stg=shotClubs.length;
-        allClubs=[...shotClubs,...Array(putts).fill('P')];
+      if(isForfeited){
+        sc=course.pars[S.holesToScore[i]]+2;putts=0;stg=sc;allClubs=[];
       }else{
-        sc=clubs.length;putts=tappedPutts;stg=sc-putts;allClubs=clubs;
+        const tappedPutts=clubs.filter(c=>c==='P').length;
+        // Feature 3: use auto-rolled sim putts when no P's were tapped by the user
+        if(S.logIsSim&&S.holeSimPutts&&S.holeSimPutts[i]!=null&&tappedPutts===0){
+          putts=S.holeSimPutts[i];
+          const shotClubs=clubs.filter(c=>c!=='P');
+          sc=shotClubs.length+putts;
+          stg=shotClubs.length;
+          allClubs=[...shotClubs,...Array(putts).fill('P')];
+        }else{
+          sc=clubs.length;putts=tappedPutts;stg=sc-putts;allClubs=clubs;
+        }
       }
       scores.push(sc);
       det.push({score:sc,putts,strokes_to_green:stg,clubs_used:allClubs.map(c=>S.clubFullNames[c]||c)});
@@ -2241,7 +2251,7 @@ async function renderCourseDetail(){
   }
   // Back-9 subtotal + total
   if(c.pars.length>9){
-    holeRows+=`<tr class="nine-sep"><td>OUT</td><td>${b9par}</td><td>${b9yds||'—'}</td></tr>`;
+    holeRows+=`<tr class="nine-sep"><td>IN</td><td>${b9par}</td><td>${b9yds||'—'}</td></tr>`;
   }
   holeRows+=`<tr class="total-row"><td>TOT</td><td>${totalPar}</td><td>${totalYards||'—'}</td></tr>`;
 
@@ -2713,7 +2723,7 @@ async function renderStats(){
           <div class="stat-trio">
             <div class="stat-trio-col"><div class="stat-trio-val" style="color:var(--green)">${adv.one_putt_rate!=null?adv.one_putt_rate+'%':'—'}</div><div class="stat-trio-label">1-Putt</div></div>
             <div class="stat-trio-col"><div class="stat-trio-val">${adv.two_putt_rate!=null?adv.two_putt_rate+'%':'—'}</div><div class="stat-trio-label">2-Putt</div></div>
-            <div class="stat-trio-col"><div class="stat-trio-val" style="color:${adv.three_putt_rate>25?'var(--red)':'var(--text)'}">${adv.three_putt_rate!=null?adv.three_putt_rate+'%':'—'}</div><div class="stat-trio-label">3-Putt</div></div>
+            <div class="stat-trio-col"><div class="stat-trio-val" style="color:${adv.three_putt_rate!=null&&adv.three_putt_rate>25?'var(--red)':'var(--text)'}">${adv.three_putt_rate!=null?adv.three_putt_rate+'%':'—'}</div><div class="stat-trio-label">3-Putt</div></div>
           </div>
         </div>
 

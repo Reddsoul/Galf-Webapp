@@ -86,7 +86,7 @@ class GolfBackend:
         if os.path.exists(STATS_CACHE_FILE):
             try:
                 return load_json(STATS_CACHE_FILE)
-            except:
+            except Exception:
                 return {}
         return {}
     
@@ -423,10 +423,8 @@ class GolfBackend:
                 holes = r.get("holes_played", 18)
                 if holes == 18:
                     diff = self.calculate_score_differential(r)
-                elif holes == 9 and current_handicap is not None:
+                elif holes == 9:
                     diff = self.calculate_score_differential(r, current_handicap)
-                else:
-                    continue
 
                 if diff is not None:
                     diffs.append({
@@ -607,9 +605,10 @@ class GolfBackend:
                     if fir:
                         stats["fir_hits"] += 1
 
-                # Club usage tracking (sim rounds included)
+                # Club usage tracking (sim rounds included; skip forfeit marker)
                 for club in clubs_used:
-                    stats["club_usage"][club] = stats["club_usage"].get(club, 0) + 1
+                    if club != 'X':
+                        stats["club_usage"][club] = stats["club_usage"].get(club, 0) + 1
         
         # Calculate averages and percentages
         result = {

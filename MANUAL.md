@@ -167,7 +167,7 @@ Buttons 1–9 are individual digit taps. For scores of 10 or above, tap two digi
 |---|---|
 | **1–9** | Sets / appends a digit to the current hole score |
 | **0** | Appends a zero (e.g. `1` then `0` = score of 10) |
-| **Forfeit** | Marks the hole with a score of 0. Used when you pick up or don't finish a hole. A confirmation prompt appears. |
+| **Forfeit** | Marks the hole with a score of par+2 (double bogey). Used when you pick up or don't finish a hole. A confirmation prompt appears. |
 | **Next →** | Moves to the next hole |
 | **✓ Done** | Appears on the last hole — finishes entry and goes to the Review screen |
 
@@ -226,7 +226,7 @@ Tap clubs in the order you hit them on the hole. The putter button is styled dif
 
 | Button | What it does |
 |---|---|
-| **Forfeit** | Marks hole with score 0 and clubs `[X]`. Confirmation required. |
+| **Forfeit** | Marks hole with par+2 (double bogey). Confirmation required. |
 | **↩ Undo** | Removes the last club tapped — useful if you tap the wrong one |
 | **Next →** / **✓ Done** | Advances to next hole or finishes entry |
 
@@ -375,7 +375,7 @@ Tap a tee color to switch the yardage display. The selected tee's detail card sh
 
 #### Hole Grid
 
-A table with one row per hole showing hole number, par, and yardage. Par 3s are green, par 5s are the accent color. Front 9 and back 9 subtotals (OUT) and a grand total (TOT) appear at the bottom.
+A table with one row per hole showing hole number, par, and yardage. Par 3s are green, par 5s are the accent color. Front 9 subtotal (OUT), back 9 subtotal (IN), and a grand total (TOT) appear at the bottom.
 
 #### Edit and Delete
 
