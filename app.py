@@ -175,15 +175,11 @@ def api_stroke_leaks():
 
 @app.route("/api/stats/best-round")
 def api_best_round():
-    rounds = backend.get_rounds()
     is_sim = request.args.get("sim", "false").lower() == "true"
     best = backend.get_best_round(is_sim=is_sim)
     if best:
         result = dict(best)
-        try:
-            result["_index"] = rounds.index(best)
-        except ValueError:
-            result["_index"] = None
+        result["_index"] = backend.rounds.index(best)
         return jsonify(result)
     return jsonify({})
 

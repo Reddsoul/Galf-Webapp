@@ -329,7 +329,7 @@ textarea.form-input { min-height: 100px; resize: vertical; }
   gap: 12px;
 }
 .home-hc-label {
-  font-size: 23; font-weight: 700; color: var(--text2);
+  font-size: 23px; font-weight: 700; color: var(--text2);
   text-transform: uppercase; letter-spacing: 1.4px;
 }
 .home-hc-value {
@@ -719,19 +719,6 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 }
 .club-add-btn:active { opacity: 0.8; }
 
-/* Old club row (kept for any other refs) */
-.club-row {
-  display: flex; align-items: center; padding: 10px 0;
-  border-bottom: 0.5px solid var(--sep); cursor: pointer;
-}
-.club-row:last-child { border-bottom: none; }
-.club-row:active { opacity: 0.6; }
-.club-name { font-size: 14px; font-weight: 600; width: 60px; flex-shrink: 0; }
-.club-bar-wrap { flex: 1; padding: 0 12px; }
-.club-bar { height: 6px; border-radius: 3px; background: var(--accent); transition: width 0.4s ease-out; }
-.club-dist { font-size: 14px; font-weight: 700; width: 50px; text-align: right; flex-shrink: 0; }
-.club-note { font-size: 11px; color: var(--orange); }
-
 /* ================================================================
    COURSE DETAIL — pretty view of course info, pars, yardages, tees
    ================================================================ */
@@ -773,9 +760,6 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 }
 .hole-grid td { padding: 8px 4px; border-bottom: 0.5px solid var(--sep); }
 .hole-grid .hole-num { font-weight: 700; color: var(--text2); width: 32px; }
-.hole-grid .par-3 { color: var(--text); }
-.hole-grid .par-4 { color: var(--text); }
-.hole-grid .par-5 { color: var(--text); }
 .hole-grid .nine-sep td { border-top: 2px solid var(--sep); font-weight: 700; background: rgba(27,107,58,0.05); }
 .hole-grid .total-row td { border-top: 2px solid var(--accent); font-weight: 700; font-size: 13px; }
 
@@ -1084,8 +1068,9 @@ const S = {
   holesToScore:[], currentHoleIdx:0,
   holeScores:[], holeClubs:[],
   holeSimPutts:null,
-  clubOptions:[], clubFullNames:{},
+  clubOptions:[], clubFullNames:{}, distByAbbr:{},
   clubUsage:{},
+  logClubMap:{},
   // Scorecard
   viewRound:null, viewRoundIdx:null,
   // Course editor
@@ -1097,13 +1082,15 @@ const S = {
    ================================================================ */
 async function api(path, opts={}) {
   const res = await fetch(path, {headers:{'Content-Type':'application/json',...opts.headers},...opts});
-  if(res.status===401){location.href='/login';return null;}
   return res.json();
 }
 const GET=p=>api(p);
 const POST=(p,d)=>api(p,{method:'POST',body:JSON.stringify(d)});
 const PUT=(p,d)=>api(p,{method:'PUT',body:JSON.stringify(d)});
 const DEL=p=>api(p,{method:'DELETE'});
+
+// Cached media query — created once, reused by ico() and the change listener.
+const DARK_MQ = window.matchMedia('(prefers-color-scheme: dark)');
 
 /* ================================================================
    ROUND DRAFT — localStorage persistence for in-progress rounds
@@ -1161,19 +1148,23 @@ function resumeDraft(draft) {
   S.holeScores = draft.holeScores;
   S.holeClubs = draft.holeClubs;
   S.holeSimPutts = draft.holeSimPutts;
-  // Rebuild club abbreviation lookup
-  const sorted = [...S.clubs].sort((a,b) => (b.distance||0)-(a.distance||0));
-  S.clubOptions = []; S.clubFullNames = {};
-  for (const c of sorted) { const ab = abbrClub(c.name); S.clubOptions.push(ab); S.clubFullNames[ab] = c.name; }
-  if (!S.clubOptions.includes('P') && !sorted.some(c => c.name.toLowerCase() === 'putter')) {
-    S.clubOptions.push('P'); S.clubFullNames['P'] = 'Putter';
-  }
+  buildClubLookups(S.clubUsage);
   show('log-entry');
 }
 
 /* ================================================================
    NAVIGATION — mirrors show_page + _update_tab_bar
    ================================================================ */
+
+// Single source of truth for page → render function mapping.
+// Used by show() and the dark-mode change listener.
+const RENDERERS = {
+  home:renderHome, rounds:renderRounds, scorecard:renderScorecard,
+  'log-setup':renderLogSetup, 'log-entry':renderLogEntry, 'log-notes':renderLogNotes,
+  courses:renderCourses, 'course-detail':renderCourseDetail, 'course-editor':renderCourseEditor,
+  stats:renderStats,
+};
+
 function nav(page) {
   document.querySelectorAll('.tab').forEach(t=>{
     t.classList.toggle('active', t.dataset.tab===page);
@@ -1181,27 +1172,35 @@ function nav(page) {
   show(page);
 }
 
+// Cached static DOM refs — set once in init(), never re-queried.
+let _contentEl, _logBtnBar;
+// Currently visible page name — lets show() swap only two elements instead of all views.
+let _currentPage = null;
+
 function show(name) {
-  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  if(_currentPage){const prev=document.getElementById('v-'+_currentPage);if(prev)prev.classList.remove('active');}
   const el=document.getElementById('v-'+name);
   if(el) el.classList.add('active');
-  const content=document.getElementById('content');
   const isEntry = name==='log-entry';
-  content.style.overflowY = isEntry ? 'hidden' : '';
-  content.style.height = isEntry ? '100%' : '';
-  content.scrollTop=0;
-  const fab=document.getElementById('log-btn-bar');
-  if(fab) fab.style.display=name==='home'?'block':'none';
-  const r={
-    home:renderHome, rounds:renderRounds, scorecard:renderScorecard,
-    'log-setup':renderLogSetup, 'log-entry':renderLogEntry, 'log-notes':renderLogNotes,
-    courses:renderCourses, 'course-detail':renderCourseDetail, 'course-editor':renderCourseEditor,
-    stats:renderStats
-  };
-  if(r[name]) r[name]();
+  _contentEl.style.overflowY = isEntry ? 'hidden' : '';
+  _contentEl.style.height = isEntry ? '100%' : '';
+  _contentEl.scrollTop=0;
+  _logBtnBar.style.display=name==='home'?'block':'none';
+  _currentPage=name;
+  if(RENDERERS[name]) RENDERERS[name]();
 }
 
-function esc(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML;}
+function esc(t){return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+// Map score-vs-par difference to the correct CSS class for scorecard markers.
+function scoreClass(score, par) {
+  const d = score - par;
+  if (d <= -2) return 'sc-eagle';
+  if (d === -1) return 'sc-birdie';
+  if (d === 0)  return 'sc-par-score';
+  if (d === 1)  return 'sc-bogey';
+  return 'sc-dbl-bogey';
+}
 
 /* ================================================================
    HOME — _show_home_page
@@ -1229,9 +1228,7 @@ async function buildBestCard(bestData, label) {
   for(let i=hStart;i<hEnd;i++){
     const s=scores[i],p=pars[i];
     if(!s) continue;
-    const dif=s-p;
-    const cls=dif<=-2?'sc-eagle':dif===-1?'sc-birdie':dif===0?'sc-par-score':dif===1?'sc-bogey':'sc-dbl-bogey';
-    holeHtml+=`<div class="home-hole-cell"><div class="home-hole-num">${i+1}</div><div class="sc-score ${cls}">${s}</div></div>`;
+    holeHtml+=`<div class="home-hole-cell"><div class="home-hole-num">${i+1}</div><div class="sc-score ${scoreClass(s,p)}">${s}</div></div>`;
   }
   return `
     <div class="home-best" onclick="viewRound(${bestData._index})">
@@ -1264,7 +1261,7 @@ async function renderHome() {
 
   // Handicap hero
   const hasHC = S.handicap!==null;
-  const hcStr = hasHC ? String(Math.ceil(S.handicap)) : '--';
+  const hcStr = hasHC ? S.handicap.toFixed(1) : '--';
   let hcSub='';
   if(!hasHC){
     const rem=Math.max(0,54-(stats.total_holes_played||0));
@@ -1278,7 +1275,6 @@ async function renderHome() {
   ]);
 
   const girVal = adv && adv.gir_overall != null ? adv.gir_overall + '%' : '—';
-  const girLbl = 'GIR';
 
   v.innerHTML=`
     <div class="home-hero">
@@ -1302,7 +1298,7 @@ async function renderHome() {
       </div>
       <div class="home-stat-cell">
         <div class="home-stat-val">${girVal}</div>
-        <div class="home-stat-lbl">${girLbl}</div>
+        <div class="home-stat-lbl">GIR</div>
       </div>
       <div class="home-stat-cell tappable" onclick="show('stats')">
         <div class="home-stat-val"><img src="/static/golf-clubs-w-96.png" style="width:30px;height:30px;object-fit:contain;margin:1px auto 0;display:block"></div>
@@ -1333,7 +1329,7 @@ async function renderRounds() {
     rows='<div style="padding:0 16px;overflow-x:auto"><table class="tree-table"><tr><th style="width:80px">Date</th><th>Course</th><th style="width:50px">Score</th><th style="width:45px">+/-</th><th style="width:45px">Holes</th></tr>';
     for(const rd of rounds){
       const diff=rd.total_score-(rd.par||72);
-      const ds=diff>0?`+${diff}`:`${diff}`;
+      const ds=diff>0?`+${diff}`:diff===0?'E':`${diff}`;
       const dc=diff>0?'badge-red':diff<0?'badge-green':'badge-even';
       const hc=rd.holes_choice;
       const hs=hc==='front_9'?'F9':hc==='back_9'?'B9':String(rd.holes_played||18);
@@ -1427,8 +1423,7 @@ function renderScorecard() {
     let parTotal=0;
     for(let i=0;i<pars.length;i++){
       parTotal+=pars[i];
-      const pc='';
-      parRow+=`<div class="sc-cell sc-cell-par" style="${pc}">${pars[i]}</div>`;
+      parRow+=`<div class="sc-cell sc-cell-par">${pars[i]}</div>`;
     }
     parRow+=`<div class="sc-cell sc-cell-total">${parTotal}</div>`;
 
@@ -1441,13 +1436,7 @@ function renderScorecard() {
       if(s!=null){
         hasScores=true;
         scoreTotal+=s;
-        const d=s-pars[i];
-        let cls='sc-par-score';
-        if(d<=-2) cls='sc-eagle';
-        else if(d===-1) cls='sc-birdie';
-        else if(d===1) cls='sc-bogey';
-        else if(d>=2) cls='sc-dbl-bogey';
-        scoreRow+=`<div class="sc-cell"><div class="sc-score ${cls}">${s}</div></div>`;
+        scoreRow+=`<div class="sc-cell"><div class="sc-score ${scoreClass(s,pars[i])}">${s}</div></div>`;
       } else {
         scoreRow+=`<div class="sc-cell" style="color:var(--text3)">—</div>`;
       }
@@ -1522,6 +1511,7 @@ function renderScorecard() {
 async function delRound(idx){
   if(!confirm('Delete this round?\nThis cannot be undone.')) return;
   await DEL(`/api/rounds/${idx}`);
+  clearStatsCache();
   nav('rounds');
 }
 
@@ -1529,9 +1519,9 @@ async function delRound(idx){
    LOG ROUND SETUP — club→course, tee pills, scramble=not serious
    ================================================================ */
 async function startLog(){
-  S.courses=await GET('/api/courses');
-  S.clubs=await GET('/api/clubs');
-  const prefs=await GET('/api/prefs');
+  // S.clubs is kept current by all club mutators — no need to re-fetch
+  const [courses,prefs]=await Promise.all([GET('/api/courses'),GET('/api/prefs')]);
+  S.courses=courses;
   S.logMode=prefs.entry_mode||'quick';
   S.logType='solo'; S.logSerious=true; S.logHoles='full_18'; S.logIsSim=false;
   show('log-setup');
@@ -1540,16 +1530,16 @@ async function startLog(){
 function renderLogSetup() {
   const v=document.getElementById('v-log-setup');
   if(!S.courses.length){
-    v.innerHTML=`<div class="page-title">Log Round</div></div>
+    v.innerHTML=`<div class="page-title">Log Round</div>
       <div class="card"><div style="font-size:14px;font-weight:bold">No courses added yet</div><div style="font-size:11px;color:var(--text2);padding:12px 0">Add a course before logging a round.</div>
       <button class="btn btn-primary" onclick="nav('courses')">➕ Add Course</button></div>`;
     return;
   }
 
-  // Group courses by club
-  const clubMap={};
-  for(const c of S.courses){const k=c.club||'Other';if(!clubMap[k])clubMap[k]=[];clubMap[k].push(c);}
-  const clubNames=Object.keys(clubMap).sort();
+  // Group courses by club — stored on S so lsClubChanged() can reuse without rebuilding
+  S.logClubMap={};
+  for(const c of S.courses){const k=c.club||'Other';if(!S.logClubMap[k])S.logClubMap[k]=[];S.logClubMap[k].push(c);}
+  const clubNames=Object.keys(S.logClubMap).sort();
 
   // Build club selector
   let clubOpts=`<option value="" disabled selected>Pick one</option>`+clubNames.map(cn=>`<option value="${esc(cn)}">${esc(cn)}</option>`).join('');
@@ -1561,13 +1551,14 @@ function renderLogSetup() {
   const seriousChecked=S.logSerious&&!seriousDisabled;
 
   const _draft = getDraft();
-  const _draftBanner = (() => {
-    if (!_draft) return '';
+  let _draftBanner = '';
+  if(_draft){
     const dc = S.courses.find(c => c.name === _draft.courseName);
-    if (!dc) { clearDraft(); return ''; }
-    const hole = (_draft.currentHoleIdx || 0) + 1;
-    const total = (_draft.holesToScore || []).length;
-    return `<div class="draft-banner">
+    if(!dc){ clearDraft(); }
+    else{
+      const hole = (_draft.currentHoleIdx || 0) + 1;
+      const total = (_draft.holesToScore || []).length;
+      _draftBanner = `<div class="draft-banner">
       <div class="draft-banner-info">
         <div class="draft-banner-title">Resume in-progress round?</div>
         <div class="draft-banner-sub">${esc(_draft.courseName)} · Hole ${hole} of ${total}</div>
@@ -1577,7 +1568,8 @@ function renderLogSetup() {
         <button class="draft-btn-discard" onclick="clearDraft();renderLogSetup()">Discard</button>
       </div>
     </div>`;
-  })();
+    }
+  }
 
   v.innerHTML=`
     <div class="page-header">
@@ -1667,9 +1659,7 @@ function lsClubChanged(){
   const clubName=document.getElementById('ls-club').value;
   const container=document.getElementById('ls-course-list');
   if(!clubName){container.innerHTML='<div style="font-size:13px;color:var(--text2)">Select a club to see courses</div>';S.logCourse=null;document.getElementById('ls-tee-pills').innerHTML='';return;}
-  const clubMap={};
-  for(const c of S.courses){const k=c.club||'Other';if(!clubMap[k])clubMap[k]=[];clubMap[k].push(c);}
-  const courses=clubMap[clubName]||[];
+  const courses=(S.logClubMap||{})[clubName]||[];
 
   // Course list as tappable rows
   if(!courses.length){container.innerHTML='<div style="font-size:13px;color:var(--text2)">No courses for this club</div>';return;}
@@ -1701,8 +1691,7 @@ function lsClubChanged(){
 
 function lsPickCourse(name){
   S.logCourse=S.courses.find(c=>c.name===name);
-  lsClubChanged(); // Re-render course list with selection
-  lsRefreshTees();
+  lsClubChanged(); // Re-renders course list (with selection) and calls lsRefreshTees()
 }
 
 function lsRefreshTees(){
@@ -1723,6 +1712,30 @@ function lsRefreshTees(){
     </div>`;
   }
   container.innerHTML=html;
+}
+
+// Build S.clubOptions / S.clubFullNames / S.distByAbbr from S.clubs.
+// Also pre-sorts S.sortedClubs and S.sortedClubsNoDriver for suggestClubs,
+// using clubUsage as a distance tiebreaker so the most-used club is preferred.
+function buildClubLookups(clubUsage) {
+  const usage = clubUsage || {};
+  const byDist = [...S.clubs].sort((a,b) => (b.distance||0)-(a.distance||0));
+  S.clubOptions = []; S.clubFullNames = {}; S.distByAbbr = {};
+  for (const c of byDist) {
+    const ab = abbrClub(c.name);
+    S.clubOptions.push(ab); S.clubFullNames[ab] = c.name; S.distByAbbr[ab] = c.distance||0;
+  }
+  if (!S.clubOptions.includes('P') && !byDist.some(c => c.name.toLowerCase() === 'putter')) {
+    S.clubOptions.push('P'); S.clubFullNames['P'] = 'Putter'; S.distByAbbr['P'] = 0;
+  }
+  // Pre-sorted usable clubs for suggestClubs (putter excluded, positive distance only)
+  S.sortedClubs = byDist
+    .filter(c => c.name.toLowerCase() !== 'putter' && (c.distance||0) > 0)
+    .sort((a,b) => {
+      if (b.distance !== a.distance) return (b.distance||0) - (a.distance||0);
+      return (usage[b.name]||0) - (usage[a.name]||0);
+    });
+  S.sortedClubsNoDriver = S.sortedClubs.filter(c => !c.name.toLowerCase().includes('driver'));
 }
 
 function abbrClub(name){
@@ -1747,16 +1760,13 @@ async function beginEntry(){
   S.holeClubs=Array.from({length:S.holesToScore.length},()=>[]);
   // Initialize sim putts array (null = not yet rolled for this hole)
   S.holeSimPutts=(S.logIsSim&&S.logMode==='detailed')?new Array(S.holesToScore.length).fill(null):null;
-  const sorted=[...S.clubs].sort((a,b)=>(b.distance||0)-(a.distance||0));
-  S.clubOptions=[];S.clubFullNames={};
-  for(const c of sorted){const ab=abbrClub(c.name);S.clubOptions.push(ab);S.clubFullNames[ab]=c.name;}
-  if(!S.clubOptions.includes('P')&&!sorted.some(c=>c.name.toLowerCase()==='putter')){S.clubOptions.push('P');S.clubFullNames['P']='Putter';}
-  // Fetch club usage for hole suggestions (Feature 1)
+  // Fetch club usage for hole suggestions (Feature 1), then build lookups with usage as tiebreaker
   try{
     const analytics=await GET('/api/stats/club-analytics');
     S.clubUsage={};
     for(const c of (analytics.ranked_clubs||[])) S.clubUsage[c.name]=c.count;
   }catch(e){ S.clubUsage={}; }
+  buildClubLookups(S.clubUsage);
   saveDraft();
   show('log-entry');
 }
@@ -1766,31 +1776,23 @@ async function beginEntry(){
    Greedy: pick longest club ≤ remaining, subtract, repeat.
    Uses clubUsage as tiebreaker for equal-distance clubs.
    ================================================================ */
-function suggestClubs(yardage, clubs, clubUsage){
-  try{
-    if(!yardage||!clubs||!clubs.length) return '';
-    // Usable clubs: exclude putter, positive distance only
-    const usable=[...clubs]
-      .filter(c=>c.name.toLowerCase()!=='putter'&&(c.distance||0)>0)
-      .sort((a,b)=>{
-        if(b.distance!==a.distance) return (b.distance||0)-(a.distance||0);
-        return (clubUsage[b.name]||0)-(clubUsage[a.name]||0);
-      });
-    if(!usable.length) return '';
-    let remaining=yardage;
-    const result=[];
-    while(remaining>0){
-      const club=usable.find(c=>{
-        if((c.distance||0)>remaining) return false;
-        if(c.name.toLowerCase()==='driver'&&result.length>0) return false; // driver: first shot only
-        return true;
-      });
-      if(!club) break; // no club fits remaining distance — stop
-      result.push(abbrClub(club.name));
-      remaining-=club.distance;
-    }
-    return result.join(' → ');
-  }catch(e){ return ''; }
+// sortedClubs must be pre-sorted by (distance desc, usage desc) with putter and zero-distance clubs removed.
+// Use S.sortedClubs (full) or S.sortedClubsNoDriver — both built by buildClubLookups().
+function suggestClubs(yardage, sortedClubs){
+  if(!yardage||!sortedClubs||!sortedClubs.length) return '';
+  let remaining=yardage;
+  const result=[];
+  while(remaining>0){
+    const club=sortedClubs.find(c=>{
+      if((c.distance||0)>remaining) return false;
+      if(c.name.toLowerCase()==='driver'&&result.length>0) return false; // driver: first shot only
+      return true;
+    });
+    if(!club) break;
+    result.push(abbrClub(club.name));
+    remaining-=club.distance;
+  }
+  return result.join(' → ');
 }
 
 /* ================================================================
@@ -1829,16 +1831,13 @@ function renderLogEntry(){
     if(yardNum&&S.clubs&&S.clubs.length){
       const played=S.holeClubs[hi].filter(c=>c!=='X'&&c!=='P');
       if(played.length===0){
-        const s=suggestClubs(yardNum,S.clubs,S.clubUsage||{});
+        const s=suggestClubs(yardNum,S.sortedClubs||[]);
         if(s) suggestStr=`Suggested: ${s}`;
       } else {
-        const distByAbbr={};
-        for(const cl of S.clubs) distByAbbr[abbrClub(cl.name)]=cl.distance||0;
-        const playedDist=played.reduce((sum,c)=>sum+(distByAbbr[c]||0),0);
+        const playedDist=played.reduce((sum,c)=>sum+(S.distByAbbr[c]||0),0);
         const remaining=yardNum-playedDist;
         if(remaining>0){
-          const noDriver=S.clubs.filter(c=>c.name.toLowerCase()!=='driver');
-          const s=suggestClubs(remaining,noDriver,S.clubUsage||{});
+          const s=suggestClubs(remaining,S.sortedClubsNoDriver||[]);
           if(s) suggestStr=`~${remaining} yds → ${s}`;
         }
       }
@@ -1903,12 +1902,37 @@ function renderLogEntry(){
   `;
 }
 
-function inputScore(n){let c=S.holeScores[S.currentHoleIdx];if(c===null)c=n;else{c=c*10+n;if(c>20)c=n;}S.holeScores[S.currentHoleIdx]=c;saveDraft();renderLogEntry();}
+function inputScore(n){let c=S.holeScores[S.currentHoleIdx];if(c===null){if(n===0)return;c=n;}else{c=c*10+n;if(c>20)c=n;}S.holeScores[S.currentHoleIdx]=c;saveDraft();renderLogEntry();}
 function forfeitHole(){const holeNum=S.holesToScore[S.currentHoleIdx];const par=S.logCourse.pars[holeNum];const maxScore=par+2;if(confirm(`Forfeit this hole?\nThis records a score of ${maxScore} (double bogey).`)){if(S.logMode==='detailed'){S.holeClubs[S.currentHoleIdx]=['X'];}else{S.holeScores[S.currentHoleIdx]=maxScore;}saveDraft();renderLogEntry();}}
 function addClub(c){S.holeClubs[S.currentHoleIdx].push(c);saveDraft();renderLogEntry();}
 function undoClub(){S.holeClubs[S.currentHoleIdx].pop();saveDraft();renderLogEntry();}
 function prevH(){if(S.currentHoleIdx>0){S.currentHoleIdx--;saveDraft();renderLogEntry();}}
 function nextH(){if(S.currentHoleIdx<S.holesToScore.length-1){S.currentHoleIdx++;saveDraft();renderLogEntry();}}
+// Compute per-hole results from S state. Returns one entry per hole in S.holesToScore.
+// detailed mode: {score, putts, stg, allClubs}  quick mode: {score, putts:null, stg:null, allClubs:null}
+function computeHoleScores() {
+  const isD = S.logMode === 'detailed';
+  const course = S.logCourse;
+  return S.holesToScore.map((holeNum, i) => {
+    if (!isD) return {score: S.holeScores[i], putts: null, stg: null, allClubs: null};
+    const clubs = [...S.holeClubs[i]];
+    const isForfeited = clubs.length === 1 && clubs[0] === 'X';
+    if (isForfeited) {
+      const sc = course.pars[holeNum] + 2;
+      return {score: sc, putts: null, stg: null, allClubs: null};
+    }
+    const tappedPutts = clubs.filter(c => c === 'P').length;
+    if (S.logIsSim && S.holeSimPutts && S.holeSimPutts[i] != null && tappedPutts === 0) {
+      const putts = S.holeSimPutts[i];
+      const shotClubs = clubs.filter(c => c !== 'P');
+      const sc = shotClubs.length + putts;
+      return {score: sc, putts, stg: shotClubs.length, allClubs: [...shotClubs, ...Array(putts).fill('P')]};
+    }
+    const sc = clubs.length;
+    return {score: sc, putts: tappedPutts, stg: sc - tappedPutts, allClubs: clubs};
+  });
+}
+
 function checkFinish(){
   const isD=S.logMode==='detailed';
   const inc=[];
@@ -1936,26 +1960,7 @@ function renderLogNotes(){
   const headerBg=teeColor==='White'?'#F8F8F8':teeCSS_;
   const headerFg=teeTextColor(headerBg);
 
-  // Compute scores per hole (sim rounds add auto-putts to the preview total)
-  const scores=[];
-  for(let i=0;i<S.holesToScore.length;i++){
-    if(isD){
-      const clubs=S.holeClubs[i];
-      const isForfeited=clubs.length===1&&clubs[0]==='X';
-      if(isForfeited){
-        scores.push(course.pars[S.holesToScore[i]]+2);
-      }else{
-        const tappedPutts=clubs.filter(c=>c==='P').length;
-        let sc=clubs.length;
-        if(S.logIsSim&&S.holeSimPutts&&S.holeSimPutts[i]!=null&&tappedPutts===0){
-          sc=clubs.filter(c=>c!=='P').length+S.holeSimPutts[i];
-        }
-        scores.push(sc);
-      }
-    }else{
-      scores.push(S.holeScores[i]||0);
-    }
-  }
+  const scores=computeHoleScores().map(h=>h.score??0);
   const total=scores.reduce((a,b)=>a+b,0);
   const parTotal=S.holesToScore.reduce((a,hi)=>a+course.pars[hi],0);
   const diff=total-parTotal;
@@ -1988,8 +1993,8 @@ function renderLogNotes(){
     let st=0;let has=false;
     for(let i=0;i<pars.length;i++){
       const s=sc[i];
-      if(s!=null&&s>0){has=true;st+=s;const d=s-pars[i];let cls='sc-par-score';if(d<=-2)cls='sc-eagle';else if(d===-1)cls='sc-birdie';else if(d===1)cls='sc-bogey';else if(d>=2)cls='sc-dbl-bogey';
-        scoreRow+=`<div class="sc-cell"><div class="sc-score ${cls}">${s}</div></div>`;}
+      if(s!=null&&s>0){has=true;st+=s;
+        scoreRow+=`<div class="sc-cell"><div class="sc-score ${scoreClass(s,pars[i])}">${s}</div></div>`;}
       else scoreRow+=`<div class="sc-cell" style="color:var(--text3)">—</div>`;
     }
     scoreRow+=`<div class="sc-cell sc-cell-total">${has?st:''}</div>`;
@@ -2053,31 +2058,12 @@ function renderLogNotes(){
   `;
 }
 async function submitRound(){
-  const isD=S.logMode==='detailed';const course=S.logCourse;const scores=[];const det=[];
-  for(let i=0;i<S.holesToScore.length;i++){
-    if(isD){
-      const clubs=[...S.holeClubs[i]];
-      const isForfeited=clubs.length===1&&clubs[0]==='X';
-      let sc,putts,stg,allClubs;
-      if(isForfeited){
-        sc=course.pars[S.holesToScore[i]]+2;putts=0;stg=sc;allClubs=[];
-      }else{
-        const tappedPutts=clubs.filter(c=>c==='P').length;
-        // Feature 3: use auto-rolled sim putts when no P's were tapped by the user
-        if(S.logIsSim&&S.holeSimPutts&&S.holeSimPutts[i]!=null&&tappedPutts===0){
-          putts=S.holeSimPutts[i];
-          const shotClubs=clubs.filter(c=>c!=='P');
-          sc=shotClubs.length+putts;
-          stg=shotClubs.length;
-          allClubs=[...shotClubs,...Array(putts).fill('P')];
-        }else{
-          sc=clubs.length;putts=tappedPutts;stg=sc-putts;allClubs=clubs;
-        }
-      }
-      scores.push(sc);
-      det.push({score:sc,putts,strokes_to_green:stg,clubs_used:allClubs.map(c=>S.clubFullNames[c]||c)});
-    }else{scores.push(S.holeScores[i]);det.push({score:S.holeScores[i]});}
-  }
+  const course=S.logCourse;
+  const computed=computeHoleScores();
+  const scores=computed.map(h=>h.score);
+  const det=computed.map(h=>h.allClubs!=null
+    ? {score:h.score,putts:h.putts,strokes_to_green:h.stg,clubs_used:h.allClubs.map(c=>S.clubFullNames[c]||c)}
+    : {score:h.score});
   const total=scores.reduce((a,b)=>a+b,0);const parP=S.holesToScore.reduce((a,hi)=>a+course.pars[hi],0);
   const fullScores=new Array(course.pars.length).fill(null);const fullDet=new Array(course.pars.length).fill(null).map(()=>({}));
   for(let i=0;i<S.holesToScore.length;i++){fullScores[S.holesToScore[i]]=scores[i];fullDet[S.holesToScore[i]]=det[i];}
@@ -2086,6 +2072,7 @@ async function submitRound(){
   const res=await POST('/api/rounds',{course_name:course.name,tee_color:S.logTee,scores:fullScores,is_serious:S.logSerious,is_sim:S.logIsSim||false,round_type:S.logType,notes,holes_played:S.holesToScore.length,holes_choice:S.logHoles,total_score:total,date:dateStr,entry_mode:S.logMode,detailed_stats:fullDet});
   if(res&&res.ok===false){alert('Error saving round: '+(res.error||'Unknown error'));return;}
   clearDraft();
+  clearStatsCache();
   const diff=total-parP;alert(`Round Saved\nScore: ${total} (${diff>0?'+':''}${diff})\nCourse: ${course.name}\nHoles: ${S.holesToScore.length}`);
   nav('rounds');
 }
@@ -2094,11 +2081,13 @@ async function submitRound(){
    COURSES LIST
    ================================================================ */
 async function renderCourses(){
-  S.courses=await GET('/api/courses');const v=document.getElementById('v-courses');
+  // Re-fetch only when courses haven't been loaded yet; saveCourse() updates S.courses after mutations
+  if(!S.courses.length) S.courses=await GET('/api/courses');
+  const v=document.getElementById('v-courses');
   const sorted=[...S.courses].sort((a,b)=>(a.club||'').localeCompare(b.club||'')||a.name.localeCompare(b.name));
   let rows='';
   if(!sorted.length){
-    rows=`<div class="empty"><div class="empty-icon"><div class="empty-icon"><img src="${ico('golf-course')}" style="width:90px;height:90px;object-fit:contain;margin:1px auto 0;display:block"></div><div class="empty-text">No courses yet.<br>Add your first course to get started.</div></div>`;
+    rows=`<div class="empty"><div class="empty-icon"><img src="${ico('golf-course')}" style="width:90px;height:90px;object-fit:contain;margin:1px auto 0;display:block"></div><div class="empty-text">No courses yet.<br>Add your first course to get started.</div></div>`;
   } else {
     // Group by club
     const clubs={};
@@ -2137,18 +2126,24 @@ async function renderCourses(){
   `;
 }
 
+const _parseColorCache={};
 function parseColor(css){
+  if(_parseColorCache[css]) return _parseColorCache[css];
+  let result;
   if(css.startsWith('#')){
     const h=css.slice(1);
-    return[parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)];
+    result=[parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)];
+  } else {
+    // Named color: resolve through a temporary DOM element (cached so this only runs once per color)
+    const el=document.createElement('div');
+    el.style.color=css;
+    document.body.appendChild(el);
+    const v=getComputedStyle(el).color.match(/\d+/g);
+    document.body.removeChild(el);
+    result=v?[+v[0],+v[1],+v[2]]:[142,142,147];
   }
-  // Named color: resolve through a temporary DOM element
-  const el=document.createElement('div');
-  el.style.color=css;
-  document.body.appendChild(el);
-  const v=getComputedStyle(el).color.match(/\d+/g);
-  document.body.removeChild(el);
-  return v?[+v[0],+v[1],+v[2]]:[142,142,147];
+  _parseColorCache[css]=result;
+  return result;
 }
 
 function wcagLuminance(r,g,b){
@@ -2309,6 +2304,7 @@ async function renderCourseDetail(){
 async function deleteCourse(name){
   if(!confirm(`Delete "${name}"?\nThis cannot be undone.`))return;
   await DEL(`/api/courses/${encodeURIComponent(name)}`);
+  S.courses = S.courses.filter(c => c.name !== name);
   nav('courses');
 }
 
@@ -2585,6 +2581,11 @@ async function saveCourse(){
    ================================================================ */
 let statsTab='overview';
 
+// Shared stats data cached for the lifetime of one "visit" to the stats view.
+// Cleared after any mutation that changes stats (round add/delete).
+let _statsCache=null;
+function clearStatsCache(){_statsCache=null;}
+
 function svgRing(pct, color, size=80, stroke=7) {
   const r = (size - stroke) / 2;
   const circ = 2 * Math.PI * r;
@@ -2597,11 +2598,16 @@ function svgRing(pct, color, size=80, stroke=7) {
 
 async function renderStats(){
   const v=document.getElementById('v-stats');
-  v.innerHTML='<div class="page-header"><div class="page-title">Statistics</div></div><div class="skeleton-card" style="margin:8px 16px"><div class="skeleton skeleton-num" style="margin:20px auto;width:80px;height:80px"></div><div class="skeleton skeleton-line" style="margin:8px 20px"></div><div class="skeleton skeleton-line-sm" style="margin:4px 20px"></div></div>';
-  const [stats,hc,adv,leaks,diffs]=await Promise.all([
-    GET('/api/stats'),GET('/api/stats/handicap'),GET('/api/stats/advanced'),
-    GET('/api/stats/stroke-leaks'),GET('/api/stats/differentials')
-  ]);
+  if(!_statsCache){
+    v.innerHTML='<div class="page-header"><div class="page-title">Statistics</div></div><div class="skeleton-card" style="margin:8px 16px"><div class="skeleton skeleton-num" style="margin:20px auto;width:80px;height:80px"></div><div class="skeleton skeleton-line" style="margin:8px 20px"></div><div class="skeleton skeleton-line-sm" style="margin:4px 20px"></div></div>';
+    const [stats,hc,adv,leaks,diffs,best,analytics]=await Promise.all([
+      GET('/api/stats'),GET('/api/stats/handicap'),GET('/api/stats/advanced'),
+      GET('/api/stats/stroke-leaks'),GET('/api/stats/differentials'),GET('/api/stats/best-round'),
+      GET('/api/stats/club-analytics')
+    ]);
+    _statsCache={stats,hc,adv,leaks,diffs,best,analytics};
+  }
+  const {stats,hc,adv,leaks,diffs,best,analytics:cachedAnalytics}=_statsCache;
   const idx=hc.handicap_index;
 
   const tabs=[['overview','Overview'],['perf','Performance'],['clubs','Clubs'],['analysis','Analysis']];
@@ -2617,7 +2623,6 @@ async function renderStats(){
 
     // Best round
     let bestHtml='—';
-    const best = await GET('/api/stats/best-round');
     if(best && best.total_score){
       const bd = best.total_score-(best.par||72);
       bestHtml = `${best.total_score} <span style="font-size:16px;color:${bd>0?'var(--red)':'var(--green)'}">(${bd>0?'+':''}${bd})</span>`;
@@ -2674,7 +2679,7 @@ async function renderStats(){
   else if(statsTab==='perf'){
     if(!adv||!adv.total_holes_tracked){
       body=`<div class="stat-card" style="text-align:center;padding:40px 20px">
-        <div style="font-size:40px;margin-bottom:12px"><div class="empty-icon"><img src="${ico('golf-clubs')}" style="width:90px;height:90px;object-fit:contain;margin:1px auto 0;display:block"></div>
+        <div style="font-size:40px;margin-bottom:12px"><div class="empty-icon"><img src="${ico('golf-clubs')}" style="width:90px;height:90px;object-fit:contain;margin:1px auto 0;display:block"></div></div>
         <div style="font-size:16px;font-weight:600">No Performance Data</div>
         <div style="font-size:13px;color:var(--text2);margin-top:8px;line-height:1.5">Use "Detailed" entry mode when<br>logging rounds to track these stats.</div>
       </div>`;
@@ -2753,25 +2758,21 @@ async function renderStats(){
 
   /* ---- CLUBS ---- */
   else if(statsTab==='clubs'){
-    const [clubs,analytics]=await Promise.all([GET('/api/clubs'),GET('/api/stats/club-analytics')]);
+    const analytics=cachedAnalytics;
     const usageMap={};
     const totalShots=analytics.total_shots||0;
     for(const c of (analytics.ranked_clubs||[])) usageMap[c.name]=c;
 
     // Sort: by usage count when available, putter always last, else by distance
-    let sorted=[...clubs];
+    const putterLast=(a,b)=>{
+      const pa=a.name.toLowerCase()==='putter', pb=b.name.toLowerCase()==='putter';
+      if(pa) return 1; if(pb) return -1; return 0;
+    };
+    let sorted=[...S.clubs];
     if(totalShots>0){
-      sorted.sort((a,b)=>{
-        const isPutterA=a.name.toLowerCase()==='putter', isPutterB=b.name.toLowerCase()==='putter';
-        if(isPutterA) return 1; if(isPutterB) return -1;
-        return (usageMap[b.name]?.count||0)-(usageMap[a.name]?.count||0);
-      });
+      sorted.sort((a,b)=>putterLast(a,b)||((usageMap[b.name]?.count||0)-(usageMap[a.name]?.count||0)));
     } else {
-      sorted.sort((a,b)=>{
-        const isPutterA=a.name.toLowerCase()==='putter', isPutterB=b.name.toLowerCase()==='putter';
-        if(isPutterA) return 1; if(isPutterB) return -1;
-        return (b.distance||0)-(a.distance||0);
-      });
+      sorted.sort((a,b)=>putterLast(a,b)||((b.distance||0)-(a.distance||0)));
     }
 
     const maxUsage=totalShots>0?Math.max(...sorted.map(c=>usageMap[c.name]?.count||0),1):0;
@@ -2962,8 +2963,7 @@ async function clubAdd(){
    Pattern: /static/{name}-96.png (light) or /static/{name}-w-96.png (dark)
    ================================================================ */
 function ico(name) {
-  const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-  return `/static/${name}${dark?'-w':''}-96.png`;
+  return `/static/${name}${DARK_MQ.matches?'-w':''}-96.png`;
 }
 
 function updateTabIcons() {
@@ -2973,21 +2973,21 @@ function updateTabIcons() {
   t('[data-tab="courses"] .tab-icon img', 'golf-course');
 }
 
-window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+DARK_MQ.addEventListener('change', () => {
   updateTabIcons();
-  const id = (document.querySelector('.view.active')||{}).id;
-  const name = id ? id.replace('v-','') : '';
-  const r = {home:renderHome,rounds:renderRounds,scorecard:renderScorecard,
-    'log-setup':renderLogSetup,'log-entry':renderLogEntry,'log-notes':renderLogNotes,
-    courses:renderCourses,'course-detail':renderCourseDetail,'course-editor':renderCourseEditor,
-    stats:renderStats};
-  if(r[name]) r[name]();
+  if(_currentPage && RENDERERS[_currentPage]) RENDERERS[_currentPage]();
 });
 
 /* ================================================================
    INIT
    ================================================================ */
-async function init(){S.clubs=await GET('/api/clubs');updateTabIcons();nav('home');}
+async function init(){
+  _contentEl=document.getElementById('content');
+  _logBtnBar=document.getElementById('log-btn-bar');
+  S.clubs=await GET('/api/clubs');
+  updateTabIcons();
+  nav('home');
+}
 init();
 </script>
 </body>
