@@ -1069,7 +1069,7 @@ const S = {
   holeScores:[], holeClubs:[],
   holeSimPutts:null,
   clubOptions:[], clubFullNames:{}, distByAbbr:{},
-  clubUsage:{},
+  clubUsage:{}, wedgeMatrix:[],
   logClubMap:{},
   // Scorecard
   viewRound:null, viewRoundIdx:null,
@@ -1736,6 +1736,11 @@ function buildClubLookups(clubUsage) {
       return (usage[b.name]||0) - (usage[a.name]||0);
     });
   S.sortedClubsNoDriver = S.sortedClubs.filter(c => !c.name.toLowerCase().includes('driver'));
+  // Build wedge matrix: partial swing distances for clubs that have them
+  S.wedgeMatrix = S.clubs
+    .filter(c => c.partials && Object.keys(c.partials).length > 0)
+    .flatMap(c => Object.entries(c.partials).map(([swing, dist]) => ({name: c.name, swing, dist})))
+    .sort((a, b) => b.dist - a.dist);
 }
 
 function abbrClub(name){
@@ -1791,6 +1796,14 @@ function suggestClubs(yardage, sortedClubs){
     if(!club) break;
     result.push(abbrClub(club.name));
     remaining-=club.distance;
+  }
+  // Partial wedge fallback: no full club fits remaining yardage — suggest a partial swing
+  if(remaining>0 && S.wedgeMatrix && S.wedgeMatrix.length){
+    const partial=S.wedgeMatrix.find(p=>p.dist<=remaining);
+    if(partial){
+      const swingLabel={'3/4':'¾','1/2':'½','1/4':'¼'}[partial.swing]||partial.swing;
+      result.push(`${abbrClub(partial.name)} ${swingLabel}`);
+    }
   }
   return result.join(' → ');
 }
@@ -2796,18 +2809,38 @@ async function renderStats(){
           </div>
           <div class="club-item-chevron">›</div>
         </div>
-        ${isExp?`<div class="club-item-edit">
+        ${isExp?(()=>{
+          const isWedge=!!c.partials||['PW','GW','SW','LW','AW'].includes(c.name)||c.name.toLowerCase().includes('wedge');
+          const p=c.partials||{};
+          return `<div class="club-item-edit">
           <div class="club-edit-row">
-            <div class="club-edit-lbl">Distance</div>
+            <div class="club-edit-lbl">Full</div>
             <input class="form-input" id="club-edit-dist" type="number" value="${c.distance}" style="flex:1">
             <span style="font-size:13px;color:var(--text2)">yd</span>
           </div>
+          ${isWedge?`
+          <div class="club-edit-row">
+            <div class="club-edit-lbl">¾ swing</div>
+            <input class="form-input" id="club-edit-p34" type="number" value="${p['3/4']||''}" placeholder="yd" style="flex:1">
+            <span style="font-size:13px;color:var(--text2)">yd</span>
+          </div>
+          <div class="club-edit-row">
+            <div class="club-edit-lbl">½ swing</div>
+            <input class="form-input" id="club-edit-p12" type="number" value="${p['1/2']||''}" placeholder="yd" style="flex:1">
+            <span style="font-size:13px;color:var(--text2)">yd</span>
+          </div>
+          <div class="club-edit-row">
+            <div class="club-edit-lbl">¼ swing</div>
+            <input class="form-input" id="club-edit-p14" type="number" value="${p['1/4']||''}" placeholder="yd" style="flex:1">
+            <span style="font-size:13px;color:var(--text2)">yd</span>
+          </div>`:''}
           <div class="club-edit-actions">
             <button class="club-edit-save" onclick="clubSave('${esc(c.name)}')"><img src="/static/save-96.png" style="width:15px;height:15px;object-fit:contain"> Save</button>
             <button class="club-edit-delete" onclick="clubDelete('${esc(c.name)}')">Remove</button>
             <button class="club-edit-cancel" onclick="clubToggle(null)">Cancel</button>
           </div>
-        </div>`:''}
+        </div>`;
+        })():''}
       </div>`;
     }
 
@@ -2934,7 +2967,16 @@ function clubToggle(name){
 async function clubSave(origName){
   const dist=parseInt((document.getElementById('club-edit-dist')||{}).value);
   if(isNaN(dist)||dist<=0){alert('Enter a valid distance');return;}
-  await PUT(`/api/clubs/${encodeURIComponent(origName)}`,{name:origName,distance:dist,notes:''});
+  const p34=parseInt((document.getElementById('club-edit-p34')||{}).value);
+  const p12=parseInt((document.getElementById('club-edit-p12')||{}).value);
+  const p14=parseInt((document.getElementById('club-edit-p14')||{}).value);
+  const partials={};
+  if(!isNaN(p34)&&p34>0) partials['3/4']=p34;
+  if(!isNaN(p12)&&p12>0) partials['1/2']=p12;
+  if(!isNaN(p14)&&p14>0) partials['1/4']=p14;
+  const payload={name:origName,distance:dist,notes:''};
+  if(Object.keys(partials).length) payload.partials=partials;
+  await PUT(`/api/clubs/${encodeURIComponent(origName)}`,payload);
   S.editingClub=null;
   S.clubs=await GET('/api/clubs');
   renderStats();
