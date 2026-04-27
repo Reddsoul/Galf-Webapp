@@ -11,6 +11,14 @@ from flask import Flask, request, jsonify, render_template, send_from_directory
 
 from Backend import GolfBackend, generate_scorecard_data
 
+try:
+    from scorecard_ocr import ScorecardOCR
+    _ocr = ScorecardOCR()
+    OCR_AVAILABLE = True
+except Exception:
+    OCR_AVAILABLE = False
+    _ocr = None
+
 # ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
@@ -68,6 +76,46 @@ def api_update_course(name):
 @app.route("/api/courses/<name>", methods=["DELETE"])
 def api_delete_course(name):
     backend.delete_course(name)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/courses/scan", methods=["POST"])
+def api_scan_scorecard():
+    if not OCR_AVAILABLE or _ocr is None:
+        return jsonify({"error": "OCR not available",
+                        "tip": "Install opencv-python-headless and tesseract"}), 503
+
+    if "image" not in request.files:
+        return jsonify({"error": "No image uploaded"}), 400
+
+    image_file = request.files["image"]
+    image_bytes = image_file.read()
+    if not image_bytes:
+        return jsonify({"error": "Empty image file"}), 400
+
+    try:
+        result = _ocr.process_image(image_bytes)
+    except ValueError as e:
+        return jsonify({"error": "Could not read image",
+                        "tip": "Try better lighting or a flatter angle",
+                        "detail": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": "OCR processing failed",
+                        "tip": "Try better lighting or a flatter angle",
+                        "detail": str(e)}), 500
+
+    return jsonify(result)
+
+
+@app.route("/api/courses/scan/confirm", methods=["POST"])
+def api_scan_confirm():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+    try:
+        backend.add_course(data)
+    except (ValueError, KeyError) as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
     return jsonify({"ok": True})
 
 

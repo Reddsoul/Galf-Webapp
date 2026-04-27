@@ -53,6 +53,7 @@
    RESET
    ================================================================ */
 * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+button, a { touch-action: manipulation; }
 html, body { height:100%; overflow:hidden; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, sans-serif;
@@ -96,7 +97,7 @@ body {
 }
 .tab-icon { font-size: 20px; line-height: 1.2; }
 .tab-icon img { width: 26px; height: 26px; object-fit: contain; display: block; }
-.tab-label { font-size: 10px; color: var(--text2); transition: color .15s; font-weight: 500; }
+.tab-label { font-size: 11px; color: var(--text2); transition: color .15s; font-weight: 500; }
 .tab.active .tab-label { color: var(--accent); font-weight: 600; }
 
 /* ================================================================
@@ -133,21 +134,6 @@ body {
   margin-bottom: 4px;
 }
 
-/* Stat.TLabel: Helvetica 28 bold, accent */
-.card-stat {
-  font-size: 28px;
-  font-weight: bold;
-  color: var(--accent);
-}
-
-/* Two cards side by side — stats_row with columnconfigure weight=1 */
-.card-row {
-  display: flex;
-  gap: 8px;
-  padding: 0 16px;
-  margin: 8px 0;
-}
-.card-row > .card { flex:1; margin:0; }
 
 /* ================================================================
    BUTTONS — Primary.TButton: Helvetica 14 bold, padding (16,10)
@@ -273,26 +259,80 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 .numpad-btn.forfeit { background: var(--red); color: #fff; font-size: 15px; border-radius: 10px; }
 .numpad-btn.next-hole { background: var(--green); color: #fff; font-size: 15px; border-radius: 10px; }
 
-/* Club grid: 3 cols, last row = Forfeit / Undo / Next */
-.club-grid-container { padding: 0 16px 8px; }
-.club-grid-hint { font-size: 12px; color: var(--text2); padding: 0 0 8px; text-align: center; }
+/* ================================================================
+   NOKIA KEYPAD — fixed 3×4 club selector (Phase 1 feature)
+   Rows 0-2: 9 club cells. Row 3: Forfeit / Undo / Next.
+   ================================================================ */
+.club-grid-container { padding: 0 12px 8px; }
 .club-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 5px;
+  gap: 6px;
 }
+
+/* Base cell — all 12 cells share this */
 .club-grid-btn {
-  padding: 16px 0; font-size: 15px; font-weight: 700;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  min-height: 68px; padding: 8px 6px; gap: 3px;
   border: none; cursor: pointer; background: var(--card);
-  color: var(--text); text-align: center; border-radius: 10px;
-  transition: transform 0.1s ease;
+  color: var(--text); text-align: center; border-radius: 12px;
+  font-family: inherit;
+  transition: transform 0.12s ease, background 0.12s ease;
+  -webkit-tap-highlight-color: transparent;
+  border: 1.5px solid transparent;
 }
-.club-grid-btn:active { background: var(--active-overlay); transform: scale(0.95); }
-.club-grid-btn.putter { background: rgba(52,199,89,0.15); color: var(--green); }
+.club-grid-btn:active { transform: scale(0.94); }
+
+/* All clubs shown side-by-side at equal weight */
+.kp-clubs {
+  display: flex; align-items: center; justify-content: center;
+  gap: 5px; flex-wrap: wrap;
+}
+.kp-club {
+  font-size: 15px; font-weight: 700; line-height: 1; color: var(--text);
+}
+.kp-sep {
+  font-size: 13px; font-weight: 400; color: var(--text3);
+}
+
+/* Pending: dim non-active clubs, pop the selected one */
+.club-grid-btn.is-pending .kp-club         { color: rgba(255,255,255,0.5); font-size: 14px; }
+.club-grid-btn.is-pending .kp-club.kp-active{ color: #fff; font-size: 18px; }
+.club-grid-btn.is-pending .kp-sep          { color: rgba(255,255,255,0.3); }
+.club-grid-btn.is-putter .kp-club          { color: var(--green); }
+
+/* Putter cell — green tint */
+.club-grid-btn.is-putter {
+  background: rgba(52,199,89,0.12);
+  border-color: rgba(52,199,89,0.2);
+}
+/* Nokia multi-tap — pending (user is cycling) */
+.club-grid-btn.is-pending {
+  background: var(--accent);
+  border-color: transparent;
+  transform: scale(1.04);
+}
+
+/* Empty cell placeholder */
 .club-grid-btn.empty-cell { visibility: hidden; }
-.club-grid-btn.action-forfeit { background: var(--red); color: #fff; font-size: 14px; font-weight: 600; }
-.club-grid-btn.action-undo { background: var(--orange); color: #fff; font-size: 14px; font-weight: 600; }
-.club-grid-btn.action-next { background: var(--green); color: #fff; font-size: 14px; font-weight: 600; }
+
+/* Action row */
+.club-grid-btn.action-forfeit {
+  background: var(--red); color: #fff;
+  font-size: 14px; font-weight: 700; border-color: transparent;
+  flex-direction: row; gap: 4px;
+}
+.club-grid-btn.action-undo {
+  background: var(--orange); color: #fff;
+  font-size: 14px; font-weight: 700; border-color: transparent;
+  flex-direction: row; gap: 4px;
+}
+.club-grid-btn.action-next {
+  background: var(--green); color: #fff;
+  font-size: 14px; font-weight: 700; border-color: transparent;
+  flex-direction: row; gap: 4px;
+}
 
 
 /* Club suggestion (Feature 1) */
@@ -355,9 +395,9 @@ textarea.form-input { min-height: 100px; resize: vertical; }
   width: 100%; padding: 18px 0; font-size: 17px; font-weight: 700;
   background: var(--accent); color: #fff;
   border: none; border-radius: 16px; cursor: pointer;
-  font-family: inherit; letter-spacing: -0.2px;
-  box-shadow: 0 4px 14px rgba(27,107,58,0.38);
-  transition: transform 0.1s ease, opacity 0.1s ease;
+  font-family: inherit; letter-spacing: -0.3px;
+  box-shadow: 0 4px 18px rgba(27,107,58,0.42), 0 1px 4px rgba(27,107,58,0.2);
+  transition: transform 0.12s cubic-bezier(0.34,1.56,0.64,1), opacity 0.12s ease;
 }
 @media (prefers-color-scheme: dark) {
   .home-log-btn { box-shadow: 0 4px 14px rgba(52,199,89,0.35); }
@@ -466,8 +506,6 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 
 /* The actual scorecard table — horizontal, traditional layout */
 .sc-wrap { margin: 12px 16px; }
-.sc-label { font-size: 11px; font-weight: 700; color: var(--text2); text-transform: uppercase;
-  letter-spacing: 0.5px; padding: 0 0 6px; }
 .sc-grid {
   display: grid; gap: 0; border: 1.5px solid var(--sep); background: var(--card);
   width: 100%; border-radius: 8px; overflow: hidden;
@@ -555,7 +593,6 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 .sc-notes-body { font-size: 14px; margin-top: 6px; line-height: 1.5; }
 
 /* Round info pills */
-.sc-pills { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
 .sc-pill {
   font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 100px;
   background: rgba(128,128,128,0.18);
@@ -610,12 +647,6 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 .stat-trio-val { font-size: 20px; font-weight: 700; }
 .stat-trio-label { font-size: 11px; color: var(--text2); margin-top: 2px; }
 
-/* Bar chart for club usage / differentials */
-.stat-bar-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
-.stat-bar-label { font-size: 13px; width: 50px; text-align: right; flex-shrink: 0; }
-.stat-bar-track { flex: 1; height: 20px; background: var(--bg); border-radius: 4px; overflow: hidden; position: relative; }
-.stat-bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s ease-out; min-width: 2px; }
-.stat-bar-val { font-size: 12px; font-weight: 600; width: 44px; text-align: left; flex-shrink: 0; }
 
 /* Insight cards — cleaner */
 .insight-card {
@@ -696,7 +727,7 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 .club-edit-lbl { font-size: 13px; color: var(--text2); width: 64px; flex-shrink: 0; }
 .club-edit-actions { display: flex; gap: 8px; margin-top: 4px; }
 .club-edit-save {
-  flex: 1; padding: 13px; background: var(--green); color: #fff;
+  flex: 1; padding: 13px; background: var(--accent); color: #fff;
   border: none; border-radius: 10px; font-size: 15px; font-weight: 600;
   cursor: pointer; font-family: inherit;
   display: flex; align-items: center; justify-content: center; gap: 6px;
@@ -774,7 +805,6 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 .tee-detail-lbl { font-size: 11px; color: var(--text2); }
 
 /* Course editor: per-hole inputs */
-.hole-input-grid { margin: 8px 16px; }
 .hole-input-row {
   display: flex; align-items: center; gap: 4px; padding: 6px 0;
   border-bottom: 0.5px solid var(--sep);
@@ -805,9 +835,11 @@ textarea.form-input { min-height: 100px; resize: vertical; }
    MISC
    ================================================================ */
 .hint { font-size: 11px; color: var(--text2); padding: 0 16px 4px; }
-.empty { text-align: center; padding: 40px 20px; color: var(--text2); }
-.empty-icon { font-size: 48px; margin-bottom: 12px; }
-.empty-text { font-size: 14px; }
+.empty { text-align: center; padding: 48px 24px; color: var(--text2); }
+.empty-icon { font-size: 48px; margin-bottom: 14px; opacity: 0.55; }
+.empty-headline { font-size: 17px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+.empty-text { font-size: 14px; line-height: 1.5; }
+.empty-cta { margin-top: 20px; }
 .view { display: none; }
 .view.active { display: block; animation: fadeIn 0.18s ease-out; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
@@ -845,6 +877,99 @@ textarea.form-input { min-height: 100px; resize: vertical; }
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ================================================================
+   CUSTOM CONFIRM DIALOG — replaces native confirm() with an
+   iOS-style action sheet (Phase 2 HIG: native-feeling dialogs)
+   ================================================================ */
+.dialog-backdrop {
+  position: fixed; inset: 0; z-index: 999;
+  background: rgba(0,0,0,0.45);
+  display: flex; align-items: flex-end; justify-content: center;
+  padding: 0 8px calc(16px + var(--safe-b));
+  animation: dialogIn 0.22s ease-out;
+}
+@keyframes dialogIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.dialog-sheet {
+  width: 100%; max-width: 480px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.dialog-card {
+  background: var(--card); border-radius: 16px; overflow: hidden;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.2);
+}
+.dialog-title {
+  padding: 16px 16px 4px; font-size: 14px; font-weight: 700;
+  text-align: center; color: var(--text);
+}
+.dialog-body {
+  padding: 2px 16px 16px; font-size: 13px; color: var(--text2);
+  text-align: center; line-height: 1.5;
+}
+.dialog-sep { height: 0.5px; background: var(--sep); margin: 0; }
+.dialog-btn {
+  width: 100%; padding: 17px; background: var(--card); border: none;
+  font-size: 17px; font-family: inherit; cursor: pointer; text-align: center;
+  color: var(--accent); font-weight: 500;
+}
+.dialog-btn:active { background: var(--active-overlay); }
+.dialog-btn.is-destructive { color: var(--red); }
+.dialog-btn.is-cancel {
+  background: var(--card); font-weight: 600; border-radius: 16px;
+}
+
+/* ================================================================
+   PHASE 3 POLISH — card shadow depth + corner consistency
+   ================================================================ */
+/* Layered card shadow: ambient + directional, less flat */
+.card {
+  box-shadow: 0 1px 3px rgba(0,0,0,0.07), 0 4px 12px rgba(0,0,0,0.04);
+}
+.home-hero {
+  box-shadow: 0 4px 24px rgba(0,0,0,0.1), 0 1px 4px rgba(0,0,0,0.05);
+}
+.home-best {
+  box-shadow: 0 2px 12px rgba(0,0,0,0.09), 0 0 0 0.5px rgba(0,0,0,0.04);
+}
+.home-stat-cell {
+  box-shadow: 0 2px 10px rgba(0,0,0,0.07), 0 0 0 0.5px rgba(0,0,0,0.04);
+}
+.stat-card, .stat-mini, .insight-card {
+  box-shadow: 0 1px 4px rgba(0,0,0,0.07), 0 4px 14px rgba(0,0,0,0.04);
+}
+
+/* Entry topbar: subtle bottom shadow separates it from content */
+.entry-topbar {
+  box-shadow: 0 1px 6px rgba(0,0,0,0.07);
+}
+
+/* Keypad pending spring pop — adds a subtle "bounce" feeling */
+@media (prefers-reduced-motion: no-preference) {
+  .club-grid-btn.is-pending {
+    animation: kpPop 0.18s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  @keyframes kpPop {
+    from { transform: scale(0.96); }
+    to   { transform: scale(1.04); }
+  }
+}
+
+/* View transition — spring y-offset instead of plain fade */
+@media (prefers-reduced-motion: no-preference) {
+  .view.active {
+    animation: viewSlideIn 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  @keyframes viewSlideIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+}
+
+/* Hint text: bump to 12px so it meets iOS 11pt minimum */
+.hint { font-size: 12px; }
 
 /* ================================================================
    INTERACTIVITY SIGNIFIERS
@@ -908,9 +1033,9 @@ input:disabled { cursor: not-allowed; }
   .numpad-btn.forfeit:hover,
   .numpad-btn.next-hole:hover { opacity: 0.84; }
 
-  /* --- Club grid keys --- */
-  .club-grid-btn:not(.action-forfeit):not(.action-undo):not(.action-next):not(.empty-cell):hover {
-    background: var(--active-overlay);
+  /* --- Club keypad cells --- */
+  .club-grid-btn:not(.action-forfeit):not(.action-undo):not(.action-next):not(.empty-cell):not(.is-pending):hover {
+    border-color: var(--text3);
   }
   .club-grid-btn.action-forfeit:hover,
   .club-grid-btn.action-undo:hover,
@@ -946,7 +1071,7 @@ input:disabled { cursor: not-allowed; }
 
   /* --- Form inputs & selects --- */
   /* Hover border is lighter than focus border — clear state ladder:
-     default → hover (text3) → focus (accent) */
+     default ▶ hover (text3) ▶ focus (accent) */
   .form-input:hover:not(:focus),
   .form-select:hover:not(:focus) { border-color: var(--text3); }
   .hole-input-field:hover:not(:focus) { border-color: var(--text3); }
@@ -1022,6 +1147,80 @@ input:disabled { cursor: not-allowed; }
   background: rgba(255,255,255,0.18); color: #fff; border: none; border-radius: 8px;
   font-size: 13px; font-weight: 600; padding: 6px 10px; cursor: pointer;
 }
+
+/* ================================================================
+   SCAN SCORECARD FLOW
+   ================================================================ */
+.scan-upload-zone {
+  border: 2px dashed var(--sep); border-radius: 16px;
+  padding: 40px 20px; text-align: center; cursor: pointer;
+  margin: 0 16px; transition: border-color .2s, background .2s;
+}
+.scan-upload-zone.drag-over {
+  border-color: var(--accent); background: rgba(27,107,58,0.07);
+}
+.scan-upload-icon { font-size: 48px; margin-bottom: 12px; }
+.scan-upload-label { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+.scan-upload-sub { font-size: 13px; color: var(--text2); }
+.scan-preview {
+  margin: 12px 16px 0; border-radius: 12px; overflow: hidden;
+  max-height: 260px; display: flex; align-items: center; justify-content: center;
+  background: var(--bg);
+}
+.scan-preview img { max-width: 100%; max-height: 260px; border-radius: 12px; object-fit: contain; }
+.scan-spinner {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; padding: 60px 20px; gap: 16px;
+}
+.scan-spinner-ring {
+  width: 48px; height: 48px; border: 4px solid var(--sep);
+  border-top-color: var(--accent); border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.scan-warning-banner {
+  margin: 0 16px 8px; padding: 12px 14px; border-radius: 12px;
+  background: rgba(255,149,0,0.12); border: 1px solid var(--orange);
+}
+.scan-warning-title { font-size: 13px; font-weight: 700; color: var(--orange); margin-bottom: 4px; }
+.scan-warning-item { font-size: 12px; color: var(--text); margin-top: 2px; }
+.scan-nine-choice {
+  display: flex; flex-direction: column; gap: 10px; padding: 0 16px; margin-top: 8px;
+}
+.scan-nine-btn {
+  border: none; border-radius: 12px; padding: 16px; font-size: 15px; font-weight: 600;
+  background: var(--card); color: var(--text); cursor: pointer; text-align: left;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+}
+.scan-nine-btn:active { opacity: 0.75; }
+/* Review form — scrollable hole table */
+.scan-hole-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; }
+.scan-hole-table { border-collapse: collapse; min-width: 600px; width: 100%; }
+.scan-hole-table th, .scan-hole-table td {
+  border: 1px solid var(--sep); padding: 6px 4px;
+  text-align: center; font-size: 12px; min-width: 38px;
+}
+.scan-hole-table th { background: var(--bg); font-weight: 600; color: var(--text2); position: sticky; top: 0; }
+.scan-hole-table td:first-child { font-weight: 600; color: var(--text2); min-width: 60px; position: sticky; left: 0; background: var(--card); z-index: 1; }
+.scan-hole-input {
+  width: 34px; padding: 4px 2px; text-align: center; border: none;
+  background: transparent; color: var(--text); font-size: 12px;
+  border-radius: 4px; min-height: 30px;
+}
+.scan-hole-input.missing { background: rgba(255,149,0,0.15); border-radius: 4px; }
+.scan-hole-input:focus { outline: 2px solid var(--accent); border-radius: 4px; }
+.form-input.missing { border-color: var(--orange); background: rgba(255,149,0,0.07); }
+.scan-tee-card {
+  background: var(--bg); border-radius: 10px; padding: 10px 12px;
+  margin-bottom: 8px; border: 1px solid var(--sep);
+}
+.scan-conf-badge {
+  display: inline-block; padding: 2px 8px; border-radius: 20px;
+  font-size: 11px; font-weight: 600;
+}
+.scan-conf-high { background: rgba(52,199,89,0.15); color: var(--green); }
+.scan-conf-med  { background: rgba(255,149,0,0.15); color: var(--orange); }
+.scan-conf-low  { background: rgba(255,59,48,0.15); color: var(--red); }
 </style>
 </head>
 <body>
@@ -1036,6 +1235,7 @@ input:disabled { cursor: not-allowed; }
     <div id="v-courses" class="view"></div>
     <div id="v-course-detail" class="view"></div>
     <div id="v-course-editor" class="view"></div>
+    <div id="v-scan" class="view"></div>
     <div id="v-stats" class="view"></div>
   </div>
 
@@ -1047,11 +1247,11 @@ input:disabled { cursor: not-allowed; }
   <!-- Tab bar: exactly 3 tabs matching _create_tab_bar -->
   <nav id="tabbar">
     <a class="tab" data-tab="rounds" onclick="nav('rounds')" aria-label="Rounds">
-      <span class="tab-icon"><img src="/static/golf-cart-96.png" alt=""></span><span class="tab-label"></span></a>
+      <span class="tab-icon"><img src="/static/golf-cart-96.png" alt="Rounds"></span><span class="tab-label">Rounds</span></a>
     <a class="tab active" data-tab="home" onclick="nav('home')" aria-label="Home">
-      <span class="tab-icon"><img src="/static/Favicon-96.png" style="width:50px;height:50px" alt=""></span><span class="tab-label"></span></a>
+      <span class="tab-icon"><img src="/static/Favicon-96.png" alt=""></span><span class="tab-label">Home</span></a>
     <a class="tab" data-tab="courses" onclick="nav('courses')" aria-label="Courses">
-      <span class="tab-icon"><img src="/static/golf-course-96.png" alt=""></span><span class="tab-label"></span></a>
+      <span class="tab-icon"><img src="/static/golf-course-96.png" alt="Courses"></span><span class="tab-label">Courses</span></a>
   </nav>
 </div>
 
@@ -1076,6 +1276,50 @@ const S = {
   // Course editor
   editCourse:null,
 };
+
+/* ================================================================
+   CUSTOM DIALOGS — replaces native alert/confirm with iOS-style
+   action sheets (Phase 2 HIG compliance)
+   ================================================================ */
+function _showDialog(html) {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'dialog-backdrop';
+  backdrop.innerHTML = html;
+  document.body.appendChild(backdrop);
+  // Tap backdrop to cancel
+  backdrop.addEventListener('click', e => { if(e.target===backdrop) backdrop.remove(); });
+  return backdrop;
+}
+
+function showConfirm(title, body, destructiveLabel, onConfirm, cancelLabel='Cancel') {
+  const el = _showDialog(`
+    <div class="dialog-sheet">
+      <div class="dialog-card">
+        <div class="dialog-title">${esc(title)}</div>
+        ${body ? `<div class="dialog-body">${esc(body)}</div>` : ''}
+        <div class="dialog-sep"></div>
+        <button class="dialog-btn is-destructive" id="dlg-ok">${esc(destructiveLabel)}</button>
+      </div>
+      <div class="dialog-card">
+        <button class="dialog-btn is-cancel" id="dlg-cancel">${esc(cancelLabel)}</button>
+      </div>
+    </div>`);
+  el.querySelector('#dlg-ok').addEventListener('click', () => { el.remove(); onConfirm(); });
+  el.querySelector('#dlg-cancel').addEventListener('click', () => el.remove());
+}
+
+function showAlert(title, body, btnLabel='OK') {
+  const el = _showDialog(`
+    <div class="dialog-sheet">
+      <div class="dialog-card">
+        <div class="dialog-title">${esc(title)}</div>
+        ${body ? `<div class="dialog-body">${esc(body)}</div>` : ''}
+        <div class="dialog-sep"></div>
+        <button class="dialog-btn" id="dlg-ok">${esc(btnLabel)}</button>
+      </div>
+    </div>`);
+  el.querySelector('#dlg-ok').addEventListener('click', () => el.remove());
+}
 
 /* ================================================================
    API
@@ -1133,6 +1377,7 @@ function getDraft() {
 
 function resumeDraft(draft) {
   if (!draft) return;
+  _cancelPending();
   const course = S.courses.find(c => c.name === draft.courseName);
   if (!course) { clearDraft(); renderLogSetup(); return; }
   S.logCourse = course;
@@ -1156,12 +1401,13 @@ function resumeDraft(draft) {
    NAVIGATION — mirrors show_page + _update_tab_bar
    ================================================================ */
 
-// Single source of truth for page → render function mapping.
+// Single source of truth for page ▶ render function mapping.
 // Used by show() and the dark-mode change listener.
 const RENDERERS = {
   home:renderHome, rounds:renderRounds, scorecard:renderScorecard,
   'log-setup':renderLogSetup, 'log-entry':renderLogEntry, 'log-notes':renderLogNotes,
   courses:renderCourses, 'course-detail':renderCourseDetail, 'course-editor':renderCourseEditor,
+  scan:renderScan,
   stats:renderStats,
 };
 
@@ -1324,7 +1570,7 @@ async function renderRounds() {
 
   let rows='';
   if(!rounds.length){
-    rows=`<div class="empty"><div class="empty-icon"><img src="${ico('Favicon')}" style="width:90px;height:90px;object-fit:contain;margin:1px auto 0;display:block"></div><div class="empty-text" style="font-size:16px;font-weight:600;margin-bottom:6px">No rounds yet</div><div style="font-size:13px;color:var(--text2);margin-bottom:16px">Log your first round to see it here.</div><button class="btn btn-green" style="max-width:200px;margin:0 auto" onclick="startLog()">Log a Round</button></div>`;
+    rows=`<div class="empty"><div class="empty-icon"><img src="${ico('Favicon')}" style="width:80px;height:80px;object-fit:contain;display:block;margin:0 auto"></div><div class="empty-headline">No Rounds Yet</div><div class="empty-text">Log your first round to start tracking your game.</div><div class="empty-cta"><button class="btn btn-primary" style="max-width:200px;margin:0 auto" onclick="startLog()">Log a Round</button></div></div>`;
   } else {
     rows='<div style="padding:0 16px;overflow-x:auto"><table class="tree-table"><tr><th style="width:80px">Date</th><th>Course</th><th style="width:50px">Score</th><th style="width:45px">+/-</th><th style="width:45px">Holes</th></tr>';
     for(const rd of rounds){
@@ -1509,14 +1755,15 @@ function renderScorecard() {
 }
 
 async function delRound(idx){
-  if(!confirm('Delete this round?\nThis cannot be undone.')) return;
-  await DEL(`/api/rounds/${idx}`);
-  clearStatsCache();
-  nav('rounds');
+  showConfirm('Delete Round?', 'This cannot be undone.', 'Delete', async () => {
+    await DEL(`/api/rounds/${idx}`);
+    clearStatsCache();
+    nav('rounds');
+  });
 }
 
 /* ================================================================
-   LOG ROUND SETUP — club→course, tee pills, scramble=not serious
+   LOG ROUND SETUP — club ▶ course, tee pills, scramble=not serious
    ================================================================ */
 async function startLog(){
   // S.clubs is kept current by all club mutators — no need to re-fetch
@@ -1753,8 +2000,8 @@ function abbrClub(name){
 }
 
 async function beginEntry(){
-  if(!S.logCourse){alert('Select a course');return;}
-  if(!S.logTee){alert('Select a tee box');return;}
+  if(!S.logCourse){showAlert('Select a Course','Pick a course before starting.');return;}
+  if(!S.logTee){showAlert('Select a Tee Box','Pick a tee box before starting.');return;}
   S.logDate=document.getElementById('ls-date').value;
   const pars=S.logCourse.pars;
   if(S.logHoles==='front_9') S.holesToScore=[...Array(9).keys()];
@@ -1805,7 +2052,7 @@ function suggestClubs(yardage, sortedClubs){
       result.push(`${abbrClub(partial.name)} ${swingLabel}`);
     }
   }
-  return result.join(' → ');
+  return result.join(' ▶ ');
 }
 
 /* ================================================================
@@ -1821,7 +2068,7 @@ function renderLogEntry(){
   const yard=yardages[holeNum]||'-';
   const isD=S.logMode==='detailed';
   const lastH=hi===S.holesToScore.length-1;
-  const nextLabel=lastH?'✓ Done':'Next →';
+  const nextLabel=lastH?'✓ Done':'Next ▶';
 
   // Feature 3: Roll sim putts on first load of this hole
   if(isD&&S.logIsSim&&S.holeSimPutts&&S.holeSimPutts[hi]===null){
@@ -1830,7 +2077,18 @@ function renderLogEntry(){
   }
 
   let score,clubsStr='';
-  if(isD){const isForfeited=S.holeClubs[hi].length===1&&S.holeClubs[hi][0]==='X';if(isForfeited){score=par+2;clubsStr='Forfeited';}else{score=S.holeClubs[hi].length||null;clubsStr=S.holeClubs[hi].length?S.holeClubs[hi].join(' → '):'Tap clubs in order';}}
+  if(isD){
+    const isForfeited=S.holeClubs[hi].length===1&&S.holeClubs[hi][0]==='X';
+    if(isForfeited){
+      score=par+2; clubsStr='Forfeited';
+    } else {
+      const committed=S.holeClubs[hi];
+      const pendingClub=_kpPending?_kpPending.clubs[_kpPending.idx].abbr:null;
+      const displayParts=[...committed.map(c=>c), ...(pendingClub?[`[${pendingClub}]`]:[])];
+      score=(committed.length+(pendingClub?1:0))||null;
+      clubsStr=displayParts.length?displayParts.join(' ▶ '):'Tap clubs in order';
+    }
+  }
   else{score=S.holeScores[hi];}
   const scoreStr=score!=null&&score>0?String(score):'-';
   let diffStr='';
@@ -1851,7 +2109,7 @@ function renderLogEntry(){
         const remaining=yardNum-playedDist;
         if(remaining>0){
           const s=suggestClubs(remaining,S.sortedClubsNoDriver||[]);
-          if(s) suggestStr=`~${remaining} yds → ${s}`;
+          if(s) suggestStr=`~${remaining} yds ▶ ${s}`;
         }
       }
     }
@@ -1860,24 +2118,8 @@ function renderLogEntry(){
   // Build bottom pad
   let bottomHtml='';
   if(isD){
-    // 3-col club grid
-    let cells='';
-    for(const c of S.clubOptions){
-      const ip=c==='P'||((S.clubFullNames[c]||'').toLowerCase().includes('putter'));
-      cells+=`<button class="club-grid-btn${ip?' putter':''}" onclick="addClub('${c}')">${c}</button>`;
-    }
-    // Pad to fill last row (need 0, 1, or 2 empty cells before the action row)
-    const remainder=S.clubOptions.length%3;
-    if(remainder===1) cells+=`<div class="club-grid-btn empty-cell"></div><div class="club-grid-btn empty-cell"></div>`;
-    else if(remainder===2) cells+=`<div class="club-grid-btn empty-cell"></div>`;
-    // Action row: Forfeit / Undo / Next
-    cells+=`<button class="club-grid-btn action-forfeit" onclick="forfeitHole()">Forfeit</button>`;
-    cells+=`<button class="club-grid-btn action-undo" onclick="undoClub()">↩ Undo</button>`;
-    cells+=`<button class="club-grid-btn action-next" onclick="${lastH?'checkFinish()':'nextH()'}">${nextLabel}</button>`;
-
-    bottomHtml=`<div class="club-grid-container">
-      <div class="club-grid">${cells}</div>
-    </div>`;
+    // Nokia fixed 3×4 keypad (rows 0-2: club cells, row 3: action row)
+    bottomHtml = buildKeypadHtml(lastH);
   } else {
     // Quick mode numpad: 1-9, then Forfeit / 0 / Next
     let btns='';
@@ -1916,11 +2158,202 @@ function renderLogEntry(){
 }
 
 function inputScore(n){let c=S.holeScores[S.currentHoleIdx];if(c===null){if(n===0)return;c=n;}else{c=c*10+n;if(c>20)c=n;}S.holeScores[S.currentHoleIdx]=c;saveDraft();renderLogEntry();}
-function forfeitHole(){const holeNum=S.holesToScore[S.currentHoleIdx];const par=S.logCourse.pars[holeNum];const maxScore=par+2;if(confirm(`Forfeit this hole?\nThis records a score of ${maxScore} (double bogey).`)){if(S.logMode==='detailed'){S.holeClubs[S.currentHoleIdx]=['X'];}else{S.holeScores[S.currentHoleIdx]=maxScore;}saveDraft();renderLogEntry();}}
+
+/* ================================================================
+   NOKIA MULTI-TAP KEYPAD
+   ================================================================ */
+
+// Pending tap state: {cellKey, idx, clubs:[{name,abbr}], timerId}
+let _kpPending = null;
+
+// Build the 9-cell fixed layout from S.clubs.
+// Returns array of 9 cell objects in grid order (row-major, rows 0-2).
+function buildKeypadCells() {
+  const CELLS = [
+    { key:'driver',  clubs:[] },  // [0][0] Driver
+    { key:'woods',   clubs:[] },  // [0][1] Woods + Hybrid
+    { key:'long',    clubs:[] },  // [0][2] 2i–5i
+    { key:'mid',     clubs:[] },  // [1][0] 6i–7i
+    { key:'short',   clubs:[] },  // [1][1] 8i–9i
+    { key:'wedge1',  clubs:[] },  // [1][2] PW, GW, AW
+    { key:'wedge2',  clubs:[] },  // [2][0] SW
+    { key:'wedge3',  clubs:[] },  // [2][1] LW
+    { key:'putter',  clubs:[] },  // [2][2] Putter
+  ];
+
+  function cellIdx(c) {
+    const n = c.name.toLowerCase();
+    const ab = abbrClub(c.name);
+    if (ab === 'D' || n.includes('driver')) return 0;
+    if (ab === 'P' || n.includes('putter')) return 8;
+    if (n.includes('wood') || n.includes('hybrid')) return 1;
+    if (ab.match(/^\d+[iI]$/)) {
+      const num = parseInt(ab);
+      if (num <= 5) return 2;
+      if (num <= 7) return 3;
+      return 4;
+    }
+    if (ab === 'PW' || ab === 'GW' || ab === 'AW') return 5;
+    if (ab === 'SW') return 6;
+    if (ab === 'LW') return 7;
+    return -1; // unclassified — skip
+  }
+
+  for (const c of S.clubs) {
+    const idx = cellIdx(c);
+    if (idx >= 0) CELLS[idx].clubs.push({ name: c.name, abbr: abbrClub(c.name) });
+  }
+
+  // Sort each cell longest-distance first (= lower loft number first)
+  for (const cell of CELLS) {
+    cell.clubs.sort((a, b) => (S.distByAbbr[b.abbr] || 0) - (S.distByAbbr[a.abbr] || 0));
+    cell.clubs = cell.clubs.slice(0, 3); // max 3 per cell
+  }
+
+  // Putter always present even if not in bag
+  if (!CELLS[8].clubs.length) CELLS[8].clubs = [{ name: 'Putter', abbr: 'P' }];
+
+  return CELLS;
+}
+
+// Build the full 12-cell keypad HTML (9 club cells + 3 action cells).
+function buildKeypadHtml(lastH) {
+  const cells = buildKeypadCells();
+  const nextLabel = lastH ? '✓ Done' : 'Next ▶';
+  let html = '<div class="club-grid-container"><div class="club-grid">';
+
+  for (const cell of cells) {
+    const isPending = _kpPending && _kpPending.cellKey === cell.key;
+    const isPutter  = cell.key === 'putter';
+    const isEmpty   = !cell.clubs.length;
+
+    if (isEmpty) { html += `<button class="club-grid-btn empty-cell" aria-hidden="true"></button>`; continue; }
+
+    const activeIdx = isPending ? _kpPending.idx : -1;
+    const cls = ['club-grid-btn', isPutter ? 'is-putter' : '', isPending ? 'is-pending' : ''].filter(Boolean).join(' ');
+    const ariaLabel = cell.clubs.map(c => c.name).join(', ');
+
+    // Build flat side-by-side club labels with separator dots
+    let clubsHtml = '<div class="kp-clubs">';
+    cell.clubs.forEach((c, i) => {
+      if (i > 0) clubsHtml += '<span class="kp-sep">·</span>';
+      const isActive = isPending && i === activeIdx;
+      clubsHtml += `<span class="kp-club${isActive ? ' kp-active' : ''}">${c.abbr}</span>`;
+    });
+    clubsHtml += '</div>';
+
+    html += `<button class="${cls}" onclick="keypadPress('${cell.key}')" aria-label="${ariaLabel}">
+      ${clubsHtml}
+    </button>`;
+  }
+
+  // Action row
+  html += `<button class="club-grid-btn action-forfeit" onclick="forfeitHole()" aria-label="Forfeit hole">Forfeit</button>`;
+  html += `<button class="club-grid-btn action-undo" onclick="undoClub()" aria-label="Undo last club">◀ Undo</button>`;
+  html += `<button class="club-grid-btn action-next" onclick="${lastH ? 'checkFinish()' : 'nextH()'}" aria-label="${lastH ? 'Finish round' : 'Next ▶'}">${nextLabel}</button>`;
+
+  html += '</div></div>';
+  return html;
+}
+
+// Handle a keypad cell press (Nokia multi-tap logic).
+function keypadPress(cellKey) {
+  const cells = buildKeypadCells();
+  const cell  = cells.find(c => c.key === cellKey);
+  if (!cell || !cell.clubs.length) return;
+
+  if (_kpPending && _kpPending.cellKey === cellKey) {
+    // Same cell — cycle to next club, restart timer
+    clearTimeout(_kpPending.timerId);
+    _kpPending.idx = (_kpPending.idx + 1) % cell.clubs.length;
+    _kpPending.timerId = setTimeout(commitKeypad, 900);
+  } else {
+    // Different cell — commit any pending (write to state only, skip re-render),
+    // then immediately start new pending and do a single re-render.
+    if (_kpPending) {
+      clearTimeout(_kpPending.timerId);
+      const club = _kpPending.clubs[_kpPending.idx];
+      _kpPending = null;
+      S.holeClubs[S.currentHoleIdx].push(club.abbr);
+      saveDraft();
+    }
+    _kpPending = {
+      cellKey,
+      idx: 0,
+      clubs: cell.clubs,
+      timerId: setTimeout(commitKeypad, 900),
+    };
+  }
+  renderLogEntry(); // single re-render shows updated committed + new pending
+}
+
+// Called by timer — commit pending and re-render.
+function commitKeypad() {
+  if (!_kpPending) return;
+  clearTimeout(_kpPending.timerId);
+  const club = _kpPending.clubs[_kpPending.idx];
+  _kpPending = null;
+  S.holeClubs[S.currentHoleIdx].push(club.abbr);
+  saveDraft();
+  renderLogEntry();
+}
+
+// Internal: write pending to state without re-rendering (caller handles render).
+function _flushPending() {
+  if (!_kpPending) return;
+  clearTimeout(_kpPending.timerId);
+  const club = _kpPending.clubs[_kpPending.idx];
+  _kpPending = null;
+  S.holeClubs[S.currentHoleIdx].push(club.abbr);
+  saveDraft();
+}
+
+// Cancel pending without committing (used by forfeit / navigation).
+function _cancelPending() {
+  if (!_kpPending) return;
+  clearTimeout(_kpPending.timerId);
+  _kpPending = null;
+}
+
+function forfeitHole(){
+  _cancelPending();
+  const holeNum=S.holesToScore[S.currentHoleIdx];
+  const par=S.logCourse.pars[holeNum];
+  const maxScore=par+2;
+  showConfirm(
+    'Forfeit Hole?',
+    `Records a score of ${maxScore} (double bogey max).`,
+    'Forfeit',
+    () => {
+      if(S.logMode==='detailed'){S.holeClubs[S.currentHoleIdx]=['X'];}
+      else{S.holeScores[S.currentHoleIdx]=maxScore;}
+      saveDraft();renderLogEntry();
+    }
+  );
+}
+
 function addClub(c){S.holeClubs[S.currentHoleIdx].push(c);saveDraft();renderLogEntry();}
-function undoClub(){S.holeClubs[S.currentHoleIdx].pop();saveDraft();renderLogEntry();}
-function prevH(){if(S.currentHoleIdx>0){S.currentHoleIdx--;saveDraft();renderLogEntry();}}
-function nextH(){if(S.currentHoleIdx<S.holesToScore.length-1){S.currentHoleIdx++;saveDraft();renderLogEntry();}}
+
+function undoClub(){
+  if (_kpPending) {
+    // Cancel pending instead of popping committed list
+    _cancelPending();
+    renderLogEntry();
+  } else {
+    S.holeClubs[S.currentHoleIdx].pop();
+    saveDraft();
+    renderLogEntry();
+  }
+}
+
+function prevH(){
+  _flushPending();
+  if(S.currentHoleIdx>0){S.currentHoleIdx--;saveDraft();renderLogEntry();}
+}
+function nextH(){
+  _flushPending();
+  if(S.currentHoleIdx<S.holesToScore.length-1){S.currentHoleIdx++;saveDraft();renderLogEntry();}
+}
 // Compute per-hole results from S state. Returns one entry per hole in S.holesToScore.
 // detailed mode: {score, putts, stg, allClubs}  quick mode: {score, putts:null, stg:null, allClubs:null}
 function computeHoleScores() {
@@ -1947,6 +2380,7 @@ function computeHoleScores() {
 }
 
 function checkFinish(){
+  _flushPending(); // commit any in-progress Nokia selection
   const isD=S.logMode==='detailed';
   const inc=[];
   for(let i=0;i<S.holesToScore.length;i++){
@@ -1954,7 +2388,7 @@ function checkFinish(){
     else{if(S.holeScores[i]===null)inc.push(S.holesToScore[i]+1);}
   }
   if(inc.length){
-    alert(`Please enter scores for holes: ${inc.slice(0,5).join(', ')}${inc.length>5?' (+'+( inc.length-5)+' more)':''}`);
+    showAlert('Missing Scores',`Enter scores for holes: ${inc.slice(0,5).join(', ')}${inc.length>5?' (+'+( inc.length-5)+' more)':''}`);
     return;
   }
   saveDraft();
@@ -2083,10 +2517,12 @@ async function submitRound(){
   const now=new Date();const dateStr=S.logDate+' '+String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
   const notes=(document.getElementById('ln-notes')||{}).value||'';
   const res=await POST('/api/rounds',{course_name:course.name,tee_color:S.logTee,scores:fullScores,is_serious:S.logSerious,is_sim:S.logIsSim||false,round_type:S.logType,notes,holes_played:S.holesToScore.length,holes_choice:S.logHoles,total_score:total,date:dateStr,entry_mode:S.logMode,detailed_stats:fullDet});
-  if(res&&res.ok===false){alert('Error saving round: '+(res.error||'Unknown error'));return;}
+  if(res&&res.ok===false){showAlert('Save Failed', res.error||'Unknown error');return;}
   clearDraft();
   clearStatsCache();
-  const diff=total-parP;alert(`Round Saved\nScore: ${total} (${diff>0?'+':''}${diff})\nCourse: ${course.name}\nHoles: ${S.holesToScore.length}`);
+  const diff=total-parP;
+  const ds=diff>0?`+${diff}`:diff===0?'E':`${diff}`;
+  showAlert('Round Saved!', `${total} (${ds}) · ${course.name} · ${S.holesToScore.length} holes`, 'View Rounds');
   nav('rounds');
 }
 
@@ -2100,7 +2536,7 @@ async function renderCourses(){
   const sorted=[...S.courses].sort((a,b)=>(a.club||'').localeCompare(b.club||'')||a.name.localeCompare(b.name));
   let rows='';
   if(!sorted.length){
-    rows=`<div class="empty"><div class="empty-icon"><img src="${ico('golf-course')}" style="width:90px;height:90px;object-fit:contain;margin:1px auto 0;display:block"></div><div class="empty-text">No courses yet.<br>Add your first course to get started.</div></div>`;
+    rows=`<div class="empty"><div class="empty-icon"><img src="${ico('golf-course')}" style="width:80px;height:80px;object-fit:contain;display:block;margin:0 auto"></div><div class="empty-headline">No Courses Yet</div><div class="empty-text">Add a course to start logging rounds.</div><div class="empty-cta"><button class="btn btn-primary" style="max-width:220px;margin:0 auto" onclick="editCourse(null)">Add a Course</button></div></div>`;
   } else {
     // Group by club
     const clubs={};
@@ -2315,10 +2751,11 @@ async function renderCourseDetail(){
 }
 
 async function deleteCourse(name){
-  if(!confirm(`Delete "${name}"?\nThis cannot be undone.`))return;
-  await DEL(`/api/courses/${encodeURIComponent(name)}`);
-  S.courses = S.courses.filter(c => c.name !== name);
-  nav('courses');
+  showConfirm(`Delete "${name}"?`, 'This cannot be undone.', 'Delete', async () => {
+    await DEL(`/api/courses/${encodeURIComponent(name)}`);
+    S.courses = S.courses.filter(c => c.name !== name);
+    nav('courses');
+  });
 }
 
 /* ================================================================
@@ -2374,7 +2811,10 @@ function renderCourseEditor(){
     </div>
 
     <div class="card">
-      <div style="font-size:14px;font-weight:bold;margin-bottom:10px">Course Information</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div style="font-size:14px;font-weight:bold">Course Information</div>
+        ${!c ? `<button class="btn btn-primary" style="width:auto;padding:6px 12px;font-size:12px;display:flex;align-items:center;gap:5px" onclick="openScanForEditor()"><img src="/static/camera-w-96.png" style="width:14px;height:14px;object-fit:contain"> Scan Card</button>` : ''}
+      </div>
       <div class="form-group">
         <div class="form-label">Course Name</div>
         <input class="form-input" id="ce-name" value="${c?esc(c.name):''}">
@@ -2409,7 +2849,7 @@ function renderCourseEditor(){
     </div>
 
     <div style="padding:12px 16px;display:flex;gap:8px">
-      <button class="btn btn-green" style="flex:2;display:flex;align-items:center;justify-content:center;gap:6px" onclick="saveCourse()"><img src="/static/save-96.png" style="width:16px;height:16px;object-fit:contain"> Save Course</button>
+      <button class="btn btn-primary" style="flex:2;display:flex;align-items:center;justify-content:center;gap:6px" onclick="saveCourse()"><img src="/static/save-96.png" style="width:16px;height:16px;object-fit:contain"> Save Course</button>
       <button class="btn" style="flex:1;background:var(--bg)" onclick="${c?`viewCourse('${esc(c.name)}')`:'nav(\'courses\')'}">Cancel</button>
     </div>
   `;
@@ -2551,7 +2991,7 @@ function addTeeBox(){
 async function saveCourse(){
   const name=document.getElementById('ce-name').value.trim();
   const club=document.getElementById('ce-club').value.trim();
-  if(!name){alert('Enter a course name');return;}
+  if(!name){showAlert('Course Name Required','Enter a name for this course.');return;}
 
   // Stash current yardage inputs
   ceStashCurrentYards();
@@ -2560,7 +3000,7 @@ async function saveCourse(){
   const parInputs=document.querySelectorAll('.ce-par-input');
   const pars=[];
   parInputs.forEach(inp=>{ pars.push(parseInt(inp.value)||4); });
-  if(pars.length<9){alert('Need at least 9 holes');return;}
+  if(pars.length<9){showAlert('Need More Holes','A course must have at least 9 holes.');return;}
 
   // Collect tee boxes
   const teeEls=document.querySelectorAll('#ce-tees .tee-editor-card');
@@ -2571,7 +3011,7 @@ async function saveCourse(){
     const slope=parseInt(el.querySelector('.tee-slope').value);
     if(color&&!isNaN(rating)&&!isNaN(slope)) teeBoxes.push({color,rating,slope});
   });
-  if(!teeBoxes.length){alert('Add at least one tee box');return;}
+  if(!teeBoxes.length){showAlert('Add a Tee Box','Add at least one tee box with rating and slope.');return;}
 
   // Build yardages from ceYardages — only include tees that still exist
   const yardages={};
@@ -2856,7 +3296,7 @@ async function renderStats(){
         <span class="club-section-label-sub">${sortLbl}</span>
       </div>
       <div class="club-items-card">${itemsHtml}</div>`
-      :`<div class="empty" style="padding:40px 0"><div class="empty-icon"><img src="/static/golf-clubs-96.png" style="width:40px;height:40px;opacity:0.5"></div><div class="empty-text">No clubs in bag yet</div></div>`;
+      :`<div class="empty"><div class="empty-icon"><img src="/static/golf-clubs-96.png" style="width:72px;height:72px;display:block;margin:0 auto"></div><div class="empty-headline">Bag is Empty</div><div class="empty-text">Add your clubs to get distance suggestions while scoring.</div></div>`;
 
     const addSection=isAdding?`
       <div class="club-section-label"><span class="club-section-label-title">Add Club</span></div>
@@ -2895,7 +3335,7 @@ async function renderStats(){
     }
     else if(!leaks||!leaks.length){
       body=`<div class="stat-card" style="text-align:center;padding:32px 20px">
-        <div style="font-size:48px;margin-bottom:8px">🎉</div>
+        <div style="margin-bottom:8px"><img src="${ico('Favicon')}" style="width:48px;height:48px;object-fit:contain"></div>
         <div style="font-size:20px;font-weight:700;color:var(--green)">Great Job!</div>
         <div style="font-size:13px;color:var(--text2);margin-top:8px">No significant areas of concern<br>detected in your game.</div>
       </div>
@@ -2966,7 +3406,7 @@ function clubToggle(name){
 }
 async function clubSave(origName){
   const dist=parseInt((document.getElementById('club-edit-dist')||{}).value);
-  if(isNaN(dist)||dist<=0){alert('Enter a valid distance');return;}
+  if(isNaN(dist)||dist<=0){showAlert('Invalid Distance','Enter a valid carry distance in yards.');return;}
   const p34=parseInt((document.getElementById('club-edit-p34')||{}).value);
   const p12=parseInt((document.getElementById('club-edit-p12')||{}).value);
   const p14=parseInt((document.getElementById('club-edit-p14')||{}).value);
@@ -2982,22 +3422,651 @@ async function clubSave(origName){
   renderStats();
 }
 async function clubDelete(name){
-  if(!confirm(`Remove ${name} from your bag?`)) return;
-  await DEL(`/api/clubs/${encodeURIComponent(name)}`);
-  S.editingClub=null;
-  S.clubs=await GET('/api/clubs');
-  renderStats();
+  showConfirm(`Remove ${name}?`, 'It will be removed from your bag.', 'Remove', async () => {
+    await DEL(`/api/clubs/${encodeURIComponent(name)}`);
+    S.editingClub=null;
+    S.clubs=await GET('/api/clubs');
+    renderStats();
+  });
 }
 async function clubAdd(){
   const name=(document.getElementById('club-new-name')||{}).value;
   const dist=parseInt((document.getElementById('club-new-dist')||{}).value);
-  if(!name||isNaN(dist)||dist<=0){alert('Enter club and distance');return;}
+  if(!name||isNaN(dist)||dist<=0){showAlert('Missing Info','Enter a club and carry distance.');return;}
   await POST('/api/clubs',{name,distance:dist,notes:''});
   S.editingClub=null;
   S.clubs=await GET('/api/clubs');
   renderStats();
 }
 
+
+/* ================================================================
+   SCAN SCORECARD FLOW
+   ================================================================ */
+
+// Scan state
+let _scanOcr = null;         // raw OCR response from /api/courses/scan
+let _scanStep = 'upload';    // upload | nine-q | multi-q | review
+let _scanReview = null;      // course data object being reviewed/edited
+let _scanNineChoice = null;  // 'front'|'back'|'full'
+let _scanMultiChoice = null; // 'split'|'combine'
+let _scanEditorMode = false; // true = fill course editor instead of showing review form
+
+// tee color options matching teeColorCSS
+const SCAN_TEE_COLORS = ['Black','Blue','White','Yellow','Red','Gold','Green','Silver'];
+
+function openScan() {
+  _scanEditorMode = true;
+  _scanOcr = null;
+  _scanStep = 'upload';
+  _scanReview = null;
+  show('scan');
+  renderScan();
+}
+
+function openScanForEditor() {
+  _scanEditorMode = true;
+  _scanOcr = null;
+  _scanStep = 'upload';
+  _scanReview = null;
+  show('scan');
+  renderScan();
+}
+
+function renderScan() {
+  const v = document.getElementById('v-scan');
+  if (!v) return;
+  const backFn = _scanEditorMode ? "show('course-editor')" : "nav('courses')";
+  const backLbl = _scanEditorMode ? '← Add Course' : '← Courses';
+  v.innerHTML = `<div class="page-header"><button class="back-btn" onclick="${backFn}">${backLbl}</button><div class="page-title">Scan Scorecard</div></div>` +
+    _renderScanBody();
+  _scanBindEvents();
+}
+
+function _renderScanBody() {
+  if (_scanStep === 'upload')   return _renderScanUpload();
+  if (_scanStep === 'loading')  return _renderScanLoading();
+  if (_scanStep === 'nine-q')   return _renderScanNineQ();
+  if (_scanStep === 'multi-q')  return _renderScanMultiQ();
+  if (_scanStep === 'review')   return _renderScanReview();
+  return '';
+}
+
+// ── Step 1: Upload ────────────────────────────────────────────────────────────
+
+function _renderScanUpload() {
+  const hasFile = !!(_scanOcr === null && document.getElementById('scan-file-hidden')?.files?.length);
+  return `
+    <div class="hint">Take a photo of the scorecard or upload an image file.</div>
+
+    <div class="scan-upload-zone" id="scan-drop-zone" onclick="document.getElementById('scan-file-hidden').click()">
+      <input type="file" id="scan-file-hidden" accept="image/*" style="display:none" onchange="scanFileSelected(this)">
+      <div class="scan-upload-icon"><img src="${ico('camera')}" style="width:30px;height:30px;object-fit:contain;margin:1px auto 0;display:block"></div>
+      <div class="scan-upload-label">Tap to take photo or choose file</div>
+      <div class="scan-upload-sub">JPG, PNG, HEIC — lay card flat in good light</div>
+    </div>
+
+    <input type="file" id="scan-camera-input" accept="image/*" capture="environment" style="display:none" onchange="scanFileSelected(this)">
+
+    <div style="padding:12px 16px;display:flex;gap:8px;margin-top:4px">
+      <button class="btn btn-primary" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px" onclick="document.getElementById('scan-camera-input').click()"><img src="/static/camera-w-96.png" style="width:16px;height:16px;object-fit:contain"> Take Photo</button>
+      <button class="btn btn-primary" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px" onclick="document.getElementById('scan-file-hidden').click()"><img src="/static/folder-w-96.png" style="width:16px;height:16px;object-fit:contain"> Choose File</button>
+    </div>
+
+    <div id="scan-preview-container" style="display:none">
+      <div class="scan-preview"><img id="scan-preview-img" src="" alt="Preview"></div>
+      <div style="padding:12px 16px;display:flex;gap:8px">
+        <button class="btn btn-primary" style="flex:1" id="scan-submit-btn" onclick="scanSubmit()">Scan This Card</button>
+        <button class="btn" style="flex:0;padding:10px 16px;background:var(--bg)" onclick="scanClearFile()">✕</button>
+      </div>
+    </div>
+  `;
+}
+
+function _renderScanLoading() {
+  return `
+    <div class="scan-spinner">
+      <div class="scan-spinner-ring"></div>
+      <div style="font-size:14px;color:var(--text2)">Reading scorecard…</div>
+      <div style="font-size:12px;color:var(--text3);margin-top:4px">This takes 5–15 seconds</div>
+    </div>
+  `;
+}
+
+// ── Step 3: 9-hole question ───────────────────────────────────────────────────
+
+function _renderScanNineQ() {
+  return `
+    <div class="card" style="margin-top:8px">
+      <div style="font-size:16px;font-weight:600;margin-bottom:6px">9-Hole Card Detected</div>
+      <div style="font-size:14px;color:var(--text2)">Which 9 holes does this card cover?</div>
+    </div>
+    <div class="scan-nine-choice">
+      <button class="scan-nine-btn" onclick="scanNineChoice('front')">🔵 Front 9 — Holes 1–9</button>
+      <button class="scan-nine-btn" onclick="scanNineChoice('back')">🟢 Back 9 — Holes 10–18</button>
+      <button class="scan-nine-btn" onclick="scanNineChoice('full')">⚪ It's actually a full 18-hole card</button>
+    </div>
+  `;
+}
+
+// ── Step 4: Multi-course question ─────────────────────────────────────────────
+
+function _renderScanMultiQ() {
+  return `
+    <div class="card" style="margin-top:8px">
+      <div style="font-size:16px;font-weight:600;margin-bottom:6px">Two Layouts Found</div>
+      <div style="font-size:14px;color:var(--text2)">This card appears to show two 9-hole courses. How would you like to save them?</div>
+    </div>
+    <div class="scan-nine-choice">
+      <button class="scan-nine-btn" onclick="scanMultiChoice('combine')"><img src="${ico('golf-course')}" style="width:20px;height:20px;object-fit:contain;vertical-align:middle;margin-right:6px"> One 18-hole course (front + back combined)</button>
+      <button class="scan-nine-btn" onclick="scanMultiChoice('split-1')">🔵 Save first layout only</button>
+      <button class="scan-nine-btn" onclick="scanMultiChoice('split-2')">🟢 Save second layout only</button>
+    </div>
+  `;
+}
+
+// ── Step 5: Review ────────────────────────────────────────────────────────────
+
+function _renderScanReview() {
+  if (!_scanReview) return '<div class="card">No data to review.</div>';
+  const d = _scanReview;
+  const warnings = _scanOcr?.warnings || [];
+  const conf = _scanOcr?.confidence || {};
+  const nHoles = (d.pars || []).length || 18;
+  const holeNums = Array.from({length: nHoles}, (_, i) => i + 1);
+
+  // Confidence badge
+  const o = conf.overall || 0;
+  const confClass = o >= 0.7 ? 'scan-conf-high' : o >= 0.4 ? 'scan-conf-med' : 'scan-conf-low';
+  const confLabel = o >= 0.7 ? `${Math.round(o*100)}% confidence` : o >= 0.4 ? `${Math.round(o*100)}% — review carefully` : `${Math.round(o*100)}% — many fields need correction`;
+
+  // Warnings banner
+  let warnHtml = '';
+  if (warnings.length) {
+    const items = warnings.map(w => `<div class="scan-warning-item">• ${esc(w)}</div>`).join('');
+    warnHtml = `<div class="scan-warning-banner">
+      <div class="scan-warning-title">⚠ ${warnings.length} issue${warnings.length > 1 ? 's' : ''} detected</div>
+      ${items}
+    </div>`;
+  }
+
+  // Tee boxes editor
+  const tees = d.tee_boxes || [];
+  let teesHtml = '';
+  tees.forEach((t, i) => {
+    const colorOpts = SCAN_TEE_COLORS.map(c =>
+      `<option value="${c}" ${(t.color || '') === c ? 'selected' : ''}>${c}</option>`
+    ).join('');
+    teesHtml += `<div class="scan-tee-card" data-tee-idx="${i}">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+        <div class="form-group" style="flex:1;min-width:80px">
+          <div class="form-label">Color</div>
+          <select class="form-select scan-tee-color" style="min-height:44px">
+            <option value="">— unknown —</option>${colorOpts}
+          </select>
+        </div>
+        <div class="form-group" style="flex:1;min-width:80px">
+          <div class="form-label">Label</div>
+          <input class="form-input scan-tee-label" value="${esc(t.label || '')}" placeholder="e.g. Championship" style="min-height:44px">
+        </div>
+        <div class="form-group" style="flex:1;min-width:70px">
+          <div class="form-label">Rating</div>
+          <input class="form-input scan-tee-rating ${t.rating == null ? 'missing' : ''}" type="number" step="0.1" value="${t.rating != null ? t.rating : ''}" placeholder="—" style="min-height:44px">
+        </div>
+        <div class="form-group" style="flex:1;min-width:70px">
+          <div class="form-label">Slope</div>
+          <input class="form-input scan-tee-slope ${t.slope == null ? 'missing' : ''}" type="number" value="${t.slope != null ? t.slope : ''}" placeholder="—" style="min-height:44px">
+        </div>
+      </div>
+    </div>`;
+  });
+  if (!tees.length) {
+    teesHtml = `<div style="font-size:13px;color:var(--text2);padding:8px 0">No tee boxes detected — you can add them manually after saving, or add them in the course editor.</div>`;
+  }
+
+  // Hole data table: rows = tee yardages + pars + handicaps
+  const pars = d.pars || new Array(nHoles).fill('');
+  const hdcps = d.handicaps || new Array(nHoles).fill('');
+
+  const hdrCells = holeNums.map(n => `<th>${n}</th>`).join('');
+  let tableRows = '';
+
+  // Par row
+  const parCells = holeNums.map((n, i) => {
+    const v = pars[i];
+    const miss = (v == null || ![3,4,5].includes(v)) ? ' missing' : '';
+    return `<td><input class="scan-hole-input scan-par-input${miss}" type="number" min="3" max="6" value="${v != null ? v : ''}" placeholder="—" data-hole="${i}"></td>`;
+  }).join('');
+  tableRows += `<tr><td>Par</td>${parCells}</tr>`;
+
+  // Handicap row
+  const hcpCells = holeNums.map((n, i) => {
+    const v = hdcps[i];
+    const miss = (v == null) ? ' missing' : '';
+    return `<td><input class="scan-hole-input scan-hcp-input${miss}" type="number" min="1" max="18" value="${v != null ? v : ''}" placeholder="—" data-hole="${i}"></td>`;
+  }).join('');
+  tableRows += `<tr><td>HCP</td>${hcpCells}</tr>`;
+
+  // Yardage rows per tee
+  tees.forEach((t, ti) => {
+    const yards = t.yardages || [];
+    const teeCells = holeNums.map((n, i) => {
+      const v = yards[i];
+      const miss = (v == null) ? ' missing' : '';
+      return `<td><input class="scan-hole-input scan-yard-input${miss}" type="number" value="${v != null ? v : ''}" placeholder="—" data-tee="${ti}" data-hole="${i}"></td>`;
+    }).join('');
+    const dot = t.color ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${teeColorCSS(t.color)};margin-right:4px"></span>` : '';
+    tableRows += `<tr><td>${dot}${esc(t.label || t.color || `Tee ${ti+1}`)}</td>${teeCells}</tr>`;
+  });
+
+  return `
+    <div class="card" style="margin-top:4px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div style="font-size:14px;font-weight:bold">Review Extracted Data</div>
+        <span class="scan-conf-badge ${confClass}">${confLabel}</span>
+      </div>
+      <div class="form-group">
+        <div class="form-label">Course Name</div>
+        <input class="form-input ${!d.course_name ? 'missing' : ''}" id="scan-name" value="${esc(d.course_name || '')}" placeholder="Course name" style="min-height:44px">
+      </div>
+      <div class="form-group">
+        <div class="form-label">Club / Facility</div>
+        <input class="form-input" id="scan-club" value="${esc(d.club_name || '')}" placeholder="Club or facility name" style="min-height:44px">
+      </div>
+    </div>
+
+    ${warnHtml}
+
+    <div class="card">
+      <div style="font-size:14px;font-weight:bold;margin-bottom:8px">Tee Boxes</div>
+      <div id="scan-tees-container">${teesHtml}</div>
+    </div>
+
+    <div class="card">
+      <div style="font-size:14px;font-weight:bold;margin-bottom:4px">Hole Data</div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:8px">Orange = unread / needs review. Scroll right to see all holes.</div>
+      <div class="scan-hole-scroll">
+        <table class="scan-hole-table">
+          <thead><tr><th>Row</th>${hdrCells}</tr></thead>
+          <tbody id="scan-hole-tbody">${tableRows}</tbody>
+        </table>
+      </div>
+    </div>
+
+    <div style="padding:12px 16px;display:flex;gap:8px">
+      <button class="btn btn-primary" style="flex:2;display:flex;align-items:center;justify-content:center;gap:6px" onclick="scanSave()"><img src="/static/save-96.png" style="width:16px;height:16px;object-fit:contain"> Save Course</button>
+      <button class="btn" style="flex:1;background:var(--bg)" onclick="nav('courses')">Cancel</button>
+    </div>
+
+    <div style="padding:0 16px 24px">
+      <button class="btn" style="width:100%;background:var(--card);font-size:13px;display:flex;align-items:center;justify-content:center;gap:6px" onclick="scanAddAnotherPhoto()"><img src="${ico('camera')}" style="width:15px;height:15px;object-fit:contain"> Scan another photo (back of card / second 9)</button>
+    </div>
+  `;
+}
+
+// ── Events & binding ──────────────────────────────────────────────────────────
+
+function _scanBindEvents() {
+  const zone = document.getElementById('scan-drop-zone');
+  if (!zone) return;
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault();
+    zone.classList.remove('drag-over');
+    const files = e.dataTransfer?.files;
+    if (files?.length) _scanPreviewFile(files[0]);
+  });
+}
+
+let _scanFile = null;
+
+function scanFileSelected(input) {
+  if (!input.files?.length) return;
+  _scanPreviewFile(input.files[0]);
+}
+
+function _scanPreviewFile(file) {
+  _scanFile = file;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = document.getElementById('scan-preview-img');
+    const container = document.getElementById('scan-preview-container');
+    if (img) img.src = e.target.result;
+    if (container) container.style.display = '';
+  };
+  reader.readAsDataURL(file);
+}
+
+function scanClearFile() {
+  _scanFile = null;
+  const container = document.getElementById('scan-preview-container');
+  if (container) container.style.display = 'none';
+  const inputs = document.querySelectorAll('#scan-file-hidden, #scan-camera-input');
+  inputs.forEach(i => i.value = '');
+}
+
+async function scanSubmit() {
+  if (!_scanFile) { showAlert('No Image Selected','Tap "Take Photo" or "Choose File" first.'); return; }
+  _scanStep = 'loading';
+  renderScan();
+
+  const fd = new FormData();
+  fd.append('image', _scanFile);
+
+  try {
+    const res = await fetch('/api/courses/scan', { method: 'POST', body: fd });
+    const data = await res.json();
+
+    if (!res.ok) {
+      showAlert('Scan Failed', data.tip || data.error || 'Unknown error');
+      _scanStep = 'upload';
+      renderScan();
+      return;
+    }
+
+    _scanOcr = data;
+
+    // If merging a second photo into existing review
+    if (_scanPrevReview) {
+      const prev = _scanPrevReview;
+      _scanPrevReview = null;
+      const newReview = _scanOcrToReview(data);
+      _scanReview = _mergeReviews(prev, newReview);
+      _scanOcr.warnings = [...(prev._warnings || []), ...(data.warnings || [])];
+      if (_scanEditorMode) {
+        _fillEditorFromOcr(_scanReview);
+        return;
+      }
+      _scanStep = 'review';
+      renderScan();
+      return;
+    }
+
+    // Route to correct next step
+    if (data.multiple_courses?.length >= 2) {
+      _scanStep = 'multi-q';
+      renderScan();
+    } else if (data.nine_hole_card) {
+      _scanStep = 'nine-q';
+      renderScan();
+    } else if (_scanEditorMode) {
+      _fillEditorFromOcr(_scanOcrToReview(data));
+    } else {
+      _scanReview = _scanOcrToReview(data);
+      _scanStep = 'review';
+      renderScan();
+    }
+  } catch (err) {
+    showAlert('Network Error','Make sure the app is running and try again.');
+    _scanStep = 'upload';
+    renderScan();
+  }
+}
+
+function scanNineChoice(choice) {
+  _scanNineChoice = choice;
+  const data = _scanOcr;
+  const review = (choice === 'full') ? _scanOcrToReview(data) : _scanOcrToReview(data, choice);
+  if (_scanEditorMode) {
+    _fillEditorFromOcr(review);
+    return;
+  }
+  _scanReview = review;
+  _scanStep = 'review';
+  renderScan();
+}
+
+function scanMultiChoice(choice) {
+  _scanMultiChoice = choice;
+  const data = _scanOcr;
+  let review;
+  if (choice === 'combine') {
+    const a = data.multiple_courses[0];
+    const b = data.multiple_courses[1];
+    const merged = {
+      course_name: a.course_name || b.course_name,
+      club_name: a.club_name || b.club_name,
+      pars: [...(a.pars || []), ...(b.pars || [])],
+      handicaps: [...(a.handicaps || []), ...(b.handicaps || [])],
+      tee_boxes: _mergeTeeBoxes(a.tee_boxes || [], b.tee_boxes || []),
+      nine_hole_card: false,
+    };
+    review = _scanOcrToReview(merged);
+  } else if (choice === 'split-1') {
+    review = _scanOcrToReview(data.multiple_courses[0]);
+  } else {
+    review = _scanOcrToReview(data.multiple_courses[1]);
+  }
+  if (_scanEditorMode) {
+    _fillEditorFromOcr(review);
+    return;
+  }
+  _scanReview = review;
+  _scanStep = 'review';
+  renderScan();
+}
+
+function _mergeTeeBoxes(a, b) {
+  const merged = a.map(ta => {
+    const tb = b.find(t => t.label === ta.label) || {};
+    return {
+      ...ta,
+      yardages: [...(ta.yardages || []), ...(tb.yardages || [])],
+    };
+  });
+  // Add any tees from b not in a
+  for (const tb of b) {
+    if (!merged.find(t => t.label === tb.label)) {
+      merged.push({ ...tb, yardages: [...new Array(a[0]?.yardages?.length || 9).fill(null), ...(tb.yardages || [])] });
+    }
+  }
+  return merged;
+}
+
+function _scanOcrToReview(ocrData, nineChoice) {
+  // Clone so review edits don't mutate OCR result
+  const d = JSON.parse(JSON.stringify(ocrData));
+  if (!nineChoice || nineChoice === 'full') return d;
+
+  const offset = nineChoice === 'back' ? 9 : 0;
+  const emptyNine = new Array(9).fill(null);
+
+  // Expand pars to 18-hole array
+  const pars9 = d.pars || [];
+  const pars18 = new Array(18).fill(null);
+  for (let i = 0; i < 9 && i < pars9.length; i++) {
+    pars18[offset + i] = pars9[i];
+  }
+  d.pars = pars18;
+
+  // Expand handicaps
+  const hcp9 = d.handicaps || [];
+  const hcp18 = new Array(18).fill(null);
+  for (let i = 0; i < 9 && i < hcp9.length; i++) {
+    hcp18[offset + i] = hcp9[i];
+  }
+  d.handicaps = hcp18;
+
+  // Expand tee yardages
+  for (const tee of d.tee_boxes || []) {
+    const y9 = tee.yardages || [];
+    const y18 = new Array(18).fill(null);
+    for (let i = 0; i < 9 && i < y9.length; i++) {
+      y18[offset + i] = y9[i];
+    }
+    tee.yardages = y18;
+  }
+
+  d.nine_hole_card = false;
+  return d;
+}
+
+// ── Scan more photos (merge additional data) ──────────────────────────────────
+
+function scanAddAnotherPhoto() {
+  // Store current review data and warnings, reset to upload step
+  if (_scanReview) {
+    _scanReview._warnings = _scanOcr?.warnings || [];
+  }
+  _scanPrevReview = _scanReview;
+  _scanFile = null;
+  _scanStep = 'upload';
+  renderScan();
+}
+
+let _scanPrevReview = null;
+
+function _mergeReviews(base, incoming) {
+  const merged = JSON.parse(JSON.stringify(base));
+  // Fill null pars from incoming
+  if (incoming.pars?.length) {
+    merged.pars = merged.pars || [];
+    incoming.pars.forEach((v, i) => { if (v != null && merged.pars[i] == null) merged.pars[i] = v; });
+  }
+  // Fill null handicaps
+  if (incoming.handicaps?.length) {
+    merged.handicaps = merged.handicaps || [];
+    incoming.handicaps.forEach((v, i) => { if (v != null && merged.handicaps[i] == null) merged.handicaps[i] = v; });
+  }
+  // Fill null yardages per tee
+  for (const inTee of (incoming.tee_boxes || [])) {
+    const existing = merged.tee_boxes?.find(t => t.label === inTee.label || t.color === inTee.color);
+    if (existing) {
+      existing.rating = existing.rating ?? inTee.rating;
+      existing.slope = existing.slope ?? inTee.slope;
+      if (inTee.yardages?.length) {
+        existing.yardages = existing.yardages || [];
+        inTee.yardages.forEach((v, i) => { if (v != null && existing.yardages[i] == null) existing.yardages[i] = v; });
+      }
+    } else if (merged.tee_boxes) {
+      merged.tee_boxes.push(inTee);
+    }
+  }
+  // Fill course/club name if missing
+  merged.course_name = merged.course_name || incoming.course_name;
+  merged.club_name = merged.club_name || incoming.club_name;
+  return merged;
+}
+
+
+// ── Fill course editor with OCR data ─────────────────────────────────────────
+
+function _fillEditorFromOcr(data) {
+  _scanEditorMode = false;
+  S.editCourse = null;
+  show('course-editor');
+
+  requestAnimationFrame(() => {
+    const nameEl = document.getElementById('ce-name');
+    const clubEl = document.getElementById('ce-club');
+    if (nameEl && data.course_name) nameEl.value = data.course_name;
+    if (clubEl && data.club_name) clubEl.value = data.club_name;
+
+    if (data.pars?.length) {
+      cePars = data.pars.map(v => (v != null && v >= 3 && v <= 6) ? v : 4);
+      refreshCeParGrid();
+    }
+
+    if (data.tee_boxes?.length) {
+      const container = document.getElementById('ce-tees');
+      if (container) {
+        container.innerHTML = '';
+        ceYardages = {};
+        data.tee_boxes.forEach(t => {
+          // Capitalize color so it matches teeColorCSS() map keys (Black/Blue/White/etc.)
+          const rawColor = t.color || t.label || 'White';
+          const color = rawColor.charAt(0).toUpperCase() + rawColor.slice(1);
+          const div = document.createElement('div');
+          div.className = 'tee-editor-card';
+          div.innerHTML = `<button class="tee-editor-remove" onclick="removeTeeEditor(this)" title="Remove">✕</button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <div class="form-group" style="flex:1;min-width:70px"><div class="form-label">Color</div><input class="form-input tee-color" value="${esc(color)}" onchange="onTeeColorRenamed(this)"></div>
+              <div class="form-group" style="flex:1;min-width:70px"><div class="form-label">Rating</div><input class="form-input tee-rating" value="${t.rating != null ? t.rating : ''}" type="number" step="0.1"></div>
+              <div class="form-group" style="flex:1;min-width:70px"><div class="form-label">Slope</div><input class="form-input tee-slope" value="${t.slope != null ? t.slope : ''}" type="number"></div>
+            </div>`;
+          container.appendChild(div);
+          const yards = (t.yardages || []).map(v => v != null ? v : 0);
+          while (yards.length < cePars.length) yards.push(0);
+          ceYardages[color] = yards;
+        });
+        const firstColor = data.tee_boxes[0]?.color || data.tee_boxes[0]?.label || 'White';
+        ceActiveTee = firstColor.charAt(0).toUpperCase() + firstColor.slice(1);
+        refreshCeTeePills();
+        refreshCeHoleGrid();
+      }
+    }
+  });
+}
+
+// ── Save ──────────────────────────────────────────────────────────────────────
+
+async function scanSave() {
+  const name = (document.getElementById('scan-name')?.value || '').trim();
+  const club = (document.getElementById('scan-club')?.value || '').trim();
+  if (!name) { showAlert('Course Name Required','Enter a name for this course.'); return; }
+
+  // Collect pars
+  const parInputs = document.querySelectorAll('.scan-par-input');
+  const pars = [];
+  parInputs.forEach(inp => {
+    const v = parseInt(inp.value);
+    pars.push(isNaN(v) ? 4 : v);
+  });
+
+  // Collect handicaps
+  const hcpInputs = document.querySelectorAll('.scan-hcp-input');
+  const handicaps = [];
+  hcpInputs.forEach(inp => {
+    const v = parseInt(inp.value);
+    handicaps.push(isNaN(v) ? null : v);
+  });
+
+  // Collect tee boxes + yardages
+  const teeCards = document.querySelectorAll('#scan-tees-container .scan-tee-card');
+  const teeBoxes = [];
+  const yardages = {};
+
+  teeCards.forEach((card, ti) => {
+    const color = card.querySelector('.scan-tee-color')?.value || '';
+    const label = card.querySelector('.scan-tee-label')?.value?.trim() || '';
+    const rating = parseFloat(card.querySelector('.scan-tee-rating')?.value);
+    const slope = parseInt(card.querySelector('.scan-tee-slope')?.value);
+    if (!color && !label) return;
+
+    const teeKey = color || label;
+    if (!isNaN(rating) && !isNaN(slope)) {
+      teeBoxes.push({ color, label, rating, slope });
+    } else {
+      teeBoxes.push({ color, label,
+        rating: isNaN(rating) ? null : rating,
+        slope: isNaN(slope) ? null : slope });
+    }
+
+    // Collect yardages for this tee
+    const yardInputs = document.querySelectorAll(`.scan-yard-input[data-tee="${ti}"]`);
+    const yards = [];
+    yardInputs.forEach(inp => {
+      const v = parseInt(inp.value);
+      yards.push(isNaN(v) ? 0 : v);
+    });
+    if (teeKey) yardages[teeKey] = yards;
+  });
+
+  if (!teeBoxes.length) { showAlert('Add a Tee Box','Add at least one tee box with rating and slope.'); return; }
+  if (pars.length < 9) { showAlert('Need More Holes','A course needs at least 9 holes.'); return; }
+
+  const payload = { name, club, pars, tee_boxes: teeBoxes, yardages };
+
+  try {
+    await POST('/api/courses/scan/confirm', payload);
+    S.courses = await GET('/api/courses');
+    S.viewCourseName = name;
+    show('course-detail');
+  } catch (err) {
+    showAlert('Save Failed','Check all required fields and try again.');
+  }
+}
 
 /* ================================================================
    THEME-AWARE ICONS

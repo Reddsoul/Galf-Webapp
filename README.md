@@ -42,7 +42,7 @@ The **Log New Round** button — marked with the golf ball icon — sits above t
 4. Optionally mark as a **Simulator** round — these are tracked separately and never affect your real handicap
 5. Choose an entry mode:
    - **Quick** — score only, one number per hole
-   - **Detailed** — tap clubs in the order you hit them; score = number of clubs tapped (including putts). Putts are counted from Putter taps. GIR is derived automatically. Powers the Stats screen.
+   - **Detailed** — tap clubs using the Nokia-style keypad; score = clubs tapped (including putts). Clubs are grouped by category in a fixed 3×4 grid — cells with multiple clubs cycle through them on repeated taps (multi-tap). GIR and putting stats are derived automatically. Powers the Stats screen.
 6. Tap through each hole and enter your score
 7. On the last hole tap **Finish** — a review screen shows the full scorecard. Add optional notes, then tap **Save Round**. Your handicap updates immediately.
 

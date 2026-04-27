@@ -185,7 +185,7 @@ Same as Quick mode: hole number, course, par, yardage, tee.
 
 #### Score Display
 
-Shows the clubs you have tapped so far in sequence (e.g. `D → 7i → P`). The count of those clubs is your score. The score vs. par updates in real time.
+Shows the clubs tapped so far in sequence (e.g. `D → 7i → P`). A club currently being cycled through multi-tap appears in brackets (e.g. `D → 7i → [9i]`) until committed. The count of all clubs — including any pending — is your running score. Score vs. par updates in real time.
 
 #### Club Suggestion
 
@@ -207,28 +207,33 @@ If you checked **Simulator Round** in setup, Galf rolls a random putt count for 
 
 The rolled count appears as _"Sim putts: 2"_ on screen. If you tap the Putter button yourself, your taps override the auto-roll entirely (it will show _"(overridden)"_). If you tap no putts, the auto-rolled count is used when saving.
 
-#### Club Grid Buttons
+#### Club Keypad
 
-Every club in your bag appears as an abbreviated button:
+Clubs are arranged in a **fixed 3×4 grid** — 9 club cells across the top three rows, and a fixed action row at the bottom. The layout never changes regardless of which clubs are in your bag.
 
-| Abbreviation | Club |
-|---|---|
-| D | Driver |
-| 3W, 5W | 3 Wood, 5 Wood |
-| H | Hybrid |
-| 3i, 4i, 5i, 6i, 7i, 8i, 9i | Irons |
-| PW, GW, SW, LW | Wedges |
-| P | Putter |
+```
+Driver      │ Woods      │ Long Irons
+Mid Irons   │ Short Irons│ Wedges (PW/GW)
+SW          │ LW         │ Putter
+────────────┼────────────┼────────────
+Forfeit     │ ↩ Undo     │ Next →
+```
 
-Tap clubs in the order you hit them on the hole. The putter button is styled differently so it's easy to find at the bottom of the grid.
+Cells that group more than one club (e.g. **3w · 5w**) use **Nokia-style multi-tap**: tap the cell once to select the first club, tap again before the timer fires to cycle to the next, and so on. After ~0.9 seconds of no input the selection is committed automatically.
 
-#### Action Row (bottom of club grid)
+While a cell is cycling, the active club is displayed larger and the others are dimmed — you can always see all options in the cell at once.
+
+The **Putter** cell is always in the bottom-right of the club area (above Next →) and is tinted green so it stands out.
+
+Tap clubs in the order you hit them on the hole. The sequence appears in the score display as `D → 7i → [9i]` — brackets indicate a multi-tap selection that hasn't committed yet.
+
+#### Action Row (always at the bottom)
 
 | Button | What it does |
 |---|---|
 | **Forfeit** | Marks hole with par+2 (double bogey). Confirmation required. |
-| **↩ Undo** | Removes the last club tapped — useful if you tap the wrong one |
-| **Next →** / **✓ Done** | Advances to next hole or finishes entry |
+| **↩ Undo** | If a multi-tap is in progress, cancels it. Otherwise removes the last committed club. |
+| **Next →** / **✓ Done** | Commits any pending multi-tap, then advances to the next hole or finishes entry. |
 
 ---
 
