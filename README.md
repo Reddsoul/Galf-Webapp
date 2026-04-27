@@ -32,7 +32,7 @@ The app has exactly three tabs at the bottom of the screen:
 
 ## How to Use It
 
-### <span style="display:inline-flex;align-items:center;justify-content:center;background:#1B6B3A;border-radius:8px;padding:3px;line-height:0;vertical-align:middle"><img src="static/golf-ball-w-96.png" width="20" height="20"></span> Logging a Round
+### <span style="display:inline-flex;align-items:center;justify-content:center;background:#1B6B3A;border-radius:8px;padding:3px;line-height:0;vertical-align:middle"><img src="static/golf-ball-96.png" width="20" height="20"></span> Logging a Round
 
 The **Log New Round** button — marked with the golf ball icon — sits above the tab bar on the Home screen.
 
@@ -46,7 +46,7 @@ The **Log New Round** button — marked with the golf ball icon — sits above t
 6. Tap through each hole and enter your score
 7. On the last hole tap **Finish** — a review screen shows the full scorecard. Add optional notes, then tap **Save Round**. Your handicap updates immediately.
 
-> In Detailed mode, if your course has yardages and you have clubs in your bag, Galf suggests a club sequence for each hole's distance. For simulator rounds, putts are auto-rolled (with realistic distribution) and applied if you don't tap the Putter yourself.
+> In Detailed mode, if your course has yardages and you have clubs in your bag, Galf suggests a club sequence for each hole's distance. If no full club fits the remaining distance, it falls back to the nearest partial wedge swing (e.g. `SW ¾`) — but only if you have entered partial distances for that wedge. For simulator rounds, putts are auto-rolled (with realistic distribution) and applied if you don't tap the Putter yourself.
 
 ---
 
@@ -58,6 +58,8 @@ You need at least one course before you can log a round.
 2. Tap **+**
 3. Fill in the course name, club/facility name, par for all 18 holes, and at least one tee box — color, slope rating, and course rating (all found on the physical scorecard). Yardages per tee are optional but enable club suggestions during Detailed entry.
 4. Tap <span style="display:inline-flex;align-items:center;justify-content:center;background:#1B6B3A;border-radius:6px;padding:2px;line-height:0;vertical-align:middle"><img src="static/save-96.png" width="14" height="14"></span> **Save Course**
+
+**Shortcut — Scan a Physical Scorecard:** Tap the <span style="display:inline-flex;align-items:center;justify-content:center;background:#1B6B3A;border-radius:6px;padding:2px;line-height:0;vertical-align:middle"><img src="static/camera-96.png" width="14" height="14"></span> **Scan Card** button at the top of the Add Course form to photograph a scorecard. Galf reads the pars, yardages, and tee ratings automatically, then shows a review screen where you can correct any misread fields before saving. Requires optional server dependencies — see below.
 
 To edit a course later, tap its name then <span style="display:inline-flex;align-items:center;justify-content:center;background:#1B6B3A;border-radius:6px;padding:2px;line-height:0;vertical-align:middle"><img src="static/pencil-96.png" width="14" height="14"></span> **Edit Course**.
 To delete it, tap the <span style="display:inline-flex;align-items:center;justify-content:center;background:#FF3B30;border-radius:6px;padding:2px;line-height:0;vertical-align:middle"><img src="static/trash-96.png" width="14" height="14"></span> button.
@@ -75,6 +77,8 @@ Your bag lives in **Stats → Clubs**. The <span style="display:inline-flex;alig
 5. Repeat for each club you carry
 
 To update a distance, tap <span style="display:inline-flex;align-items:center;justify-content:center;background:#1B6B3A;border-radius:6px;padding:2px;line-height:0;vertical-align:middle"><img src="static/pencil-96.png" width="14" height="14"></span> next to any club, change the value, tap <span style="display:inline-flex;align-items:center;justify-content:center;background:#1B6B3A;border-radius:6px;padding:2px;line-height:0;vertical-align:middle"><img src="static/save-96.png" width="14" height="14"></span> **Save**.
+
+For wedge clubs (PW, GW, SW, LW, AW), the edit panel also shows **¾ swing**, **½ swing**, and **¼ swing** distance fields. Filling these in powers the partial-swing fallback in Detailed mode club suggestions — when no full club fits the remaining distance, Galf suggests the closest partial swing instead.
 
 ---
 
@@ -246,6 +250,24 @@ Replace `<tailscale-ip>` with the `100.x.x.x` address from Step 2. You can bookm
 
 ---
 
+## Optional: Scorecard OCR
+
+The **Scan Card** feature lets you photograph a physical scorecard to auto-populate a course. It requires two extra dependencies that are not installed by default:
+
+1. **Tesseract OCR** — install via your OS package manager:
+   - Mac: `brew install tesseract`
+   - Ubuntu/Debian: `sudo apt install tesseract-ocr`
+   - Windows: download the installer from [github.com/UB-Mannheim/tesseract](https://github.com/UB-Mannheim/tesseract/wiki)
+
+2. **Python packages:**
+   ```bash
+   pip3 install opencv-python-headless pytesseract pillow
+   ```
+
+If these are not installed, the app still runs normally — the scan endpoint returns a 503 if called but the rest of the app is unaffected.
+
+---
+
 ## Environment Variables
 
 | Variable | Default | Effect |
@@ -265,13 +287,14 @@ GALF_PORT=8080 python3 app.py
 webapp/
 ├── app.py              Flask routes (thin layer only — no business logic)
 ├── Backend.py          All business logic: handicap, stats, scoring, data I/O
+├── scorecard_ocr.py    Optional OCR module for scanning physical scorecards
 ├── templates/
 │   └── index.html      Entire frontend — HTML + CSS + JS, one file
 ├── static/             Icons used throughout the UI
 └── data/               Auto-created on first run; holds all your golf data
     ├── courses.json     Course definitions (pars, tee boxes, yardages)
     ├── rounds.json      Every logged round — your golf history
-    ├── clubs.json       Club bag with carry distances
+    ├── clubs.json       Club bag with carry distances; wedges also store partial swing distances
     ├── user_prefs.json  Entry mode preference
     └── stats_cache.json Cached stats, auto-invalidated on new rounds
 ```

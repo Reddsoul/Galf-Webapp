@@ -21,6 +21,7 @@ Everything the app can do, screen by screen.
    - [Course List](#51-course-list)
    - [Course Detail](#52-course-detail)
    - [Adding or Editing a Course](#53-adding-or-editing-a-course)
+   - [Scanning a Physical Scorecard](#54-scanning-a-physical-scorecard)
 6. [Statistics](#6-statistics)
    - [Overview](#61-overview)
    - [Performance](#62-performance)
@@ -73,7 +74,7 @@ The <span style="display:inline-flex;align-items:center;justify-content:center;b
 
 ## 2. Logging a Round
 
-Logging a round is a three-step flow: **Setup → Entry → Review & Save**.
+Logging a round is a three-step flow: **Setup ▶ Entry ▶ Review & Save**.
 
 ---
 
@@ -168,7 +169,7 @@ Buttons 1–9 are individual digit taps. For scores of 10 or above, tap two digi
 | **1–9** | Sets / appends a digit to the current hole score |
 | **0** | Appends a zero (e.g. `1` then `0` = score of 10) |
 | **Forfeit** | Marks the hole with a score of par+2 (double bogey). Used when you pick up or don't finish a hole. A confirmation prompt appears. |
-| **Next →** | Moves to the next hole |
+| **Next ▶** | Moves to the next hole |
 | **✓ Done** | Appears on the last hole — finishes entry and goes to the Review screen |
 
 If you tap **Done** and any hole is missing a score, the app shows which hole numbers are incomplete and does not proceed.
@@ -185,15 +186,17 @@ Same as Quick mode: hole number, course, par, yardage, tee.
 
 #### Score Display
 
-Shows the clubs tapped so far in sequence (e.g. `D → 7i → P`). A club currently being cycled through multi-tap appears in brackets (e.g. `D → 7i → [9i]`) until committed. The count of all clubs — including any pending — is your running score. Score vs. par updates in real time.
+Shows the clubs tapped so far in sequence (e.g. `D ▶ 7i ▶ P`). A club currently being cycled through multi-tap appears in brackets (e.g. `D ▶ 7i ▶ [9i]`) until committed. The count of all clubs — including any pending — is your running score. Score vs. par updates in real time.
 
 #### Club Suggestion
 
 If yardages are entered for this course and tee, and you have clubs in your bag, Galf shows a **Suggested** club sequence for the hole yardage using a greedy algorithm:
 
-> _Suggested: D → 9i → P_
+> _Suggested: D ▶ 9i ▶ P_
 
 It picks the longest club in your bag that fits the remaining distance, subtracts it, and repeats until the hole is covered. The putter can only appear once. If two clubs have the same distance, the one you use more often is preferred.
+
+If no full club fits the remaining distance (e.g. 30 yards left after the last approach), Galf falls back to the nearest partial wedge swing — for example `SW ¾` or `PW ½`. Partial swings only appear in suggestions if you have entered partial distances for that wedge in the Clubs tab.
 
 This is a starting point — not a prescription. You still tap whatever you actually hit.
 
@@ -216,24 +219,24 @@ Driver      │ Woods      │ Long Irons
 Mid Irons   │ Short Irons│ Wedges (PW/GW)
 SW          │ LW         │ Putter
 ────────────┼────────────┼────────────
-Forfeit     │ ↩ Undo     │ Next →
+Forfeit     │ ◀ Undo     │ Next ▶
 ```
 
 Cells that group more than one club (e.g. **3w · 5w**) use **Nokia-style multi-tap**: tap the cell once to select the first club, tap again before the timer fires to cycle to the next, and so on. After ~0.9 seconds of no input the selection is committed automatically.
 
 While a cell is cycling, the active club is displayed larger and the others are dimmed — you can always see all options in the cell at once.
 
-The **Putter** cell is always in the bottom-right of the club area (above Next →) and is tinted green so it stands out.
+The **Putter** cell is always in the bottom-right of the club area (above Next ▶) and is tinted green so it stands out.
 
-Tap clubs in the order you hit them on the hole. The sequence appears in the score display as `D → 7i → [9i]` — brackets indicate a multi-tap selection that hasn't committed yet.
+Tap clubs in the order you hit them on the hole. The sequence appears in the score display as `D ▶ 7i ▶ [9i]` — brackets indicate a multi-tap selection that hasn't committed yet.
 
 #### Action Row (always at the bottom)
 
 | Button | What it does |
 |---|---|
 | **Forfeit** | Marks hole with par+2 (double bogey). Confirmation required. |
-| **↩ Undo** | If a multi-tap is in progress, cancels it. Otherwise removes the last committed club. |
-| **Next →** / **✓ Done** | Commits any pending multi-tap, then advances to the next hole or finishes entry. |
+| **◀ Undo** | If a multi-tap is in progress, cancels it. Otherwise removes the last committed club. |
+| **Next ▶** / **✓ Done** | Commits any pending multi-tap, then advances to the next hole or finishes entry. |
 
 ---
 
@@ -255,7 +258,7 @@ Tap <span style="display:inline-flex;align-items:center;justify-content:center;b
 
 #### Back to Scoring
 
-Tap **← Back to Scoring** at the top to return to the entry screen and make corrections before saving.
+Tap **◀ Back to Scoring** at the top to return to the entry screen and make corrections before saving.
 
 ---
 
@@ -428,6 +431,77 @@ Tap <span style="display:inline-flex;align-items:center;justify-content:center;b
 
 ---
 
+### 5.4 Scanning a Physical Scorecard
+
+Instead of entering course data by hand, you can photograph a real scorecard and let Galf read the pars, yardages, and tee ratings automatically.
+
+#### Starting a Scan
+
+Tap **+ Add New Course**, then tap the <span style="display:inline-flex;align-items:center;justify-content:center;background:#1B6B3A;border-radius:5px;padding:2px;line-height:0;vertical-align:middle"><img src="static/camera-96.png" width="14" height="14"></span> **Scan Card** button that appears at the top of the Add Course form. The Scan Scorecard screen opens.
+
+#### Upload Step
+
+Two buttons let you supply the image:
+
+| Button | What it does |
+|---|---|
+| **Take Photo** | Opens the camera directly — point at the scorecard |
+| **Choose File** | Opens the photo library or file browser |
+
+A preview of the selected image appears. Tap **Scan This Card** to send it to the server. Processing takes 5–15 seconds.
+
+> **Best results:** lay the card flat on a dark surface, use good lighting, and avoid glare. Shoot straight down — not at an angle.
+
+#### 9-Hole Card Detected
+
+If the scan finds only 9 holes of par values, Galf asks which 9 holes the card covers:
+
+| Choice | Effect |
+|---|---|
+| **Front 9 — Holes 1–9** | Assigns extracted data to holes 1–9 |
+| **Back 9 — Holes 10–18** | Assigns extracted data to holes 10–18 |
+| **It's actually a full 18-hole card** | Treats all values as 18 holes (use this if the card fits on one page) |
+
+#### Two Layouts Found
+
+If the scan detects two separate 9-hole sections (common on cards that print both nines side by side), Galf asks how to save them:
+
+| Choice | Effect |
+|---|---|
+| **One 18-hole course** | Combines both layouts into a single front+back course |
+| **Save first layout only** | Saves holes from the first column of the card |
+| **Save second layout only** | Saves holes from the second column of the card |
+
+#### Review Screen
+
+The extracted data is shown in an editable form before saving. A **confidence badge** indicates how much of the card was read cleanly:
+
+- **Green (70%+)** — most fields were read correctly; spot-check
+- **Orange (40–69%)** — review carefully; several fields may need correction
+- **Red (below 40%)** — many fields need manual entry; the scan is a rough starting point
+
+Fields highlighted in orange were not read and need to be filled in.
+
+**What you can review and correct:**
+
+- **Course Name** and **Club / Facility** — extracted from text at the top of the card
+- **Tee Boxes** — each detected tee shows color (dropdown), label, rating, and slope
+- **Hole Data table** — rows for Par, Handicap (HCP), and yardages per tee; scroll right to see all holes
+
+Any warnings (unread holes, missing ratings, etc.) appear in an orange banner above the form.
+
+#### Scanning a Second Photo
+
+If the back of the card contains the second 9 holes, tap **Scan another photo (back of card / second 9)** at the bottom of the review screen to upload a second image without losing what was already extracted.
+
+#### Saving
+
+Tap <span style="display:inline-flex;align-items:center;justify-content:center;background:#1B6B3A;border-radius:5px;padding:2px;line-height:0;vertical-align:middle"><img src="static/save-96.png" width="14" height="14"></span> **Save Course** when the data looks correct. The course is added to your library just as if you had entered it by hand.
+
+> Scan Card requires optional server-side dependencies (Tesseract + OpenCV). If these are not installed, the feature is unavailable on that server. See the README for installation instructions.
+
+---
+
 ## 6. Statistics
 
 The Statistics screen is reached by tapping any stat cell on the Home screen. It has four sub-tabs.
@@ -514,7 +588,8 @@ The bag sorts by **usage frequency** once you have detailed rounds, so your most
 
 Tap any club row to expand it. You can:
 
-- Change the **carry distance** and tap <span style="display:inline-flex;align-items:center;justify-content:center;background:#1B6B3A;border-radius:5px;padding:2px;line-height:0;vertical-align:middle"><img src="static/save-96.png" width="14" height="14"></span> **Save**
+- Change the **carry distance** (labeled **Full**) and tap <span style="display:inline-flex;align-items:center;justify-content:center;background:#1B6B3A;border-radius:5px;padding:2px;line-height:0;vertical-align:middle"><img src="static/save-96.png" width="14" height="14"></span> **Save**
+- For wedge clubs (PW, GW, SW, LW, AW), set optional partial swing distances — **¾ swing**, **½ swing**, and **¼ swing** — in yards. Leave any blank if you don't use that partial. These values feed the partial-swing fallback in Detailed mode club suggestions.
 - Tap **Remove** to delete the club from your bag (confirmation required)
 - Tap **Cancel** to collapse without changes
 

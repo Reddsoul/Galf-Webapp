@@ -1719,7 +1719,7 @@ function renderScorecard() {
 
   v.innerHTML=`
     <div class="page-header">
-      <button class="back-btn" onclick="nav('rounds')">← Rounds</button>
+      <button class="back-btn" onclick="nav('rounds')">◀ Rounds</button>
     </div>
 
     <!-- Tee-colored header card -->
@@ -2470,7 +2470,7 @@ function renderLogNotes(){
 
   v.innerHTML=`
     <div class="page-header">
-      <button class="back-btn" onclick="show('log-entry')">← Back to Scoring</button>
+      <button class="back-btn" onclick="show('log-entry')">◀ Back to Scoring</button>
       <div class="page-title">Review & Save</div>
     </div>
 
@@ -2718,7 +2718,7 @@ async function renderCourseDetail(){
 
   v.innerHTML=`
     <div class="page-header">
-      <button class="back-btn" onclick="nav('courses')">← Courses</button>
+      <button class="back-btn" onclick="nav('courses')">◀ Courses</button>
     </div>
     <div class="course-hero">
       <div class="course-hero-name">${esc(c.name)}</div>
@@ -2806,7 +2806,7 @@ function renderCourseEditor(){
 
   v.innerHTML=`
     <div class="page-header">
-      <button class="back-btn" onclick="${c?`viewCourse('${esc(c.name)}')`:'nav(\'courses\')'}">← Back</button>
+      <button class="back-btn" onclick="${c?`viewCourse('${esc(c.name)}')`:'nav(\'courses\')'}">◀ Back</button>
       <div class="page-title">${title}</div>
     </div>
 
@@ -3477,7 +3477,7 @@ function renderScan() {
   const v = document.getElementById('v-scan');
   if (!v) return;
   const backFn = _scanEditorMode ? "show('course-editor')" : "nav('courses')";
-  const backLbl = _scanEditorMode ? '← Add Course' : '← Courses';
+  const backLbl = _scanEditorMode ? '◀ Add Course' : '◀ Courses';
   v.innerHTML = `<div class="page-header"><button class="back-btn" onclick="${backFn}">${backLbl}</button><div class="page-title">Scan Scorecard</div></div>` +
     _renderScanBody();
   _scanBindEvents();
