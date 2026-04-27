@@ -97,6 +97,7 @@ body {
 }
 .tab-icon { font-size: 20px; line-height: 1.2; }
 .tab-icon img { width: 26px; height: 26px; object-fit: contain; display: block; }
+.tab[data-tab="home"] .tab-icon img { width: 52px; height: 52px; }
 .tab-label { font-size: 11px; color: var(--text2); transition: color .15s; font-weight: 500; }
 .tab.active .tab-label { color: var(--accent); font-weight: 600; }
 
@@ -669,14 +670,14 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 .insight-tip { font-size: 12px; color: var(--text2); margin-top: 6px; }
 
 /* Stats tab selector */
-.stats-tabs { display: flex; background: var(--card); margin: 0 16px 8px; border-radius: 10px; padding: 3px; }
+.stats-tabs { display: flex; gap: 2px; flex-wrap: wrap; padding: 4px 16px 8px; }
 .stats-tab {
-  flex: 1; padding: 8px 4px; font-size: 12px; font-weight: 600; text-align: center;
-  cursor: pointer; border-radius: 8px; border: none;
-  color: var(--text2); font-family: inherit; background: transparent;
+  padding: 6px 12px; font-size: 13px; font-weight: 600; text-align: center;
+  cursor: pointer; border-radius: 8px; border: 1px solid var(--sep);
+  color: var(--text); font-family: inherit; background: var(--card);
   transition: all 0.2s;
 }
-.stats-tab.active { color: var(--text); background: var(--bg); box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+.stats-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
 /* Diff list row */
 .diff-row {
@@ -1014,7 +1015,6 @@ input:disabled { cursor: not-allowed; }
 
   /* --- Stats tab selector --- */
   .stats-tab:not(.active):hover {
-    color: var(--text);
     background: var(--active-overlay);
   }
 
@@ -1092,10 +1092,7 @@ input:disabled { cursor: not-allowed; }
 .tab:active { opacity: 0.7; }
 
 /* Stats tab selector */
-.stats-tab:not(.active):active {
-  background: var(--active-overlay);
-  color: var(--text);
-}
+.stats-tab:not(.active):active { background: var(--active-overlay); }
 
 /* Hole nav arrows ◀ ▶ */
 .entry-nav-btn:not(:disabled):active { color: var(--accent); opacity: 0.7; }
@@ -1419,7 +1416,7 @@ function nav(page) {
 }
 
 // Cached static DOM refs — set once in init(), never re-queried.
-let _contentEl, _logBtnBar;
+let _contentEl, _logBtnBar, _tabbarEl;
 // Currently visible page name — lets show() swap only two elements instead of all views.
 let _currentPage = null;
 
@@ -1432,6 +1429,8 @@ function show(name) {
   _contentEl.style.height = isEntry ? '100%' : '';
   _contentEl.scrollTop=0;
   _logBtnBar.style.display=name==='home'?'block':'none';
+  const isLogging = name==='log-setup'||name==='log-entry'||name==='log-notes';
+  _tabbarEl.style.display = isLogging ? 'none' : '';
   _currentPage=name;
   if(RENDERERS[name]) RENDERERS[name]();
 }
@@ -1718,10 +1717,6 @@ function renderScorecard() {
   }
 
   v.innerHTML=`
-    <div class="page-header">
-      <button class="back-btn" onclick="nav('rounds')">◀ Rounds</button>
-    </div>
-
     <!-- Tee-colored header card -->
     <div class="sc-header-card" style="background:${headerBg};color:${headerFg};border:${headerBorder}">
       <div class="sc-header-stripe" style="background:${teeCSS}"></div>
@@ -2143,7 +2138,7 @@ function renderLogEntry(){
       </div>
     </div>
     <div class="entry-middle">
-      <button class="entry-nav-btn" onclick="prevH()" ${hi<=0?'disabled':''}>◀</button>
+      <button class="entry-nav-btn" onclick="prevH()">◀</button>
       <div class="entry-center">
         <div class="entry-stroke">${scoreStr}</div>
         ${isD?`<div class="entry-clubs-display">${esc(clubsStr)}</div>`:''}
@@ -2349,6 +2344,7 @@ function undoClub(){
 function prevH(){
   _flushPending();
   if(S.currentHoleIdx>0){S.currentHoleIdx--;saveDraft();renderLogEntry();}
+  else nav('home');
 }
 function nextH(){
   _flushPending();
@@ -2470,7 +2466,6 @@ function renderLogNotes(){
 
   v.innerHTML=`
     <div class="page-header">
-      <button class="back-btn" onclick="show('log-entry')">◀ Back to Scoring</button>
       <div class="page-title">Review & Save</div>
     </div>
 
@@ -2717,9 +2712,6 @@ async function renderCourseDetail(){
   }
 
   v.innerHTML=`
-    <div class="page-header">
-      <button class="back-btn" onclick="nav('courses')">◀ Courses</button>
-    </div>
     <div class="course-hero">
       <div class="course-hero-name">${esc(c.name)}</div>
       <div class="course-hero-club">${esc(c.club||'')}</div>
@@ -2806,7 +2798,6 @@ function renderCourseEditor(){
 
   v.innerHTML=`
     <div class="page-header">
-      <button class="back-btn" onclick="${c?`viewCourse('${esc(c.name)}')`:'nav(\'courses\')'}">◀ Back</button>
       <div class="page-title">${title}</div>
     </div>
 
@@ -3476,9 +3467,8 @@ function openScanForEditor() {
 function renderScan() {
   const v = document.getElementById('v-scan');
   if (!v) return;
-  const backFn = _scanEditorMode ? "show('course-editor')" : "nav('courses')";
-  const backLbl = _scanEditorMode ? '◀ Add Course' : '◀ Courses';
-  v.innerHTML = `<div class="page-header"><button class="back-btn" onclick="${backFn}">${backLbl}</button><div class="page-title">Scan Scorecard</div></div>` +
+  const backBtn = _scanEditorMode ? `<button class="back-btn" onclick="show('course-editor')">◀ Add Course</button>` : '';
+  v.innerHTML = `<div class="page-header">${backBtn}<div class="page-title">Scan Scorecard</div></div>` +
     _renderScanBody();
   _scanBindEvents();
 }
@@ -4095,6 +4085,7 @@ DARK_MQ.addEventListener('change', () => {
 async function init(){
   _contentEl=document.getElementById('content');
   _logBtnBar=document.getElementById('log-btn-bar');
+  _tabbarEl=document.getElementById('tabbar');
   S.clubs=await GET('/api/clubs');
   updateTabIcons();
   nav('home');
