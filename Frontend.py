@@ -3528,164 +3528,224 @@ class GolfApp:
     - Statistics: Now includes Club Distances
     """
     
-    # Color palette inspired by iOS
+    # Color palette matching webapp (golf green theme)
     COLORS = {
-        "bg": "#F2F2F7",           # System background
-        "card_bg": "#FFFFFF",      # Card background
-        "accent": "#007AFF",       # iOS blue
-        "accent_green": "#34C759", # iOS green
-        "text": "#000000",         # Primary text
-        "text_secondary": "#8E8E93", # Secondary text
-        "separator": "#C6C6C8",    # Separator lines
-        "destructive": "#FF3B30",  # Red for destructive actions
+        "bg": "#EEF2EB",              # Soft green-tinted background
+        "sidebar_bg": "#D4DDD0",      # Sidebar (slightly darker)
+        "sidebar_active": "#1B6B3A",  # Active nav item
+        "sidebar_hover": "#C4D0BF",   # Hover nav item
+        "card_bg": "#FFFFFF",         # Card background
+        "accent": "#1B6B3A",          # Golf green
+        "accent_light": "#34C759",    # Bright green
+        "text": "#1C1C1E",            # Near-black
+        "text_secondary": "#636366",  # Secondary text
+        "text_tertiary": "#AEAEB2",   # Tertiary text
+        "separator": "#C6C6C8",       # Separator
+        "destructive": "#FF3B30",     # Red
+        "orange": "#FF9500",          # Orange
+        "hero_bg": "#F4F9F4",         # Hero card background
     }
     
     def __init__(self, root):
         self.backend = GolfBackend()
         self.root = root
-        root.title("Golf Stats")
-        root.geometry("420x720")  # Mobile-like aspect ratio
-        root.minsize(380, 600)
-        
-        # Configure root background
+        root.title("Galf")
+        root.geometry("1040x720")
+        root.minsize(820, 560)
+
         root.configure(bg=self.COLORS["bg"])
-        
-        # yardbook initialization
+
         self.yardbook = yardbookIntegration(self.backend, COURSES_FILE)
-        
-        # Configure styles for Apple HIG look
+
         self._configure_styles()
-        
-        # Track current page
+
         self.current_page = None
-        
-        # Main container
-        self.main_container = ttk.Frame(root, style="App.TFrame")
+
+        # Horizontal layout: sidebar | content
+        self.main_container = tk.Frame(root, bg=self.COLORS["bg"])
         self.main_container.pack(fill='both', expand=True)
-        
-        # Content area (will swap pages here)
-        self.content_frame = ttk.Frame(self.main_container, style="App.TFrame")
-        self.content_frame.pack(fill='both', expand=True)
-        
-        # Tab bar at bottom
-        self._create_tab_bar()
-        
-        # Show home page by default
+
+        # Sidebar (fixed width, left)
+        self._create_sidebar()
+
+        # 1px separator line
+        tk.Frame(self.main_container, width=1, bg=self.COLORS["separator"]).pack(
+            side='left', fill='y')
+
+        # Content area fills remaining space
+        self.content_frame = tk.Frame(self.main_container, bg=self.COLORS["bg"])
+        self.content_frame.pack(side='left', fill='both', expand=True)
+
         self.show_page("home")
     
     def _configure_styles(self):
-        """Configure ttk styles to match Apple HIG."""
+        """Configure ttk styles for desktop golf green theme."""
         style = ttk.Style()
-        
-        # Use appropriate theme - avoid 'clam' on macOS as it causes highlighting issues
+
         import sys
         if sys.platform == 'darwin':
             try:
                 style.theme_use('aqua')
-            except:
-                pass  # Fall back to default
+            except Exception:
+                pass
         else:
             try:
                 style.theme_use('clam')
-            except:
+            except Exception:
                 pass
-        
-        # Frame styles
-        style.configure("App.TFrame", background=self.COLORS["bg"])
-        style.configure("Card.TFrame", background=self.COLORS["card_bg"])
-        
-        # Label styles - don't set background on macOS aqua theme
-        style.configure("Title.TLabel", 
-                       font=("Helvetica", 24, "bold"),
-                       foreground=self.COLORS["text"])
-        style.configure("Header.TLabel",
-                       font=("Helvetica", 18, "bold"),
-                       foreground=self.COLORS["text"])
-        style.configure("Subheader.TLabel",
-                       font=("Helvetica", 14, "bold"),
-                       foreground=self.COLORS["text"])
-        style.configure("Body.TLabel",
-                       font=("Helvetica", 13),
-                       foreground=self.COLORS["text"])
-        style.configure("Caption.TLabel",
-                       font=("Helvetica", 11),
-                       foreground=self.COLORS["text_secondary"])
-        style.configure("Stat.TLabel",
-                       font=("Helvetica", 28, "bold"),
-                       foreground=self.COLORS["accent"])
-        style.configure("CardTitle.TLabel",
-                       font=("Helvetica", 12),
-                       foreground=self.COLORS["text_secondary"])
-        
-        # Button styles
-        style.configure("Primary.TButton",
-                       font=("Helvetica", 14, "bold"),
-                       padding=(16, 10))
-        
-        # List row style  
-        style.configure("ListRow.TFrame", background=self.COLORS["card_bg"])
+
+        bg = self.COLORS["bg"]
+        card = self.COLORS["card_bg"]
+        accent = self.COLORS["accent"]
+        text = self.COLORS["text"]
+        text2 = self.COLORS["text_secondary"]
+
+        style.configure("App.TFrame", background=bg)
+        style.configure("Card.TFrame", background=card)
+        style.configure("Sidebar.TFrame", background=self.COLORS["sidebar_bg"])
+
+        style.configure("Title.TLabel",    font=("Helvetica", 26, "bold"), foreground=text)
+        style.configure("Header.TLabel",   font=("Helvetica", 18, "bold"), foreground=text)
+        style.configure("Subheader.TLabel",font=("Helvetica", 14, "bold"), foreground=text)
+        style.configure("Body.TLabel",     font=("Helvetica", 13),         foreground=text)
+        style.configure("Caption.TLabel",  font=("Helvetica", 11),         foreground=text2)
+        style.configure("Stat.TLabel",     font=("Helvetica", 32, "bold"), foreground=accent)
+        style.configure("CardTitle.TLabel",font=("Helvetica", 11, "bold"), foreground=text2)
+
+        style.configure("Primary.TButton", font=("Helvetica", 13, "bold"), padding=(14, 9))
+        style.configure("ListRow.TFrame",  background=card)
+
+        # Treeview — readable rows with subtle hover
+        style.configure("Treeview",
+                        background=card, fieldbackground=card,
+                        foreground=text, rowheight=34,
+                        font=("Helvetica", 12))
+        style.configure("Treeview.Heading",
+                        font=("Helvetica", 11, "bold"),
+                        foreground=text2)
+        style.map("Treeview",
+                  background=[("selected", accent)],
+                  foreground=[("selected", "white")])
     
-    def _create_tab_bar(self):
-        """Create iOS-style tab bar at bottom."""
-        self.tab_bar = ttk.Frame(self.main_container, style="Card.TFrame")
-        self.tab_bar.pack(fill='x', side='bottom')
-        
-        # Separator line
-        sep = ttk.Frame(self.tab_bar, height=1)
-        sep.pack(fill='x')
-        sep.configure(style="App.TFrame")
-        
-        # Tab buttons container
-        tabs_inner = ttk.Frame(self.tab_bar, style="Card.TFrame")
-        tabs_inner.pack(fill='x', pady=(8, 12))
-        
-        # Configure equal column weights - 3 tabs
-        for i in range(3):
-            tabs_inner.columnconfigure(i, weight=1)
-        
-        # Only Home, Rounds, Courses in tab bar
-        # Stats accessible from Home page
-        tabs = [
-            ("🏌️", "Rounds", "rounds"),
+    def _create_sidebar(self):
+        """Create macOS-style left sidebar with navigation."""
+        self.sidebar = tk.Frame(self.main_container, bg=self.COLORS["sidebar_bg"], width=220)
+        self.sidebar.pack(side='left', fill='y')
+        self.sidebar.pack_propagate(False)
+
+        # App title
+        title_frame = tk.Frame(self.sidebar, bg=self.COLORS["sidebar_bg"])
+        title_frame.pack(fill='x', padx=16, pady=(20, 8))
+        tk.Label(title_frame, text="Galf", font=("Helvetica", 22, "bold"),
+                 bg=self.COLORS["sidebar_bg"], fg=self.COLORS["accent"]).pack(anchor='w')
+
+        # Separator under title
+        tk.Frame(self.sidebar, height=1, bg=self.COLORS["separator"]).pack(fill='x', padx=12, pady=(0, 8))
+
+        # Nav items
+        nav_items = [
             ("🏠", "Home", "home"),
+            ("🏌️", "Rounds", "rounds"),
             ("⛳", "Courses", "courses"),
+            ("📊", "Statistics", "statistics"),
+            ("📖", "Rulebook", "rulebook"),
         ]
-        
-        self.tab_buttons = {}
-        for i, (icon, label, page) in enumerate(tabs):
-            btn_frame = ttk.Frame(tabs_inner, style="Card.TFrame")
-            btn_frame.grid(row=0, column=i, sticky='nsew')
-            
-            # Make entire frame clickable
-            btn_frame.bind("<Button-1>", lambda e, p=page: self.show_page(p))
-            
-            icon_lbl = ttk.Label(btn_frame, text=icon, font=("Helvetica", 20), cursor="hand2")
-            icon_lbl.pack()
-            icon_lbl.bind("<Button-1>", lambda e, p=page: self.show_page(p))
-            
-            text_lbl = ttk.Label(btn_frame, text=label, font=("Helvetica", 10),
-                                foreground=self.COLORS["text_secondary"], cursor="hand2")
-            text_lbl.pack()
-            text_lbl.bind("<Button-1>", lambda e, p=page: self.show_page(p))
-            
-            self.tab_buttons[page] = (icon_lbl, text_lbl)
-    
-    def _update_tab_bar(self, active_page):
-        """Update tab bar to show active state."""
-        for page, (icon_lbl, text_lbl) in self.tab_buttons.items():
+
+        self.sidebar_items = {}
+
+        for icon, label, page in nav_items:
+            row = tk.Frame(self.sidebar, bg=self.COLORS["sidebar_bg"], cursor="hand2")
+            row.pack(fill='x', padx=8, pady=1)
+
+            inner = tk.Frame(row, bg=self.COLORS["sidebar_bg"], cursor="hand2", pady=8)
+            inner.pack(fill='x', padx=4)
+
+            tk.Label(inner, text=icon, font=("Helvetica", 15),
+                     bg=self.COLORS["sidebar_bg"], cursor="hand2").pack(side='left', padx=(8, 6))
+            text_lbl = tk.Label(inner, text=label, font=("Helvetica", 13),
+                                bg=self.COLORS["sidebar_bg"], fg=self.COLORS["text"],
+                                cursor="hand2")
+            text_lbl.pack(side='left')
+
+            self.sidebar_items[page] = (row, inner, text_lbl)
+
+            def _bind(w, p=page, r=row, i=inner):
+                w.bind("<Button-1>", lambda e, pg=p: self.show_page(pg))
+                w.bind("<Enter>", lambda e, rr=r, ii=i: self._sidebar_hover(rr, ii, True))
+                w.bind("<Leave>", lambda e, rr=r, ii=i, pg=p: self._sidebar_hover(rr, ii, False, pg))
+
+            for widget in [row, inner] + list(inner.winfo_children()):
+                _bind(widget)
+
+        # Spacer
+        tk.Frame(self.sidebar, bg=self.COLORS["sidebar_bg"]).pack(fill='both', expand=True)
+
+        # Separator above log button
+        tk.Frame(self.sidebar, height=1, bg=self.COLORS["separator"]).pack(fill='x', padx=12, pady=(0, 4))
+
+        # Log Round primary button
+        log_wrap = tk.Frame(self.sidebar, bg=self.COLORS["sidebar_bg"])
+        log_wrap.pack(fill='x', padx=16, pady=(4, 20))
+
+        self.log_btn = tk.Button(
+            log_wrap, text="＋  Log Round",
+            font=("Helvetica", 13, "bold"),
+            bg=self.COLORS["accent"], fg="white",
+            activebackground="#145C30", activeforeground="white",
+            relief='flat', cursor="hand2", pady=10,
+            command=self._go_to_log_round
+        )
+        self.log_btn.pack(fill='x')
+        self.log_btn.bind("<Enter>", lambda e: self.log_btn.configure(bg="#145C30"))
+        self.log_btn.bind("<Leave>", lambda e: self.log_btn.configure(bg=self.COLORS["accent"]))
+
+    def _sidebar_hover(self, row, inner, entering, page=None):
+        """Apply/remove hover state on sidebar nav row."""
+        if entering:
+            color = self.COLORS["sidebar_hover"]
+        else:
+            if page and self.current_page == page:
+                return  # Keep active color
+            color = self.COLORS["sidebar_bg"]
+        row.configure(bg=color)
+        inner.configure(bg=color)
+        for child in inner.winfo_children():
+            try:
+                child.configure(bg=color)
+            except Exception:
+                pass
+
+    def _update_sidebar(self, active_page):
+        """Highlight the active nav item in the sidebar."""
+        for page, (row, inner, text_lbl) in self.sidebar_items.items():
             if page == active_page:
-                text_lbl.configure(foreground=self.COLORS["accent"])
+                row.configure(bg=self.COLORS["sidebar_active"])
+                inner.configure(bg=self.COLORS["sidebar_active"])
+                for child in inner.winfo_children():
+                    try:
+                        child.configure(bg=self.COLORS["sidebar_active"],
+                                        fg="white")
+                    except Exception:
+                        pass
+                text_lbl.configure(fg="white", font=("Helvetica", 13, "bold"))
             else:
-                text_lbl.configure(foreground=self.COLORS["text_secondary"])
-    
+                row.configure(bg=self.COLORS["sidebar_bg"])
+                inner.configure(bg=self.COLORS["sidebar_bg"])
+                for child in inner.winfo_children():
+                    try:
+                        child.configure(bg=self.COLORS["sidebar_bg"],
+                                        fg=self.COLORS["text"])
+                    except Exception:
+                        pass
+                text_lbl.configure(fg=self.COLORS["text"], font=("Helvetica", 13))
+
     def show_page(self, page_name):
         """Switch to a different page."""
-        # Clear current content
         for widget in self.content_frame.winfo_children():
             widget.destroy()
-        
+
         self.current_page = page_name
-        self._update_tab_bar(page_name)
+        self._update_sidebar(page_name)
         
         # Show appropriate page
         if page_name == "home":
@@ -3712,150 +3772,272 @@ class GolfApp:
             self._show_rulebook_page()
     
     def _create_page_header(self, title, show_back=False, back_action=None):
-        """Create a standard page header."""
-        header = ttk.Frame(self.content_frame, style="App.TFrame")
+        """Create a standard page header for desktop layout."""
+        header = tk.Frame(self.content_frame, bg=self.COLORS["bg"])
         header.pack(fill='x', padx=16, pady=(16, 8))
-        
+
         if show_back and back_action:
-            back_btn = ttk.Button(header, text="← Back", command=back_action)
-            back_btn.pack(side='left')
-        
-        ttk.Label(header, text=title, style="Title.TLabel").pack(side='left')
-        
+            back_btn = tk.Button(
+                header, text="← Back",
+                font=("Helvetica", 12), fg=self.COLORS["accent"],
+                bg=self.COLORS["bg"], relief='flat', cursor="hand2",
+                command=back_action
+            )
+            back_btn.pack(side='left', padx=(0, 12))
+            back_btn.bind("<Enter>", lambda e: back_btn.configure(fg="#145C30"))
+            back_btn.bind("<Leave>", lambda e: back_btn.configure(fg=self.COLORS["accent"]))
+
+        tk.Label(header, text=title,
+                 font=("Helvetica", 26, "bold"),
+                 fg=self.COLORS["text"], bg=self.COLORS["bg"]).pack(side='left')
+
         return header
-    
+
     def _create_card(self, parent, padding=16):
-        """Create a rounded card container."""
+        """Create a card container (ttk.Frame for compatibility)."""
         card = ttk.Frame(parent, style="Card.TFrame", padding=padding)
         return card
     
     # ==================== HOME PAGE ====================
-    
+
     def _show_home_page(self):
-        """Display the home page with summary stats."""
-        self._create_page_header("Golf Stats")
-        
-        # Scrollable content
+        """Display the home page with hero handicap card and stats."""
+        self._create_page_header("Home")
+
+        stats = self.backend.get_statistics()
+        hc = self.backend.calculate_handicap_index()
+        best = self.backend.get_best_round()
+
         canvas = tk.Canvas(self.content_frame, bg=self.COLORS["bg"], highlightthickness=0)
         scrollbar = ttk.Scrollbar(self.content_frame, orient="vertical", command=canvas.yview)
-        scroll_frame = ttk.Frame(canvas, style="App.TFrame")
-        
+        scroll_frame = tk.Frame(canvas, bg=self.COLORS["bg"])
+
         scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=scroll_frame, anchor="nw", width=388)
+        cw = canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
-        
-        canvas.pack(side="left", fill="both", expand=True, padx=16)
-        
-        # Get stats
-        stats = self.backend.get_statistics()
-        idx = self.backend.calculate_handicap_index()
-        
-        # Handicap Card
-        card1 = self._create_card(scroll_frame)
-        card1.pack(fill='x', pady=8)
-        
-        ttk.Label(card1, text="HANDICAP INDEX", style="CardTitle.TLabel").pack(anchor='w')
-        
-        if idx is not None:
-            ttk.Label(card1, text=f"{idx:.1f}", style="Stat.TLabel").pack(anchor='w')
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(cw, width=e.width))
+        canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>",
+            lambda ev: canvas.yview_scroll(int(-1*(ev.delta/120)), "units")))
+        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        P = 16  # padding constant
+
+        # ── HERO CARD ────────────────────────────────────────────────
+        hero_outer = tk.Frame(scroll_frame, bg=self.COLORS["card_bg"])
+        hero_outer.pack(fill='x', padx=P, pady=(P, 8))
+
+        # green top stripe
+        tk.Frame(hero_outer, bg=self.COLORS["accent"], height=5).pack(fill='x')
+
+        hero_body = tk.Frame(hero_outer, bg=self.COLORS["hero_bg"])
+        hero_body.pack(fill='x')
+
+        left = tk.Frame(hero_body, bg=self.COLORS["hero_bg"])
+        left.pack(side='left', fill='both', expand=True, padx=24, pady=20)
+
+        tk.Label(left, text="HANDICAP INDEX",
+                 font=("Helvetica", 11, "bold"), fg=self.COLORS["text_secondary"],
+                 bg=self.COLORS["hero_bg"]).pack(anchor='w')
+
+        if hc is not None:
+            hc_str = f"{hc:.1f}"
         else:
-            ttk.Label(card1, text="--", style="Stat.TLabel").pack(anchor='w')
+            hc_str = "—"
             total_holes = stats.get('total_holes_played', 0)
             remaining = max(0, 54 - total_holes)
-            if remaining > 0:
-                ttk.Label(card1, text=f"Play {remaining} more holes to establish",
-                         style="Caption.TLabel").pack(anchor='w')
-        
-        # Quick Stats Cards Row
-        stats_row = ttk.Frame(scroll_frame, style="App.TFrame")
-        stats_row.pack(fill='x', pady=8)
-        stats_row.columnconfigure(0, weight=1)
-        stats_row.columnconfigure(1, weight=1)
-        
-        # Rounds card
-        card2 = self._create_card(stats_row, padding=12)
-        card2.grid(row=0, column=0, sticky='nsew', padx=(0, 4))
-        ttk.Label(card2, text="ROUNDS", style="CardTitle.TLabel").pack(anchor='w')
-        ttk.Label(card2, text=str(stats['total_rounds']), 
-                 font=("Helvetica", 24, "bold"),
-                 background=self.COLORS["card_bg"]).pack(anchor='w')
-        
-        # Best Round card
-        card3 = self._create_card(stats_row, padding=12)
-        card3.grid(row=0, column=1, sticky='nsew', padx=(4, 0))
-        ttk.Label(card3, text="BEST ROUND", style="CardTitle.TLabel").pack(anchor='w')
-        
-        best = self.backend.get_best_round()
-        if best:
-            diff = best['total_score'] - best.get('par', 72)
-            diff_str = f"+{diff}" if diff > 0 else str(diff)
-            ttk.Label(card3, text=f"{best['total_score']} ({diff_str})",
-                     font=("Helvetica", 24, "bold"),
-                     background=self.COLORS["card_bg"]).pack(anchor='w')
-        else:
-            ttk.Label(card3, text="--",
-                     font=("Helvetica", 24, "bold"),
-                     background=self.COLORS["card_bg"]).pack(anchor='w')
-        
-        # Quick Actions Card
-        card4 = self._create_card(scroll_frame)
-        card4.pack(fill='x', pady=8)
-        
-        ttk.Label(card4, text="QUICK ACTIONS", style="CardTitle.TLabel").pack(anchor='w', pady=(0, 12))
-        
-        actions = [
-            ("🏌️ Log New Round", lambda: self._go_to_log_round()),
-            ("📊 Statistics", lambda: self.show_page("statistics")),
-            ("📖 Rules of Golf", self.open_rulebook),
+
+        hc_font_size = 80 if (hc is None or len(str(int(hc or 0))) < 3) else 64
+        tk.Label(left, text=hc_str,
+                 font=("Helvetica", hc_font_size, "bold"),
+                 fg=self.COLORS["text"], bg=self.COLORS["hero_bg"]).pack(anchor='w')
+
+        if hc is None and stats.get('total_holes_played', 0) < 54:
+            remaining = max(0, 54 - stats.get('total_holes_played', 0))
+            tk.Label(left, text=f"Play {remaining} more holes to establish",
+                     font=("Helvetica", 11), fg=self.COLORS["text_secondary"],
+                     bg=self.COLORS["hero_bg"]).pack(anchor='w', pady=(4, 0))
+        elif hc is not None:
+            tk.Label(left, text="WHS Handicap Index",
+                     font=("Helvetica", 12), fg=self.COLORS["text_secondary"],
+                     bg=self.COLORS["hero_bg"]).pack(anchor='w', pady=(4, 0))
+
+        # ── STATS ROW ────────────────────────────────────────────────
+        stats_outer = tk.Frame(scroll_frame, bg=self.COLORS["bg"])
+        stats_outer.pack(fill='x', padx=P, pady=(0, 8))
+
+        avg = stats.get("avg_score_18") or "—"
+        stat_cells = [
+            ("ROUNDS",   str(stats.get("total_rounds", 0))),
+            ("BEST",     f"{best['total_score']}" if best else "—"),
+            ("AVG (18)", str(round(avg, 1)) if isinstance(avg, float) else avg),
         ]
-        
-        for text, cmd in actions:
-            btn = ttk.Button(card4, text=text, command=cmd, style="Primary.TButton")
-            btn.pack(fill='x', pady=4)
+        for label, value in stat_cells:
+            cell = tk.Frame(stats_outer, bg=self.COLORS["card_bg"])
+            cell.pack(side='left', expand=True, fill='both', padx=4, pady=4)
+            tk.Label(cell, text=value,
+                     font=("Helvetica", 28, "bold"),
+                     fg=self.COLORS["text"], bg=self.COLORS["card_bg"]).pack(pady=(14, 2))
+            tk.Label(cell, text=label,
+                     font=("Helvetica", 10, "bold"),
+                     fg=self.COLORS["text_secondary"], bg=self.COLORS["card_bg"]).pack(pady=(0, 14))
+
+        # ── RECENT ROUNDS ────────────────────────────────────────────
+        recent_label = tk.Frame(scroll_frame, bg=self.COLORS["bg"])
+        recent_label.pack(fill='x', padx=P, pady=(8, 4))
+        tk.Label(recent_label, text="RECENT ROUNDS",
+                 font=("Helvetica", 11, "bold"), fg=self.COLORS["text_secondary"],
+                 bg=self.COLORS["bg"]).pack(anchor='w')
+
+        recent_rounds = list(self.backend.get_filtered_rounds(round_type="all", sort_by="recent"))[:5]
+        if recent_rounds:
+            for idx, rd in recent_rounds:
+                self._build_round_row(scroll_frame, rd, idx, padx=P)
+        else:
+            empty = tk.Frame(scroll_frame, bg=self.COLORS["card_bg"])
+            empty.pack(fill='x', padx=P, pady=4)
+            tk.Label(empty, text="⛳",
+                     font=("Helvetica", 36), fg=self.COLORS["text_tertiary"],
+                     bg=self.COLORS["card_bg"]).pack(pady=(24, 8))
+            tk.Label(empty, text="No rounds yet",
+                     font=("Helvetica", 16, "bold"), fg=self.COLORS["text"],
+                     bg=self.COLORS["card_bg"]).pack()
+            tk.Label(empty, text="Use the sidebar to log your first round.",
+                     font=("Helvetica", 12), fg=self.COLORS["text_secondary"],
+                     bg=self.COLORS["card_bg"]).pack(pady=(4, 24))
+
+    def _build_round_row(self, parent, rd, idx, padx=16):
+        """Build a clickable card row for a round."""
+        diff = rd["total_score"] - rd.get("par", 72)
+        diff_str = f"+{diff}" if diff > 0 else str(diff)
+        if diff < 0:
+            score_fg = self.COLORS["accent_light"]
+        elif diff > 2:
+            score_fg = self.COLORS["destructive"]
+        else:
+            score_fg = self.COLORS["text"]
+
+        row = tk.Frame(parent, bg=self.COLORS["card_bg"], cursor="hand2")
+        row.pack(fill='x', padx=padx, pady=2)
+
+        inner = tk.Frame(row, bg=self.COLORS["card_bg"], cursor="hand2")
+        inner.pack(fill='x', padx=16, pady=12)
+
+        # Left: course + date
+        left = tk.Frame(inner, bg=self.COLORS["card_bg"])
+        left.pack(side='left', fill='both', expand=True)
+        tk.Label(left, text=rd["course_name"],
+                 font=("Helvetica", 13, "bold"),
+                 fg=self.COLORS["text"], bg=self.COLORS["card_bg"],
+                 anchor='w').pack(fill='x')
+        date_str = rd.get("date", "")[:10]
+        tee = rd.get("tee_color", "")
+        meta = f"{date_str}  •  {tee} Tees" if tee else date_str
+        tk.Label(left, text=meta,
+                 font=("Helvetica", 11),
+                 fg=self.COLORS["text_secondary"], bg=self.COLORS["card_bg"],
+                 anchor='w').pack(fill='x', pady=(2, 0))
+
+        # Right: score + diff
+        right = tk.Frame(inner, bg=self.COLORS["card_bg"])
+        right.pack(side='right')
+        tk.Label(right, text=str(rd["total_score"]),
+                 font=("Helvetica", 22, "bold"),
+                 fg=score_fg, bg=self.COLORS["card_bg"]).pack(anchor='e')
+        tk.Label(right, text=f"({diff_str})",
+                 font=("Helvetica", 11, "bold"),
+                 fg=score_fg, bg=self.COLORS["card_bg"]).pack(anchor='e')
+
+        # Hover + click
+        def _enter(e, r=row, i=inner):
+            r.configure(bg="#F0F4EE"); i.configure(bg="#F0F4EE")
+            for c in i.winfo_children():
+                c.configure(bg="#F0F4EE")
+                for cc in c.winfo_children():
+                    try: cc.configure(bg="#F0F4EE")
+                    except Exception: pass
+
+        def _leave(e, r=row, i=inner):
+            r.configure(bg=self.COLORS["card_bg"]); i.configure(bg=self.COLORS["card_bg"])
+            for c in i.winfo_children():
+                c.configure(bg=self.COLORS["card_bg"])
+                for cc in c.winfo_children():
+                    try: cc.configure(bg=self.COLORS["card_bg"])
+                    except Exception: pass
+
+        def _click(e, round_idx=idx):
+            self.viewing_round = self.backend.get_rounds()[round_idx]
+            self.show_page("scorecard_detail")
+
+        for w in [row, inner] + list(inner.winfo_children()):
+            w.bind("<Enter>", _enter)
+            w.bind("<Leave>", _leave)
+            w.bind("<Button-1>", _click)
+            for child in w.winfo_children():
+                child.bind("<Enter>", _enter)
+                child.bind("<Leave>", _leave)
+                child.bind("<Button-1>", _click)
     
     # ==================== ROUNDS PAGE ====================
     
     def _show_rounds_page(self):
-        """Display Rounds page (scorecards only - log round is from Home)."""
+        """Display Rounds page — full-width Treeview with filter bar."""
         self._create_page_header("My Rounds")
-        
-        # Filter options
-        filter_card = self._create_card(self.content_frame, padding=10)
-        filter_card.pack(fill='x', padx=16, pady=(0, 8))
-        
-        ttk.Label(filter_card, text="Filter:", style="Body.TLabel").pack(side='left')
-        
+
+        # Filter bar
+        filter_row = tk.Frame(self.content_frame, bg=self.COLORS["bg"])
+        filter_row.pack(fill='x', padx=16, pady=(0, 8))
+
+        tk.Label(filter_row, text="Filter:", font=("Helvetica", 12),
+                 fg=self.COLORS["text_secondary"], bg=self.COLORS["bg"]).pack(side='left', padx=(0, 8))
+
         self.filter_type_var = tk.StringVar(value="all")
-        for text, val in [("All", "all"), ("Solo", "solo"), ("Scramble", "scramble")]:
-            ttk.Radiobutton(filter_card, text=text, variable=self.filter_type_var, 
-                           value=val, command=self._populate_scorecards_list).pack(side='left', padx=5)
-        
-        # Hint
-        ttk.Label(self.content_frame, text="Tap a round to view details",
-                 foreground=self.COLORS["text_secondary"],
-                 font=("Helvetica", 11)).pack(padx=16, anchor='w')
-        
-        # Scorecards list
-        list_frame = ttk.Frame(self.content_frame, style="App.TFrame")
-        list_frame.pack(fill='both', expand=True, padx=16, pady=(4, 8))
-        
-        cols = ("Date", "Course", "Score", "+/-", "Holes")
-        self.score_tree = ttk.Treeview(list_frame, columns=cols, show="headings", height=14)
-        
-        widths = [80, 140, 50, 45, 45]
-        for col, w in zip(cols, widths):
+        for label, val in [("All", "all"), ("Solo", "solo"), ("Scramble", "scramble")]:
+            ttk.Radiobutton(filter_row, text=label, variable=self.filter_type_var,
+                            value=val, command=self._populate_scorecards_list).pack(side='left', padx=4)
+
+        tk.Label(filter_row, text="Click a row to open scorecard",
+                 font=("Helvetica", 11), fg=self.COLORS["text_tertiary"],
+                 bg=self.COLORS["bg"]).pack(side='right')
+
+        # Treeview — wider columns now that window is desktop-sized
+        list_frame = tk.Frame(self.content_frame, bg=self.COLORS["bg"])
+        list_frame.pack(fill='both', expand=True, padx=16, pady=(0, 12))
+
+        cols = ("Date", "Course", "Tee", "Score", "+/-", "Holes", "Type")
+        self.score_tree = ttk.Treeview(list_frame, columns=cols, show="headings")
+
+        col_config = [
+            ("Date",   110, 'center'),
+            ("Course", 260, 'w'),
+            ("Tee",     70, 'center'),
+            ("Score",   70, 'center'),
+            ("+/-",     60, 'center'),
+            ("Holes",   60, 'center'),
+            ("Type",    80, 'center'),
+        ]
+        for col, w, anchor in col_config:
             self.score_tree.heading(col, text=col)
-            self.score_tree.column(col, width=w, anchor='center')
-        
+            self.score_tree.column(col, width=w, anchor=anchor, minwidth=w)
+
         scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=self.score_tree.yview)
         self.score_tree.configure(yscrollcommand=scrollbar.set)
-        
         self.score_tree.pack(side='left', fill='both', expand=True)
         scrollbar.pack(side='right', fill='y')
-        
-        # Single click to view scorecard
+
         self.score_tree.bind("<ButtonRelease-1>", self._on_scorecard_click)
-        
+        self.score_tree.bind("<Return>", self._on_scorecard_click)
+
+        # Action bar below list
+        action_row = tk.Frame(self.content_frame, bg=self.COLORS["bg"])
+        action_row.pack(fill='x', padx=16, pady=(0, 12))
+        ttk.Button(action_row, text="📤 Export Selected",
+                   command=self._export_selected_scorecard).pack(side='left', padx=(0, 8))
+        ttk.Button(action_row, text="🗑 Delete Selected",
+                   command=self._delete_selected_round).pack(side='left')
+
         self._populate_scorecards_list()
     
     def _on_scorecard_click(self, event):
@@ -3870,17 +4052,25 @@ class GolfApp:
         """Populate the scorecards treeview."""
         for row in self.score_tree.get_children():
             self.score_tree.delete(row)
-        
-        for idx, rd in self.backend.get_filtered_rounds(
-            round_type=self.filter_type_var.get(), sort_by="recent"):
+
+        rounds = list(self.backend.get_filtered_rounds(
+            round_type=self.filter_type_var.get(), sort_by="recent"))
+
+        if not rounds:
+            self.score_tree.insert("", "end", values=(
+                "—", "No rounds recorded yet", "", "", "", "", ""))
+            return
+
+        for idx, rd in rounds:
             diff = rd["total_score"] - rd.get("par", 72)
             diff_str = f"+{diff}" if diff > 0 else str(diff)
             holes_choice = rd.get("holes_choice", "full_18")
             holes_str = "F9" if holes_choice == "front_9" else (
                 "B9" if holes_choice == "back_9" else str(rd.get("holes_played", 18)))
-            
-            vals = (rd.get("date", "N/A")[:10], rd["course_name"][:18], 
-                   rd["total_score"], diff_str, holes_str)
+            rtype = rd.get("round_type", "solo").capitalize()
+            vals = (rd.get("date", "N/A")[:10], rd["course_name"],
+                    rd.get("tee_color", "—"), rd["total_score"], diff_str,
+                    holes_str, rtype)
             self.score_tree.insert("", "end", iid=str(idx), values=vals)
     
     def _view_scorecard_inline(self, event=None):
@@ -3894,156 +4084,257 @@ class GolfApp:
         self.show_page("scorecard_detail")
     
     # ==================== SCORECARD DETAIL PAGE ====================
-    
+
     def _show_scorecard_detail_page(self):
-        """Display scorecard details as inline page."""
+        """Display scorecard with visual score markers (circles/squares)."""
         rd = getattr(self, 'viewing_round', None)
         if not rd:
             self.show_page("rounds")
             return
-        
-        self._create_page_header("Scorecard", show_back=True, 
-                                back_action=lambda: self.show_page("rounds"))
-        
-        # Scrollable content
+
+        self._create_page_header("Scorecard", show_back=True,
+                                 back_action=lambda: self.show_page("rounds"))
+
         canvas = tk.Canvas(self.content_frame, bg=self.COLORS["bg"], highlightthickness=0)
         scrollbar = ttk.Scrollbar(self.content_frame, orient="vertical", command=canvas.yview)
-        scroll_frame = ttk.Frame(canvas, style="App.TFrame")
-        
+        scroll_frame = tk.Frame(canvas, bg=self.COLORS["bg"])
+
         scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        cw = canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
-        
-        canvas.pack(side='left', fill='both', expand=True, padx=16)
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(cw, width=e.width))
+
+        canvas.pack(side='left', fill='both', expand=True)
         scrollbar.pack(side='right', fill='y')
-        
-        # Course info card
-        info_card = self._create_card(scroll_frame)
-        info_card.pack(fill='x', pady=8)
-        
-        ttk.Label(info_card, text=rd["course_name"], style="Header.TLabel").pack(anchor='w')
-        
-        diff = rd['total_score'] - rd.get('par', 72)
-        diff_str = f"+{diff}" if diff > 0 else str(diff)
-        
-        # Get course for yardage
+
+        P = 16
         course = self.backend.get_course_by_name(rd["course_name"])
         tee_color = rd.get('tee_color', '')
-        
-        info_parts = [rd.get('date', 'N/A')[:10]]
-        if tee_color:
-            info_parts.append(f"{tee_color} Tees")
-        
-        if course:
-            yardages = course.get("yardages", {}).get(tee_color, [])
-            if yardages:
-                total_yardage = sum(y for y in yardages if y)
-                info_parts.append(f"{total_yardage} yards")
-        
-        ttk.Label(info_card, text=" • ".join(info_parts), style="Caption.TLabel").pack(anchor='w', pady=(4, 8))
-        
-        # Score summary
-        score_frame = ttk.Frame(info_card)
-        score_frame.pack(fill='x', pady=8)
-        
-        ttk.Label(score_frame, text="Score:", font=("Helvetica", 14)).pack(side='left')
-        ttk.Label(score_frame, text=f"{rd['total_score']} ({diff_str})",
-                 font=("Helvetica", 22, "bold"), foreground=self.COLORS["accent"]).pack(side='left', padx=10)
-        
-        if rd.get("target_score"):
-            target_diff = rd['total_score'] - rd['target_score']
-            target_str = f"+{target_diff}" if target_diff > 0 else str(target_diff)
-            ttk.Label(score_frame, text=f"vs Target: {target_str}",
-                     font=("Helvetica", 12), foreground=self.COLORS["text_secondary"]).pack(side='left', padx=10)
-        
-        # Hole-by-hole scores card
-        scores_card = self._create_card(scroll_frame)
-        scores_card.pack(fill='x', pady=8)
-        
-        ttk.Label(scores_card, text="Hole by Hole", style="Subheader.TLabel").pack(anchor='w', pady=(0, 8))
-        
         pars = course["pars"] if course else [4] * len(rd.get("scores", []))
         scores = rd.get("scores", [])
-        yardages = course.get("yardages", {}).get(tee_color, []) if course else []
-        
-        # Create table
-        table_frame = ttk.Frame(scores_card)
-        table_frame.pack(fill='x')
-        
-        # Headers
-        headers = ["Hole", "Yards", "Par", "Score", "+/-"]
-        for i, h in enumerate(headers):
-            ttk.Label(table_frame, text=h, font=("Helvetica", 11, "bold")).grid(
-                row=0, column=i, padx=6, pady=4, sticky='w')
-        
-        ttk.Separator(table_frame, orient='horizontal').grid(row=1, column=0, columnspan=5, sticky='ew', pady=4)
-        
-        row_num = 2
-        for i, (par, score) in enumerate(zip(pars, scores)):
-            if score is not None:
-                hole_diff = score - par
-                diff_str = f"+{hole_diff}" if hole_diff > 0 else str(hole_diff)
-                yard = yardages[i] if i < len(yardages) and yardages[i] else "-"
-                
-                # Color code the score
-                fg = "#FF3B30" if hole_diff > 0 else ("#34C759" if hole_diff < 0 else self.COLORS["text"])
-                
-                ttk.Label(table_frame, text=str(i + 1)).grid(row=row_num, column=0, padx=6, pady=2)
-                ttk.Label(table_frame, text=str(yard)).grid(row=row_num, column=1, padx=6, pady=2)
-                ttk.Label(table_frame, text=str(par)).grid(row=row_num, column=2, padx=6, pady=2)
-                ttk.Label(table_frame, text=str(score), foreground=fg, 
-                         font=("Helvetica", 11, "bold")).grid(row=row_num, column=3, padx=6, pady=2)
-                ttk.Label(table_frame, text=diff_str, foreground=fg).grid(row=row_num, column=4, padx=6, pady=2)
-                row_num += 1
-        
-        # Totals row
-        ttk.Separator(table_frame, orient='horizontal').grid(row=row_num, column=0, columnspan=5, sticky='ew', pady=4)
-        row_num += 1
-        
-        total_yards = sum(y for y in yardages if y) if yardages else "-"
-        total_par = sum(pars)
-        ttk.Label(table_frame, text="Total", font=("Helvetica", 11, "bold")).grid(row=row_num, column=0, padx=6, pady=2)
-        ttk.Label(table_frame, text=str(total_yards)).grid(row=row_num, column=1, padx=6, pady=2)
-        ttk.Label(table_frame, text=str(total_par)).grid(row=row_num, column=2, padx=6, pady=2)
-        ttk.Label(table_frame, text=str(rd['total_score']), font=("Helvetica", 11, "bold")).grid(row=row_num, column=3, padx=6, pady=2)
-        final_diff = rd['total_score'] - total_par
-        final_str = f"+{final_diff}" if final_diff > 0 else str(final_diff)
-        ttk.Label(table_frame, text=final_str, font=("Helvetica", 11, "bold")).grid(row=row_num, column=4, padx=6, pady=2)
-        
-        # Notes
+        yardages = (course.get("yardages", {}).get(tee_color, []) or []) if course else []
+
+        total_diff = rd['total_score'] - rd.get('par', sum(pars))
+        diff_str = f"+{total_diff}" if total_diff > 0 else str(total_diff)
+
+        # ── HEADER CARD ──────────────────────────────────────────────
+        header_card = tk.Frame(scroll_frame, bg=self.COLORS["card_bg"])
+        header_card.pack(fill='x', padx=P, pady=(P, 8))
+
+        # Tee color stripe
+        tee_stripe_color = self._tee_color_hex(tee_color)
+        tk.Frame(header_card, bg=tee_stripe_color, height=4).pack(fill='x')
+
+        hdr_inner = tk.Frame(header_card, bg=self.COLORS["card_bg"])
+        hdr_inner.pack(fill='x', padx=18, pady=14)
+
+        left = tk.Frame(hdr_inner, bg=self.COLORS["card_bg"])
+        left.pack(side='left', fill='both', expand=True)
+        tk.Label(left, text=rd["course_name"],
+                 font=("Helvetica", 18, "bold"),
+                 fg=self.COLORS["text"], bg=self.COLORS["card_bg"]).pack(anchor='w')
+        meta_parts = [rd.get('date', '')[:10]]
+        if tee_color:
+            meta_parts.append(f"{tee_color} Tees")
+        if yardages:
+            total_yds = sum(y for y in yardages if y)
+            if total_yds:
+                meta_parts.append(f"{total_yds:,} yds")
+        tk.Label(left, text="  •  ".join(meta_parts),
+                 font=("Helvetica", 11), fg=self.COLORS["text_secondary"],
+                 bg=self.COLORS["card_bg"]).pack(anchor='w', pady=(4, 0))
+
+        right = tk.Frame(hdr_inner, bg=self.COLORS["card_bg"])
+        right.pack(side='right')
+        score_fg = self.COLORS["destructive"] if total_diff > 0 else (
+            self.COLORS["accent"] if total_diff < 0 else self.COLORS["text"])
+        tk.Label(right, text=str(rd['total_score']),
+                 font=("Helvetica", 44, "bold"),
+                 fg=score_fg, bg=self.COLORS["card_bg"]).pack(anchor='e')
+        tk.Label(right, text=f"({diff_str}) vs par {sum(pars)}",
+                 font=("Helvetica", 12, "bold"),
+                 fg=score_fg, bg=self.COLORS["card_bg"]).pack(anchor='e')
+
+        # ── VISUAL SCORECARD ─────────────────────────────────────────
+        sc_card = tk.Frame(scroll_frame, bg=self.COLORS["card_bg"])
+        sc_card.pack(fill='x', padx=P, pady=8)
+
+        self._draw_scorecard_grid(sc_card, scores, pars, yardages)
+
+        # ── NOTES ────────────────────────────────────────────────────
         if rd.get("notes"):
-            notes_card = self._create_card(scroll_frame)
-            notes_card.pack(fill='x', pady=8)
-            ttk.Label(notes_card, text="Notes", style="Subheader.TLabel").pack(anchor='w')
-            ttk.Label(notes_card, text=rd["notes"], wraplength=350).pack(anchor='w', pady=8)
-        
-        # Action buttons
-        btn_card = self._create_card(scroll_frame)
-        btn_card.pack(fill='x', pady=8)
-        
-        btn_row = ttk.Frame(btn_card)
-        btn_row.pack(fill='x')
-        
-        ttk.Button(btn_row, text="📤 Export", 
-                  command=lambda: self._show_export_dialog(rd)).pack(side='left', padx=4)
-        
-        # Delete button (with confirmation)
-        def delete_this_round():
-            if messagebox.askyesno("Delete Round", 
-                "Are you sure you want to delete this round?\nThis cannot be undone."):
-                # Find and delete the round
+            notes_card = tk.Frame(scroll_frame, bg=self.COLORS["card_bg"])
+            notes_card.pack(fill='x', padx=P, pady=8)
+            inner = tk.Frame(notes_card, bg=self.COLORS["card_bg"])
+            inner.pack(fill='x', padx=16, pady=14)
+            tk.Label(inner, text="NOTES", font=("Helvetica", 11, "bold"),
+                     fg=self.COLORS["text_secondary"], bg=self.COLORS["card_bg"]).pack(anchor='w')
+            tk.Label(inner, text=rd["notes"], font=("Helvetica", 13),
+                     fg=self.COLORS["text"], bg=self.COLORS["card_bg"],
+                     wraplength=700, justify='left').pack(anchor='w', pady=(6, 0))
+
+        # ── ACTIONS ──────────────────────────────────────────────────
+        btn_card = tk.Frame(scroll_frame, bg=self.COLORS["card_bg"])
+        btn_card.pack(fill='x', padx=P, pady=(8, P))
+        btn_inner = tk.Frame(btn_card, bg=self.COLORS["card_bg"])
+        btn_inner.pack(fill='x', padx=16, pady=12)
+
+        ttk.Button(btn_inner, text="📤  Export",
+                   command=lambda: self._show_export_dialog(rd)).pack(side='left', padx=(0, 8))
+
+        def _delete():
+            if messagebox.askyesno("Delete Round",
+                    "Delete this round?\nThis cannot be undone."):
                 rounds = self.backend.get_rounds()
                 for i, r in enumerate(rounds):
                     if r.get("date") == rd.get("date") and r.get("course_name") == rd.get("course_name"):
                         self.backend.delete_round(i)
                         break
                 self.show_page("rounds")
-        
-        ttk.Button(btn_row, text="🗑 Delete",
-                  command=delete_this_round).pack(side='left', padx=4)
-        
-        ttk.Button(btn_row, text="← Back",
-                  command=lambda: self.show_page("rounds")).pack(side='right', padx=4)
+
+        ttk.Button(btn_inner, text="🗑  Delete", command=_delete).pack(side='left')
+
+    def _tee_color_hex(self, tee_color: str) -> str:
+        """Map tee color name to a display hex color."""
+        mapping = {
+            "white": "#FFFFFF", "yellow": "#F5C518", "blue": "#1E90FF",
+            "red": "#FF3B30", "gold": "#FFD700", "black": "#1C1C1E",
+            "green": "#1B6B3A", "silver": "#A0A0A0",
+        }
+        return mapping.get((tee_color or "").lower(), self.COLORS["accent"])
+
+    def _draw_scorecard_grid(self, parent, scores, pars, yardages):
+        """Draw a traditional golf scorecard using Canvas — circles for birdies, squares for bogeys."""
+        CELL_W, CELL_H = 46, 52
+        LABEL_W = 60
+        TOTAL_W = 52
+        COLOR_BIRDIE = "#34C759"
+        COLOR_EAGLE  = "#FFD60A"
+        COLOR_BOGEY  = "#FF3B30"
+        COLOR_PAR    = self.COLORS["text"]
+        BG = self.COLORS["card_bg"]
+        SEP = self.COLORS["separator"]
+
+        n = len(scores)
+        front = scores[:9]
+        back  = scores[9:] if n > 9 else []
+        front_pars = pars[:9]
+        back_pars  = pars[9:] if n > 9 else []
+        front_yds  = yardages[:9]
+        back_yds   = yardages[9:] if n > 9 else []
+
+        def draw_nine(frame, nine_scores, nine_pars, nine_yds, label):
+            cols = len(nine_scores)
+            if cols == 0:
+                return
+            total_width = LABEL_W + cols * CELL_W + TOTAL_W
+            canvas = tk.Canvas(frame, bg=BG, highlightthickness=0,
+                                width=total_width, height=CELL_H * 4 + 2)
+            canvas.pack(padx=16, pady=(8, 0))
+
+            def cell_x(c):
+                return LABEL_W + c * CELL_W
+
+            # Row backgrounds
+            for row in range(4):
+                row_bg = "#F8FAF8" if row % 2 == 0 else BG
+                canvas.create_rectangle(0, row * CELL_H, total_width, (row + 1) * CELL_H,
+                                        fill=row_bg, outline="")
+
+            # Row labels
+            row_labels = [label, "Yards", "Par", "Score"]
+            for r, rl in enumerate(row_labels):
+                canvas.create_text(LABEL_W // 2, r * CELL_H + CELL_H // 2,
+                                   text=rl, font=("Helvetica", 10, "bold"),
+                                   fill=self.COLORS["text_secondary"])
+
+            # Column headers and data
+            for c, (sc, par) in enumerate(zip(nine_scores, nine_pars)):
+                x = cell_x(c)
+                cx = x + CELL_W // 2
+
+                # Hole number row
+                canvas.create_text(cx, CELL_H // 2,
+                                   text=str(c + (1 if label == "FRONT 9" else 10)),
+                                   font=("Helvetica", 11, "bold"),
+                                   fill=self.COLORS["text_secondary"])
+
+                # Yardage row
+                yd = nine_yds[c] if c < len(nine_yds) and nine_yds[c] else "—"
+                canvas.create_text(cx, CELL_H + CELL_H // 2,
+                                   text=str(yd), font=("Helvetica", 11),
+                                   fill=self.COLORS["text_secondary"])
+
+                # Par row
+                canvas.create_text(cx, 2 * CELL_H + CELL_H // 2,
+                                   text=str(par), font=("Helvetica", 11),
+                                   fill=self.COLORS["text"])
+
+                # Score row — draw marker
+                sy = 3 * CELL_H + CELL_H // 2
+                if sc is not None:
+                    hole_diff = sc - par
+                    if hole_diff <= -2:  # Eagle or better: double circle
+                        color = COLOR_EAGLE
+                        r1, r2 = 16, 20
+                        canvas.create_oval(cx-r2, sy-r2, cx+r2, sy+r2,
+                                           outline=color, width=1.5, fill="")
+                        canvas.create_oval(cx-r1, sy-r1, cx+r1, sy+r1,
+                                           outline=color, width=1.5, fill="")
+                    elif hole_diff == -1:  # Birdie: circle
+                        color = COLOR_BIRDIE
+                        r1 = 16
+                        canvas.create_oval(cx-r1, sy-r1, cx+r1, sy+r1,
+                                           outline=color, width=2, fill="")
+                    elif hole_diff == 1:  # Bogey: square
+                        color = COLOR_BOGEY
+                        canvas.create_rectangle(cx-16, sy-16, cx+16, sy+16,
+                                                outline=color, width=2, fill="")
+                    elif hole_diff >= 2:  # Double bogey+: double square
+                        color = COLOR_BOGEY
+                        canvas.create_rectangle(cx-18, sy-18, cx+18, sy+18,
+                                                outline=color, width=1.5, fill="")
+                        canvas.create_rectangle(cx-13, sy-13, cx+13, sy+13,
+                                                outline=color, width=1.5, fill="")
+                    else:
+                        color = COLOR_PAR
+
+                    canvas.create_text(cx, sy, text=str(sc),
+                                       font=("Helvetica", 12, "bold"), fill=color)
+
+            # Totals column
+            tx = LABEL_W + cols * CELL_W + TOTAL_W // 2
+            canvas.create_text(tx, CELL_H // 2,
+                               text="OUT" if label == "FRONT 9" else "IN",
+                               font=("Helvetica", 10, "bold"),
+                               fill=self.COLORS["text_secondary"])
+            total_yds_val = sum(y for y in nine_yds[:cols] if y) if nine_yds else 0
+            canvas.create_text(tx, CELL_H + CELL_H // 2,
+                               text=str(total_yds_val) if total_yds_val else "—",
+                               font=("Helvetica", 11), fill=self.COLORS["text_secondary"])
+            canvas.create_text(tx, 2 * CELL_H + CELL_H // 2,
+                               text=str(sum(nine_pars[:cols])),
+                               font=("Helvetica", 11, "bold"), fill=self.COLORS["text"])
+            nine_total = sum(s for s in nine_scores if s is not None)
+            canvas.create_text(tx, 3 * CELL_H + CELL_H // 2,
+                               text=str(nine_total) if nine_total else "—",
+                               font=("Helvetica", 13, "bold"), fill=self.COLORS["accent"])
+
+            # Grid lines
+            for r in range(5):
+                canvas.create_line(0, r * CELL_H, total_width, r * CELL_H,
+                                   fill=SEP, width=1)
+            for c in range(cols + 1):
+                x = LABEL_W + c * CELL_W
+                canvas.create_line(x, 0, x, CELL_H * 4, fill=SEP, width=1)
+            canvas.create_line(total_width - TOTAL_W, 0, total_width - TOTAL_W, CELL_H * 4,
+                               fill=self.COLORS["accent"], width=2)
+
+        draw_nine(parent, front, front_pars, front_yds, "FRONT 9")
+        if back:
+            draw_nine(parent, back, back_pars, back_yds, "BACK 9")
+        # bottom padding
+        tk.Frame(parent, bg=BG, height=8).pack()
     
     # ==================== LOG ROUND SETUP PAGE ====================
     
@@ -4056,14 +4347,15 @@ class GolfApp:
         canvas = tk.Canvas(self.content_frame, bg=self.COLORS["bg"], highlightthickness=0)
         scrollbar = ttk.Scrollbar(self.content_frame, orient="vertical", command=canvas.yview)
         scroll_frame = ttk.Frame(canvas, style="App.TFrame")
-        
+
         scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        _cw = canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
-        
-        canvas.pack(side='left', fill='both', expand=True, padx=16)
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(_cw, width=e.width))
+
+        canvas.pack(side='left', fill='both', expand=True)
         scrollbar.pack(side='right', fill='y')
-        
+
         courses = self.backend.get_courses()
         if not courses:
             card = self._create_card(scroll_frame)
@@ -4863,50 +5155,65 @@ class GolfApp:
     # ==================== COURSES PAGE ====================
     
     def _show_courses_page(self):
-        """Display consolidated Courses page (Manage + Add)."""
+        """Display Courses page — desktop-wide Treeview with action bar."""
         self._create_page_header("Courses")
-        
-        # Add Course button
-        btn_frame = ttk.Frame(self.content_frame, style="App.TFrame")
-        btn_frame.pack(fill='x', padx=16, pady=(0, 8))
-        
-        ttk.Button(btn_frame, text="➕ Add New Course",
-                  command=lambda: self._open_course_editor()).pack(side='right')
-        
-        # Hint
-        ttk.Label(self.content_frame, text="Tap a course to open its yardbook",
-                 foreground=self.COLORS["text_secondary"],
-                 font=("Helvetica", 11)).pack(padx=16, anchor='w')
-        
-        # Courses list
-        list_frame = ttk.Frame(self.content_frame, style="App.TFrame")
-        list_frame.pack(fill='both', expand=True, padx=16, pady=(4, 8))
-        
+
+        # Toolbar
+        toolbar = tk.Frame(self.content_frame, bg=self.COLORS["bg"])
+        toolbar.pack(fill='x', padx=16, pady=(0, 8))
+
+        ttk.Button(toolbar, text="➕  Add New Course",
+                   command=lambda: self._open_course_editor()).pack(side='left')
+        ttk.Button(toolbar, text="✏️  Edit Selected",
+                   command=self._edit_selected_course).pack(side='left', padx=8)
+        ttk.Button(toolbar, text="🗑  Delete Selected",
+                   command=self._delete_selected_course).pack(side='left')
+
+        tk.Label(toolbar, text="Click a course to open its Yardbook",
+                 font=("Helvetica", 11), fg=self.COLORS["text_tertiary"],
+                 bg=self.COLORS["bg"]).pack(side='right')
+
+        # Treeview — wider columns for desktop
+        list_frame = tk.Frame(self.content_frame, bg=self.COLORS["bg"])
+        list_frame.pack(fill='both', expand=True, padx=16, pady=(0, 12))
+
         cols = ("Club", "Course", "Holes", "Par", "Yardbook")
-        self.course_tree = ttk.Treeview(list_frame, columns=cols, show="headings", height=12)
-        
-        widths = [100, 130, 50, 50, 60]
-        for col, w in zip(cols, widths):
+        self.course_tree = ttk.Treeview(list_frame, columns=cols, show="headings")
+
+        col_config = [
+            ("Club",     180, 'w'),
+            ("Course",   320, 'w'),
+            ("Holes",     70, 'center'),
+            ("Par",       70, 'center'),
+            ("Yardbook",  90, 'center'),
+        ]
+        for col, w, anchor in col_config:
             self.course_tree.heading(col, text=col)
-            self.course_tree.column(col, width=w, anchor='center' if col != "Course" else 'w')
-        
+            self.course_tree.column(col, width=w, anchor=anchor, minwidth=w)
+
         scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=self.course_tree.yview)
         self.course_tree.configure(yscrollcommand=scrollbar.set)
-        
         self.course_tree.pack(side='left', fill='both', expand=True)
         scrollbar.pack(side='right', fill='y')
-        
-        # Single click to open yardbook
+
         self.course_tree.bind("<ButtonRelease-1>", self._on_course_click)
-        
-        # Action buttons (Edit/Delete only)
-        action_frame = ttk.Frame(self.content_frame, style="App.TFrame")
-        action_frame.pack(fill='x', padx=16, pady=8)
-        
-        ttk.Button(action_frame, text="✏️ Edit", command=self._edit_selected_course).pack(side='left', padx=2)
-        ttk.Button(action_frame, text="🗑 Delete", command=self._delete_selected_course).pack(side='left', padx=2)
-        
+        self.course_tree.bind("<Return>", self._on_course_click)
+
         self._populate_courses_list()
+
+        # Empty state
+        courses = self.backend.get_courses()
+        if not courses:
+            empty = tk.Frame(list_frame, bg=self.COLORS["card_bg"])
+            empty.place(relx=0.5, rely=0.4, anchor='center')
+            tk.Label(empty, text="⛳", font=("Helvetica", 48),
+                     fg=self.COLORS["text_tertiary"], bg=self.COLORS["card_bg"]).pack(pady=(24, 8))
+            tk.Label(empty, text="No courses yet",
+                     font=("Helvetica", 17, "bold"), fg=self.COLORS["text"],
+                     bg=self.COLORS["card_bg"]).pack()
+            tk.Label(empty, text="Add a course to start logging rounds.",
+                     font=("Helvetica", 12), fg=self.COLORS["text_secondary"],
+                     bg=self.COLORS["card_bg"]).pack(pady=(4, 24))
     
     def _on_course_click(self, event):
         """Handle single click on course row - opens yardbook."""
@@ -4973,7 +5280,7 @@ class GolfApp:
                     gb_status = f"✓ {summary['holes_complete']}/{summary['total_holes']}"
             
             self.course_tree.insert("", "end", values=(
-                c.get("club", "")[:12], c["name"][:18], len(c["pars"]), 
+                c.get("club", ""), c["name"], len(c["pars"]),
                 sum(c["pars"]), gb_status
             ))
     
@@ -5023,12 +5330,13 @@ class GolfApp:
         canvas = tk.Canvas(self.content_frame, bg=self.COLORS["bg"], highlightthickness=0)
         scrollbar = ttk.Scrollbar(self.content_frame, orient="vertical", command=canvas.yview)
         scroll_frame = ttk.Frame(canvas, style="App.TFrame")
-        
+
         scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        _cw = canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
-        
-        canvas.pack(side='left', fill='both', expand=True, padx=16)
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(_cw, width=e.width))
+
+        canvas.pack(side='left', fill='both', expand=True)
         scrollbar.pack(side='right', fill='y')
         
         # Course info card
@@ -5250,67 +5558,97 @@ class GolfApp:
     # ==================== STATISTICS PAGE ====================
     
     def _show_statistics_page(self):
-        """Display statistics page with club distances integrated."""
+        """Display statistics page — desktop layout with side-by-side panels."""
         self._create_page_header("Statistics", show_back=True,
-                                back_action=lambda: self.show_page("home"))
-        
-        # Notebook for tabs
+                                 back_action=lambda: self.show_page("home"))
+
         notebook = ttk.Notebook(self.content_frame)
         notebook.pack(fill='both', expand=True, padx=16, pady=8)
-        
-        # Tab 1: Overview
+
         self._create_stats_overview_tab(notebook)
-        
-        # Tab 2: Performance
         self._create_stats_performance_tab(notebook)
-        
-        # Tab 3: Club Distances (MOVED HERE)
         self._create_club_distances_tab(notebook)
-        
-        # Tab 4: Analysis
         self._create_stats_analysis_tab(notebook)
-    
+
     def _create_stats_overview_tab(self, notebook):
-        """Create overview statistics tab."""
-        frame = ttk.Frame(notebook, padding=10)
-        notebook.add(frame, text="Overview")
-        
+        """Overview tab with hero numbers and differentials table."""
+        outer = ttk.Frame(notebook)
+        notebook.add(outer, text="Overview")
+
+        canvas = tk.Canvas(outer, bg=self.COLORS["bg"], highlightthickness=0)
+        sb = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        frame = tk.Frame(canvas, bg=self.COLORS["bg"])
+        frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        cw = canvas.create_window((0, 0), window=frame, anchor="nw")
+        canvas.configure(yscrollcommand=sb.set)
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(cw, width=e.width))
+        canvas.pack(side='left', fill='both', expand=True)
+        sb.pack(side='right', fill='y')
+
         stats = self.backend.get_statistics()
         idx = self.backend.calculate_handicap_index()
-        
-        # Stats grid
-        stats_data = [
-            ("Handicap Index", f"{idx:.1f}" if idx else "Not established"),
-            ("Total Rounds", stats["total_rounds"]),
-            ("18-Hole Rounds", stats["rounds_18"]),
-            ("9-Hole Rounds", stats["rounds_9"]),
-            ("Avg Score (18h)", stats["avg_score_18"] or "N/A"),
-            ("Total Holes Played", stats.get("total_holes_played", 0)),
-        ]
-        
-        for i, (label, value) in enumerate(stats_data):
-            ttk.Label(frame, text=label + ":", style="Body.TLabel").grid(
-                row=i, column=0, sticky='e', padx=5, pady=4)
-            ttk.Label(frame, text=str(value), font=("Helvetica", 14, "bold")).grid(
-                row=i, column=1, sticky='w', padx=5, pady=4)
-        
-        # Score differentials
         diffs = self.backend.get_score_differentials()
+
+        P = 16
+
+        # ── Hero stat cards ───────────────────────────────────────────
+        hero_row = tk.Frame(frame, bg=self.COLORS["bg"])
+        hero_row.pack(fill='x', padx=P, pady=(P, 8))
+
+        hero_items = [
+            ("HANDICAP", f"{idx:.1f}" if idx else "—"),
+            ("ROUNDS",   str(stats.get("total_rounds", 0))),
+            ("18-HOLE",  str(stats.get("rounds_18", 0))),
+            ("9-HOLE",   str(stats.get("rounds_9", 0))),
+            ("AVG (18)", str(round(stats["avg_score_18"], 1))
+                         if stats.get("avg_score_18") else "—"),
+            ("HOLES",    str(stats.get("total_holes_played", 0))),
+        ]
+        for label, value in hero_items:
+            cell = tk.Frame(hero_row, bg=self.COLORS["card_bg"])
+            cell.pack(side='left', expand=True, fill='both', padx=4)
+            tk.Label(cell, text=value,
+                     font=("Helvetica", 24, "bold"),
+                     fg=self.COLORS["accent"] if label == "HANDICAP" else self.COLORS["text"],
+                     bg=self.COLORS["card_bg"]).pack(pady=(16, 2))
+            tk.Label(cell, text=label,
+                     font=("Helvetica", 10, "bold"),
+                     fg=self.COLORS["text_secondary"],
+                     bg=self.COLORS["card_bg"]).pack(pady=(0, 16))
+
+        # ── Score differentials ───────────────────────────────────────
         if diffs:
-            ttk.Label(frame, text="Recent Differentials:", style="Subheader.TLabel").grid(
-                row=len(stats_data), column=0, columnspan=2, sticky='w', pady=(16, 8))
-            
-            cols = ("Diff", "Score", "Course")
-            tree = ttk.Treeview(frame, columns=cols, show="headings", height=6)
-            for col in cols:
-                tree.heading(col, text=col)
-            tree.column("Diff", width=60, anchor='center')
-            tree.column("Score", width=60, anchor='center')
-            tree.column("Course", width=150)
-            tree.grid(row=len(stats_data)+1, column=0, columnspan=2, sticky='nsew')
-            
-            for d in diffs[:8]:
-                tree.insert("", "end", values=(d["diff"], d["score"], d["course"][:20]))
+            diff_label = tk.Frame(frame, bg=self.COLORS["bg"])
+            diff_label.pack(fill='x', padx=P, pady=(8, 4))
+            tk.Label(diff_label, text="SCORE DIFFERENTIALS",
+                     font=("Helvetica", 11, "bold"), fg=self.COLORS["text_secondary"],
+                     bg=self.COLORS["bg"]).pack(anchor='w')
+
+            diff_card = tk.Frame(frame, bg=self.COLORS["card_bg"])
+            diff_card.pack(fill='x', padx=P, pady=(0, P))
+
+            diff_tree_frame = tk.Frame(diff_card, bg=self.COLORS["card_bg"])
+            diff_tree_frame.pack(fill='x', padx=16, pady=12)
+
+            diff_cols = ("Rank", "Differential", "Score", "Course", "Date")
+            diff_tree = ttk.Treeview(diff_tree_frame, columns=diff_cols,
+                                      show="headings", height=min(len(diffs), 10))
+            widths = [50, 100, 70, 300, 110]
+            for col, w in zip(diff_cols, widths):
+                diff_tree.heading(col, text=col)
+                diff_tree.column(col, width=w,
+                                  anchor='center' if col != "Course" else 'w')
+
+            for i, d in enumerate(diffs[:20]):
+                diff_tree.insert("", "end", values=(
+                    i + 1, d["diff"], d["score"],
+                    d.get("course", ""), d.get("date", "")[:10]))
+
+            diff_sb = ttk.Scrollbar(diff_tree_frame, orient="vertical",
+                                     command=diff_tree.yview)
+            diff_tree.configure(yscrollcommand=diff_sb.set)
+            diff_tree.pack(side='left', fill='x', expand=True)
+            diff_sb.pack(side='right', fill='y')
     
     def _create_stats_performance_tab(self, notebook):
         """Create performance statistics tab - mobile friendly layout."""
@@ -5318,17 +5656,18 @@ class GolfApp:
         container = ttk.Frame(notebook)
         notebook.add(container, text="Performance")
         
-        canvas = tk.Canvas(container, highlightthickness=0)
+        canvas = tk.Canvas(container, bg=self.COLORS["bg"], highlightthickness=0)
         scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
-        frame = ttk.Frame(canvas, padding=10)
-        
+        frame = tk.Frame(canvas, bg=self.COLORS["bg"])
+
         frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=frame, anchor="nw")
+        _cw = canvas.create_window((0, 0), window=frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
-        
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(_cw, width=e.width))
+
         canvas.pack(side='left', fill='both', expand=True)
         scrollbar.pack(side='right', fill='y')
-        
+
         adv_stats = self.backend.get_advanced_statistics()
         
         if adv_stats.get("total_holes_tracked", 0) == 0:
@@ -5508,17 +5847,18 @@ class GolfApp:
         container = ttk.Frame(notebook)
         notebook.add(container, text="Analysis")
         
-        canvas = tk.Canvas(container, highlightthickness=0)
+        canvas = tk.Canvas(container, bg=self.COLORS["bg"], highlightthickness=0)
         scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
-        frame = ttk.Frame(canvas, padding=10)
-        
+        frame = tk.Frame(canvas, bg=self.COLORS["bg"])
+
         frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=frame, anchor="nw")
+        _cw = canvas.create_window((0, 0), window=frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
-        
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(_cw, width=e.width))
+
         canvas.pack(side='left', fill='both', expand=True)
         scrollbar.pack(side='right', fill='y')
-        
+
         insights = self.backend.get_stroke_leak_analysis()
         adv_stats = self.backend.get_advanced_statistics()
         
