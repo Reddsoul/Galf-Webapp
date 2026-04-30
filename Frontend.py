@@ -3634,6 +3634,32 @@ class GolfApp:
         self.sidebar.pack_propagate(False)
 
         # App title
+        STATIC = "/Volumes/General/Coding/Python/Galf-dev/webapp-dev/static"
+
+        # Load sidebar images (22×22 for nav icons, 18×18 for log btn)
+        # dark variant = for light bg, white variant (-w-) = for active dark green bg
+        self._img = {}
+        def _load(name, size=22):
+            try:
+                img = Image.open(f"{STATIC}/{name}").convert("RGBA").resize(
+                    (size, size), Image.LANCZOS)
+                return ImageTk.PhotoImage(img)
+            except Exception:
+                return None
+
+        for key, fname in [
+            ("home",       "Favicon-96.png"),
+            ("home_w",     "Favicon-w-96.png"),
+            ("rounds",     "golf-cart-96.png"),
+            ("rounds_w",   "golf-cart-w-96.png"),
+            ("courses",    "golf-course-96.png"),
+            ("courses_w",  "golf-course-w-96.png"),
+            ("ball",       "golf-ball-96.png"),
+            ("ball_w",     "golf-ball-w-96.png"),
+        ]:
+            self._img[key] = _load(fname, 22 if key != "ball" else 18)
+
+        # App title
         title_frame = tk.Frame(self.sidebar, bg=self.COLORS["sidebar_bg"])
         title_frame.pack(fill='x', padx=16, pady=(20, 8))
         tk.Label(title_frame, text="Galf", font=("Helvetica", 22, "bold"),
@@ -3642,32 +3668,41 @@ class GolfApp:
         # Separator under title
         tk.Frame(self.sidebar, height=1, bg=self.COLORS["separator"]).pack(fill='x', padx=12, pady=(0, 8))
 
-        # Nav items
+        # Nav items — image where 1:1 exists, emoji fallback otherwise
+        # (Statistics and Rulebook have no matching static image)
         nav_items = [
-            ("🏠", "Home", "home"),
-            ("🏌️", "Rounds", "rounds"),
-            ("⛳", "Courses", "courses"),
-            ("📊", "Statistics", "statistics"),
-            ("📖", "Rulebook", "rulebook"),
+            ("home",       "🏠", "Home",       "home"),
+            ("rounds",     "🏌️", "Rounds",     "rounds"),
+            ("courses",    "⛳", "Courses",    "courses"),
+            (None,         "📊", "Statistics", "statistics"),
+            (None,         "📖", "Rulebook",   "rulebook"),
         ]
 
         self.sidebar_items = {}
 
-        for icon, label, page in nav_items:
+        for img_key, emoji, label, page in nav_items:
             row = tk.Frame(self.sidebar, bg=self.COLORS["sidebar_bg"], cursor="hand2")
             row.pack(fill='x', padx=8, pady=1)
 
             inner = tk.Frame(row, bg=self.COLORS["sidebar_bg"], cursor="hand2", pady=8)
             inner.pack(fill='x', padx=4)
 
-            tk.Label(inner, text=icon, font=("Helvetica", 15),
-                     bg=self.COLORS["sidebar_bg"], cursor="hand2").pack(side='left', padx=(8, 6))
+            img_dark = self._img.get(img_key) if img_key else None
+            if img_dark:
+                icon_lbl = tk.Label(inner, image=img_dark,
+                                    bg=self.COLORS["sidebar_bg"], cursor="hand2")
+            else:
+                icon_lbl = tk.Label(inner, text=emoji, font=("Helvetica", 15),
+                                    bg=self.COLORS["sidebar_bg"], cursor="hand2")
+            icon_lbl.pack(side='left', padx=(8, 6))
+
             text_lbl = tk.Label(inner, text=label, font=("Helvetica", 13),
                                 bg=self.COLORS["sidebar_bg"], fg=self.COLORS["text"],
                                 cursor="hand2")
             text_lbl.pack(side='left')
 
-            self.sidebar_items[page] = (row, inner, text_lbl)
+            # store img_key so _update_sidebar can swap dark↔white
+            self.sidebar_items[page] = (row, inner, icon_lbl, text_lbl, img_key)
 
             def _bind(w, p=page, r=row, i=inner):
                 w.bind("<Button-1>", lambda e, pg=p: self.show_page(pg))
@@ -3683,12 +3718,16 @@ class GolfApp:
         # Separator above log button
         tk.Frame(self.sidebar, height=1, bg=self.COLORS["separator"]).pack(fill='x', padx=12, pady=(0, 4))
 
-        # Log Round primary button
+        # Log Round primary button — golf-ball image if available
         log_wrap = tk.Frame(self.sidebar, bg=self.COLORS["sidebar_bg"])
         log_wrap.pack(fill='x', padx=16, pady=(4, 20))
 
+        ball_img = self._img.get("ball_w")
         self.log_btn = tk.Button(
-            log_wrap, text="＋  Log Round",
+            log_wrap,
+            text="  Log Round" if ball_img else "＋  Log Round",
+            image=ball_img if ball_img else None,
+            compound="left" if ball_img else "none",
             font=("Helvetica", 13, "bold"),
             bg=self.COLORS["accent"], fg="white",
             activebackground="#145C30", activeforeground="white",
@@ -3700,12 +3739,12 @@ class GolfApp:
         self.log_btn.bind("<Leave>", lambda e: self.log_btn.configure(bg=self.COLORS["accent"]))
 
     def _sidebar_hover(self, row, inner, entering, page=None):
-        """Apply/remove hover state on sidebar nav row."""
+        """Apply/remove hover tint on a nav row."""
         if entering:
             color = self.COLORS["sidebar_hover"]
         else:
             if page and self.current_page == page:
-                return  # Keep active color
+                return  # active row keeps its color
             color = self.COLORS["sidebar_bg"]
         row.configure(bg=color)
         inner.configure(bg=color)
@@ -3716,28 +3755,34 @@ class GolfApp:
                 pass
 
     def _update_sidebar(self, active_page):
-        """Highlight the active nav item in the sidebar."""
-        for page, (row, inner, text_lbl) in self.sidebar_items.items():
+        """Highlight active nav item; swap icon image dark↔white when needed."""
+        for page, (row, inner, icon_lbl, text_lbl, img_key) in self.sidebar_items.items():
             if page == active_page:
-                row.configure(bg=self.COLORS["sidebar_active"])
-                inner.configure(bg=self.COLORS["sidebar_active"])
+                bg = self.COLORS["sidebar_active"]
+                row.configure(bg=bg)
+                inner.configure(bg=bg)
                 for child in inner.winfo_children():
                     try:
-                        child.configure(bg=self.COLORS["sidebar_active"],
-                                        fg="white")
+                        child.configure(bg=bg)
                     except Exception:
                         pass
                 text_lbl.configure(fg="white", font=("Helvetica", 13, "bold"))
+                # Switch to white icon variant on dark green bg
+                if img_key and self._img.get(f"{img_key}_w"):
+                    icon_lbl.configure(image=self._img[f"{img_key}_w"])
             else:
-                row.configure(bg=self.COLORS["sidebar_bg"])
-                inner.configure(bg=self.COLORS["sidebar_bg"])
+                bg = self.COLORS["sidebar_bg"]
+                row.configure(bg=bg)
+                inner.configure(bg=bg)
                 for child in inner.winfo_children():
                     try:
-                        child.configure(bg=self.COLORS["sidebar_bg"],
-                                        fg=self.COLORS["text"])
+                        child.configure(bg=bg)
                     except Exception:
                         pass
                 text_lbl.configure(fg=self.COLORS["text"], font=("Helvetica", 13))
+                # Restore dark icon variant on light bg
+                if img_key and self._img.get(img_key):
+                    icon_lbl.configure(image=self._img[img_key])
 
     def show_page(self, page_name):
         """Switch to a different page."""
