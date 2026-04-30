@@ -2163,46 +2163,70 @@ let _kpPending = null;
 
 // Build the 9-cell fixed layout from S.clubs.
 // Returns array of 9 cell objects in grid order (row-major, rows 0-2).
+// Row 0: Driver | Woods+Hybrids | empty
+// Row 1: Long(2i-4i) | Mid(5i-7i) | Short(8i-9i)
+// Row 2: Wedge group 1 | Wedge group 2 | Putter
 function buildKeypadCells() {
   const CELLS = [
     { key:'driver',  clubs:[] },  // [0][0] Driver
-    { key:'woods',   clubs:[] },  // [0][1] Woods + Hybrid
-    { key:'long',    clubs:[] },  // [0][2] 2i–5i
-    { key:'mid',     clubs:[] },  // [1][0] 6i–7i
-    { key:'short',   clubs:[] },  // [1][1] 8i–9i
-    { key:'wedge1',  clubs:[] },  // [1][2] PW, GW, AW
-    { key:'wedge2',  clubs:[] },  // [2][0] SW
-    { key:'wedge3',  clubs:[] },  // [2][1] LW
+    { key:'woods',   clubs:[] },  // [0][1] Woods (or Woods group 1)
+    { key:'hybrids', clubs:[] },  // [0][2] Hybrids (or Woods group 2 if no hybrids)
+    { key:'long',    clubs:[] },  // [1][0] 2i-4i
+    { key:'mid',     clubs:[] },  // [1][1] 5i-7i
+    { key:'short',   clubs:[] },  // [1][2] 8i-9i
+    { key:'wedge1',  clubs:[] },  // [2][0] Wedge group 1
+    { key:'wedge2',  clubs:[] },  // [2][1] Wedge group 2
     { key:'putter',  clubs:[] },  // [2][2] Putter
   ];
+
+  const allWedges = [];
 
   function cellIdx(c) {
     const n = c.name.toLowerCase();
     const ab = abbrClub(c.name);
     if (ab === 'D' || n.includes('driver')) return 0;
     if (ab === 'P' || n.includes('putter')) return 8;
-    if (n.includes('wood') || n.includes('hybrid')) return 1;
+    if (n.includes('wood')) return 1;
+    if (n.includes('hybrid')) return 2;
     if (ab.match(/^\d+[iI]$/)) {
       const num = parseInt(ab);
-      if (num <= 5) return 2;
-      if (num <= 7) return 3;
-      return 4;
+      if (num <= 4) return 3;  // long: 2i-4i
+      if (num <= 7) return 4;  // mid: 5i-7i
+      return 5;                // short: 8i-9i
     }
-    if (ab === 'PW' || ab === 'GW' || ab === 'AW') return 5;
-    if (ab === 'SW') return 6;
-    if (ab === 'LW') return 7;
-    return -1; // unclassified — skip
+    return -1; // wedges handled separately
   }
 
   for (const c of S.clubs) {
+    const ab = abbrClub(c.name);
+    const n  = c.name.toLowerCase();
     const idx = cellIdx(c);
-    if (idx >= 0) CELLS[idx].clubs.push({ name: c.name, abbr: abbrClub(c.name) });
+    if (idx >= 0) {
+      CELLS[idx].clubs.push({ name: c.name, abbr: ab });
+    } else if (ab === 'PW' || ab === 'GW' || ab === 'AW' || ab === 'SW' || ab === 'LW' || n.includes('wedge')) {
+      allWedges.push({ name: c.name, abbr: ab, dist: S.distByAbbr[ab] || 0 });
+    }
   }
 
-  // Sort each cell longest-distance first (= lower loft number first)
+  // If no hybrids, split woods evenly across both top-row cells
+  if (!CELLS[2].clubs.length && CELLS[1].clubs.length) {
+    CELLS[1].clubs.sort((a, b) => (S.distByAbbr[b.abbr] || 0) - (S.distByAbbr[a.abbr] || 0));
+    const woodHalf = Math.ceil(CELLS[1].clubs.length / 2);
+    CELLS[2].clubs = CELLS[1].clubs.slice(woodHalf);
+    CELLS[1].clubs = CELLS[1].clubs.slice(0, woodHalf);
+  }
+
+  // Sort wedges longest carry first, then split evenly between the two wedge cells
+  allWedges.sort((a, b) => b.dist - a.dist);
+  const half = Math.ceil(allWedges.length / 2);
+  CELLS[6].clubs = allWedges.slice(0, half).map(w => ({ name: w.name, abbr: w.abbr }));
+  CELLS[7].clubs = allWedges.slice(half).map(w => ({ name: w.name, abbr: w.abbr }));
+
+  // Sort non-wedge cells longest-distance first, cap at 3
   for (const cell of CELLS) {
+    if (cell.key === 'wedge1' || cell.key === 'wedge2') continue;
     cell.clubs.sort((a, b) => (S.distByAbbr[b.abbr] || 0) - (S.distByAbbr[a.abbr] || 0));
-    cell.clubs = cell.clubs.slice(0, 3); // max 3 per cell
+    cell.clubs = cell.clubs.slice(0, 3);
   }
 
   // Putter always present even if not in bag
@@ -2256,6 +2280,15 @@ function keypadPress(cellKey) {
   const cells = buildKeypadCells();
   const cell  = cells.find(c => c.key === cellKey);
   if (!cell || !cell.clubs.length) return;
+
+  // Single-club cells commit immediately — no multi-tap buffer needed
+  if (cell.clubs.length === 1) {
+    _flushPending();
+    S.holeClubs[S.currentHoleIdx].push(cell.clubs[0].abbr);
+    saveDraft();
+    renderLogEntry();
+    return;
+  }
 
   if (_kpPending && _kpPending.cellKey === cellKey) {
     // Same cell — cycle to next club, restart timer

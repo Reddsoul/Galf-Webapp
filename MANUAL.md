@@ -157,7 +157,7 @@ The large number in the center is your running score for the current hole. It sh
 
 #### Navigation
 
-- **◀** — go back to the previous hole to correct a score
+- **◀** — go back to the previous hole to correct a score. On hole 1, tapping ◀ exits the round without saving and returns to the Home screen.
 - **▶** — jump forward (only works on holes already scored)
 
 #### Numpad
@@ -215,14 +215,19 @@ The rolled count appears as _"Sim putts: 2"_ on screen. If you tap the Putter bu
 Clubs are arranged in a **fixed 3×4 grid** — 9 club cells across the top three rows, and a fixed action row at the bottom. The layout never changes regardless of which clubs are in your bag.
 
 ```
-Driver      │ Woods      │ Long Irons
-Mid Irons   │ Short Irons│ Wedges (PW/GW)
-SW          │ LW         │ Putter
+Driver      │ Woods      │ Hybrids
+Long (2i–4i)│ Mid (5i–7i)│ Short (8i–9i)
+Wedges (hi) │ Wedges (lo)│ Putter
 ────────────┼────────────┼────────────
 Forfeit     │ ◀ Undo     │ Next ▶
 ```
 
-Cells that group more than one club (e.g. **3w · 5w**) use **Nokia-style multi-tap**: tap the cell once to select the first club, tap again before the timer fires to cycle to the next, and so on. After ~0.9 seconds of no input the selection is committed automatically.
+**Layout rules:**
+- If you carry no hybrids, your woods are split evenly across the two top-row cells.
+- All wedges (PW, GW, AW, SW, LW) are pooled together, sorted longest carry first, and split evenly across the two wedge cells.
+- The 5-iron sits in the Mid cell (5i–7i), not Long.
+
+Cells that group more than one club (e.g. **3w · 5w**) use **Nokia-style multi-tap**: tap the cell once to select the first club, tap again before the timer fires to cycle to the next, and so on. After ~0.9 seconds of no input the selection is committed automatically. **Cells with only one club commit immediately** — no wait needed.
 
 While a cell is cycling, the active club is displayed larger and the others are dimmed — you can always see all options in the cell at once.
 
@@ -256,9 +261,7 @@ An optional text field at the bottom. Use it to jot down anything about the roun
 
 Tap <span style="display:inline-flex;align-items:center;justify-content:center;background:#1B6B3A;border-radius:5px;padding:2px;line-height:0;vertical-align:middle"><img src="static/save-96.png" width="14" height="14"></span> **Save Round** to write the round to your history. Your Handicap Index updates immediately. You are taken to the Rounds screen.
 
-#### Back to Scoring
-
-Tap **◀ Back to Scoring** at the top to return to the entry screen and make corrections before saving.
+> The Review & Save screen has no back button. If you need to fix a score, use **◀** on the entry screen to step back through holes before tapping **✓ Done**.
 
 ---
 
