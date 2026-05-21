@@ -885,7 +885,7 @@ class GolfBackend:
                 for upd in drill.get("pendingPartialUpdates", []):
                     self.update_club_partial(upd["club"], upd["swing"], upd["dist"])
         db.session.commit()
-        return _training_to_dict(session)
+        return {"ok": True, "session": _training_to_dict(session)}
 
     def delete_training_session(self, session_id):
         session = TrainingSession.query.filter_by(id=session_id, user_id=self.user_id).first()

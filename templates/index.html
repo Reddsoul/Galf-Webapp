@@ -36,8 +36,8 @@
 
 .is-standalone #app { padding-top: env(safe-area-inset-top); }
 .is-standalone #tabbar {
-  padding-top: 14px;
-  padding-bottom: calc(20px + var(--js-safe-b, env(safe-area-inset-bottom)));
+  padding-top: 8px;
+  padding-bottom: calc(23px + var(--js-safe-b, env(safe-area-inset-bottom)));
 }
 .is-standalone .tab-icon img { width: 32px; height: 32px; }
 .is-standalone .tab[data-tab="home"] .tab-icon img { width: 60px; height: 60px; }
@@ -473,7 +473,7 @@ textarea.form-input { min-height: 100px; resize: vertical; }
   width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
 }
 .home-best-score { font-size: 30px; font-weight: 800; line-height: 1; letter-spacing: -1px; }
-.home-best-diff { font-size: 13px; font-weight: 700; margin-top: 2px; }
+.home-best-diff { font-size: 13px; font-weight: 700; }
 
 /* Two-row grid: 9 columns — front 9 on row 1, back 9 on row 2 */
 .home-best-holes {
@@ -1935,7 +1935,7 @@ async function buildBestCard(bestData) {
             <span class="home-best-tee-dot" style="background:${teeCSS};border:${teeDotBorder}"></span>${esc(sc.course_name||'')} · ${dateStr}
           </div>
         </div>
-        <div style="text-align:right">
+        <div style="display:flex;align-items:baseline;gap:6px;justify-content:flex-end">
           <div class="home-best-score">${bestData.total_score}</div>
           <div class="home-best-diff" style="color:${dsColor}">${ds}</div>
         </div>
@@ -2904,7 +2904,7 @@ function renderTraining() {
     ? `<button class="btn" style="flex:1" onclick="trainingNav(-1)">← Prev</button>`
     : `<button class="btn" style="flex:1;opacity:0.3" disabled>← Prev</button>`;
   const nextBtn = isLast
-    ? `<button class="btn btn-primary" style="flex:2" onclick="saveTrainingSession()">Save Session</button>`
+    ? `<button id="btn-save-session" class="btn btn-primary" style="flex:2" onclick="saveTrainingSession()">Save Session</button>`
     : `<button class="btn btn-primary" style="flex:2" onclick="trainingNav(1)">Next →</button>`;
 
   const instrBlock = instructionsBanner
@@ -3029,17 +3029,53 @@ function pickPitchDist(idx, dist) {
 }
 
 async function saveTrainingSession() {
-  if (!T.drillStates.length) return;
+  const btn=document.getElementById('btn-save-session');
+  if(btn){btn.disabled=true;btn.style.opacity='0.6';}
+  // ensure template and drills are populated
+  if (!T.template.length) {
+    T.template = await GET('/api/training/template');
+  }
+  if (!T.drillStates.length && T.template.length) {
+    for (const cat of T.template) {
+      if (cat.resultType === 'wedge_matrix') {
+        T.drillStates.push({
+          category: cat.category,
+          name: 'Total Balls',
+          resultType: 'wedge_matrix',
+          completed: false,
+          skipped: false,
+          result: '',
+          pendingPartialUpdates: [],
+        });
+      } else {
+        for (const drill of cat.drills) {
+          T.drillStates.push({
+            category: cat.category,
+            name: drill.name,
+            club: (cat.clubs && cat.clubs.length === 1) ? cat.clubs[0] : null,
+            resultType: drill.resultType,
+            hint: drill.hint || '',
+            completed: false,
+            skipped: false,
+            result: '',
+          });
+        }
+      }
+    }
+  }
   // result already synced via oninput handlers
   const payload = {
     date: T.date,
     drills: T.drillStates,
     notes: T.notes,
   };
-  await POST('/api/training', payload);
+  const res=await POST('/api/training', payload);
+  if(res&&res.ok===false){if(btn){btn.disabled=false;btn.style.opacity='1';}showAlert('Save Failed', res.error||'Unknown error');return;}
   clearTrainingDraft();
+  const completed=T.drillStates.filter(d=>d.completed&&!d.skipped).length;
+  showAlert('Session Saved!', `${completed}/${T.drillStates.length} complete · ${T.date}`);
   T = { template: [], drillStates: [], date: '', notes: '', selectedCategories: [], selectedClubs: {}, activeCatIdx: 0, wedgeMatrix: {} };
-  show('home');
+  navHome();
 }
 
 async function renderTrainingHistory() {
@@ -3711,7 +3747,8 @@ function forfeitHole(){
     () => {
       if(S.logMode==='detailed'){S.holeClubs[S.currentHoleIdx]=['X'];}
       else{S.holeScores[S.currentHoleIdx]=maxScore;}
-      saveDraft();renderLogEntry();
+      saveDraft();
+      if(S.currentHoleIdx<S.holesToScore.length-1){S.currentHoleIdx++;saveDraft();renderLogEntry();}
     }
   );
 }
@@ -3884,11 +3921,13 @@ function renderLogNotes(){
     </div>
 
     <div class="sc-actions">
-      <button class="btn btn-green" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px" onclick="submitRound()"><img src="/static/save-96.png" style="width:16px;height:16px;object-fit:contain"> Save Round</button>
+      <button id="btn-submit-round" class="btn btn-green" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px" onclick="submitRound()"><img src="/static/save-96.png" style="width:16px;height:16px;object-fit:contain"> Save Round</button>
     </div>
   `;
 }
 async function submitRound(){
+  const btn=document.getElementById('btn-submit-round');
+  if(btn){btn.disabled=true;btn.style.opacity='0.6';}
   const course=S.logCourse;
   const computed=computeHoleScores();
   const scores=computed.map(h=>h.score);
@@ -3901,13 +3940,13 @@ async function submitRound(){
   const now=new Date();const dateStr=S.logDate+' '+String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
   const notes=(document.getElementById('ln-notes')||{}).value||'';
   const res=await POST('/api/rounds',{course_name:course.name,tee_color:S.logTee,scores:fullScores,is_serious:S.logSerious,is_sim:S.logIsSim||false,round_type:S.logType,notes,holes_played:S.holesToScore.length,holes_choice:S.logHoles,total_score:total,date:dateStr,entry_mode:S.logMode,detailed_stats:fullDet});
-  if(res&&res.ok===false){showAlert('Save Failed', res.error||'Unknown error');return;}
+  if(res&&res.ok===false){if(btn){btn.disabled=false;btn.style.opacity='1';}showAlert('Save Failed', res.error||'Unknown error');return;}
   clearDraft();
   clearStatsCache();
   const diff=total-parP;
   const ds=diff>0?`+${diff}`:diff===0?'E':`${diff}`;
-  showAlert('Round Saved!', `${total} (${ds}) · ${course.name} · ${S.holesToScore.length} holes`, 'View Rounds');
-  nav('rounds');
+  showAlert('Round Saved!', `${total} (${ds}) · ${course.name} · ${S.holesToScore.length} holes`);
+  navHome();
 }
 
 /* ================================================================
@@ -5009,18 +5048,32 @@ function clubToggle(name){
   S.editingClub=S.editingClub===name?null:name;
   renderStats();
 }
+
+// Auto-calculate partial swing distances based on full swing
+function autoFillPartials(clubName, fullDist) {
+  let p34Pct = 0.95, p12Pct = 0.75, p14Pct = 0.50;
+  if (clubName.includes('Wedge') || clubName.includes('W') || clubName === 'PW' || clubName === 'GW' || clubName === 'SW' || clubName === 'LW') {
+    p34Pct = 0.90; p12Pct = 0.70; p14Pct = 0.45;
+  }
+  return {
+    '3/4': Math.round(fullDist * p34Pct),
+    '1/2': Math.round(fullDist * p12Pct),
+    '1/4': Math.round(fullDist * p14Pct)
+  };
+}
+
 async function clubSave(origName){
   const dist=parseInt((document.getElementById('club-edit-dist')||{}).value);
   if(isNaN(dist)||dist<=0){showAlert('Invalid Distance','Enter a valid carry distance in yards.');return;}
   const p34=parseInt((document.getElementById('club-edit-p34')||{}).value);
   const p12=parseInt((document.getElementById('club-edit-p12')||{}).value);
   const p14=parseInt((document.getElementById('club-edit-p14')||{}).value);
+  const autoPartials=autoFillPartials(origName, dist);
   const partials={};
-  if(!isNaN(p34)&&p34>0) partials['3/4']=p34;
-  if(!isNaN(p12)&&p12>0) partials['1/2']=p12;
-  if(!isNaN(p14)&&p14>0) partials['1/4']=p14;
-  const payload={name:origName,distance:dist,notes:''};
-  if(Object.keys(partials).length) payload.partials=partials;
+  partials['3/4']=(!isNaN(p34)&&p34>0)?p34:autoPartials['3/4'];
+  partials['1/2']=(!isNaN(p12)&&p12>0)?p12:autoPartials['1/2'];
+  partials['1/4']=(!isNaN(p14)&&p14>0)?p14:autoPartials['1/4'];
+  const payload={name:origName,distance:dist,notes:'',partials};
   await PUT(`/api/clubs/${encodeURIComponent(origName)}`,payload);
   S.editingClub=null;
   S.clubs=await GET('/api/clubs');
@@ -5038,7 +5091,8 @@ async function clubAdd(){
   const name=(document.getElementById('club-new-name')||{}).value;
   const dist=parseInt((document.getElementById('club-new-dist')||{}).value);
   if(!name||isNaN(dist)||dist<=0){showAlert('Missing Info','Enter a club and carry distance.');return;}
-  await POST('/api/clubs',{name,distance:dist,notes:''});
+  const partials=autoFillPartials(name, dist);
+  await POST('/api/clubs',{name,distance:dist,notes:'',partials});
   S.editingClub=null;
   S.clubs=await GET('/api/clubs');
   renderStats();
