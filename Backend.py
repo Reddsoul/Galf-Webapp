@@ -1,1681 +1,289 @@
-import json
-import os
-import re
-import math
 from statistics import mean
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple, Any
-from dataclasses import dataclass, field
 
+from models import db, Course, TeeBox, Round, Club, UserPrefs, StatsCache, TrainingSession
 
-# Runtime capability detection for PyMuPDF
-def _check_pymupdf():
-    """Check if PyMuPDF (fitz) is available at runtime."""
-    try:
-        import fitz
-        return True, fitz
-    except ImportError:
-        return False, None
-
-_pymupdf_available, fitz = _check_pymupdf()
-
-
-# NOTE: OSM import feature has been removed from the app.
-# Manual polygon drawing is the only way to add course features.
-
-
-# NOTE: SAM auto-trace feature has been removed.
-# The app now relies on OSM import and manual polygon drawing.
-
-# --- Data files ---
-COURSES_FILE = 'Data/courses.json'
-ROUNDS_FILE = 'Data/rounds.json'
-CLUBS_FILE = 'Data/clubs.json'
-RULEBOOK_PDF = 'Data/2023_Rules_of_Golf.pdf'  # Changed from JSON to PDF
-BOOKMARKS_FILE = 'Data/bookmarks.json'
-RULE_NOTES_FILE = 'Data/rule_notes.json'
-RULEBOOK_CACHE_FILE = 'Data/rulebook_cache.json'  # Cache for parsed structure
-PDF_ANNOTATIONS_FILE = 'Data/pdf_annotations.json'  # Highlights and notes on PDF pages
-PAGE_BOOKMARKS_FILE = 'Data/page_bookmarks.json'  # Bookmarked page numbers
-STATS_CACHE_FILE = 'Data/stats_cache.json'  # Cached computed statistics
-USER_PREFS_FILE = 'Data/user_prefs.json'  # User preferences (entry mode, etc.)
-
-
-# Club categories for analytics
+# Club categories for analytics (category is the only field used)
 CLUB_CATEGORIES = {
-    "Driver": {"category": "driver", "loft": 10.5, "order": 1},
-    "3 Wood": {"category": "wood", "loft": 15, "order": 2},
-    "5 Wood": {"category": "wood", "loft": 18, "order": 3},
-    "7 Wood": {"category": "wood", "loft": 21, "order": 4},
-    "Hybrid": {"category": "hybrid", "loft": 22, "order": 5},
-    "2 Hybrid": {"category": "hybrid", "loft": 18, "order": 5},
-    "3 Hybrid": {"category": "hybrid", "loft": 20, "order": 6},
-    "4 Hybrid": {"category": "hybrid", "loft": 23, "order": 7},
-    "5 Hybrid": {"category": "hybrid", "loft": 26, "order": 8},
-    "2 Iron": {"category": "iron", "loft": 18, "order": 9},
-    "3 Iron": {"category": "iron", "loft": 21, "order": 10},
-    "4 Iron": {"category": "iron", "loft": 24, "order": 11},
-    "5 Iron": {"category": "iron", "loft": 27, "order": 12},
-    "6 Iron": {"category": "iron", "loft": 30, "order": 13},
-    "7 Iron": {"category": "iron", "loft": 34, "order": 14},
-    "8 Iron": {"category": "iron", "loft": 38, "order": 15},
-    "9 Iron": {"category": "iron", "loft": 42, "order": 16},
-    "PW": {"category": "wedge", "loft": 46, "order": 17},
-    "GW": {"category": "wedge", "loft": 50, "order": 18},
-    "SW": {"category": "wedge", "loft": 54, "order": 19},
-    "LW": {"category": "wedge", "loft": 58, "order": 20},
-    "Putter": {"category": "putter", "loft": 3, "order": 21},
+    "Driver": "driver",
+    "3 Wood": "wood",   "5 Wood": "wood",   "7 Wood": "wood",
+    "Hybrid": "hybrid", "2 Hybrid": "hybrid", "3 Hybrid": "hybrid",
+    "4 Hybrid": "hybrid", "5 Hybrid": "hybrid",
+    "2 Iron": "iron",   "3 Iron": "iron",   "4 Iron": "iron",
+    "5 Iron": "iron",   "6 Iron": "iron",   "7 Iron": "iron",
+    "8 Iron": "iron",   "9 Iron": "iron",
+    "PW": "wedge",      "GW": "wedge",      "SW": "wedge",      "LW": "wedge",
+    "Putter": "putter",
 }
 
-
-def load_json(filename):
-    if not os.path.exists(filename):
-        return []
-    with open(filename, 'r') as f:
-        return json.load(f)
+_STATS_CACHE_VERSION = 2
 
 
-def save_json(filename, data):
-    with open(filename, 'w') as f:
-        json.dump(data, f, indent=2)
-
-
-# ============================================================================
-# GEOSPATIAL CALCULATIONS (from yardbook_geo.py)
-# ============================================================================
-
-EARTH_RADIUS_METERS = 6_371_000  # Mean Earth radius in meters
-METERS_TO_YARDS = 1.09361
-
-
-def haversine_distance(
-    lat1: float, lon1: float, 
-    lat2: float, lon2: float
-) -> float:
-    """
-    Calculate the great-circle distance between two points on Earth.
-    
-    Args:
-        lat1, lon1: Latitude and longitude of point 1 (decimal degrees)
-        lat2, lon2: Latitude and longitude of point 2 (decimal degrees)
-    
-    Returns:
-        Distance in yards
-    """
-    lat1_rad = math.radians(lat1)
-    lat2_rad = math.radians(lat2)
-    delta_lat = math.radians(lat2 - lat1)
-    delta_lon = math.radians(lon2 - lon1)
-    
-    a = (math.sin(delta_lat / 2) ** 2 + 
-         math.cos(lat1_rad) * math.cos(lat2_rad) * 
-         math.sin(delta_lon / 2) ** 2)
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    
-    distance_meters = EARTH_RADIUS_METERS * c
-    return round(distance_meters * METERS_TO_YARDS, 1)
-
-
-def bearing(
-    lat1: float, lon1: float,
-    lat2: float, lon2: float
-) -> float:
-    """
-    Calculate the initial bearing from point 1 to point 2.
-    
-    Returns:
-        Bearing in degrees (0-360, where 0/360 is North)
-    """
-    lat1_rad = math.radians(lat1)
-    lat2_rad = math.radians(lat2)
-    delta_lon = math.radians(lon2 - lon1)
-    
-    x = math.sin(delta_lon) * math.cos(lat2_rad)
-    y = (math.cos(lat1_rad) * math.sin(lat2_rad) - 
-         math.sin(lat1_rad) * math.cos(lat2_rad) * math.cos(delta_lon))
-    
-    bearing_rad = math.atan2(x, y)
-    bearing_deg = math.degrees(bearing_rad)
-    
-    return (bearing_deg + 360) % 360
-
-
-def destination_point(
-    lat: float, lon: float,
-    bearing_deg: float, distance_yards: float
-) -> Tuple[float, float]:
-    """
-    Calculate the destination point given start point, bearing, and distance.
-    
-    Returns:
-        Tuple of (latitude, longitude) of destination point
-    """
-    distance_meters = distance_yards / METERS_TO_YARDS
-    angular_distance = distance_meters / EARTH_RADIUS_METERS
-    
-    lat_rad = math.radians(lat)
-    lon_rad = math.radians(lon)
-    bearing_rad = math.radians(bearing_deg)
-    
-    dest_lat_rad = math.asin(
-        math.sin(lat_rad) * math.cos(angular_distance) +
-        math.cos(lat_rad) * math.sin(angular_distance) * math.cos(bearing_rad)
-    )
-    
-    dest_lon_rad = lon_rad + math.atan2(
-        math.sin(bearing_rad) * math.sin(angular_distance) * math.cos(lat_rad),
-        math.cos(angular_distance) - math.sin(lat_rad) * math.sin(dest_lat_rad)
-    )
-    
-    return (math.degrees(dest_lat_rad), math.degrees(dest_lon_rad))
-
-
-def generate_distance_ring(
-    center_lat: float, center_lon: float,
-    distance_yards: float,
-    num_points: int = 72
-) -> List[Tuple[float, float]]:
-    """Generate points forming a circle at a given distance from center."""
-    points = []
-    for i in range(num_points + 1):
-        angle = (360.0 / num_points) * i
-        point = destination_point(center_lat, center_lon, angle, distance_yards)
-        points.append(point)
-    return points
-
-
-def generate_arc(
-    center_lat: float, center_lon: float,
-    distance_yards: float,
-    start_bearing: float,
-    end_bearing: float,
-    num_points: int = 36
-) -> List[Tuple[float, float]]:
-    """Generate an arc segment (partial circle) at a given distance."""
-    points = []
-    
-    if end_bearing < start_bearing:
-        end_bearing += 360
-    
-    angle_step = (end_bearing - start_bearing) / num_points
-    
-    for i in range(num_points + 1):
-        angle = (start_bearing + angle_step * i) % 360
-        point = destination_point(center_lat, center_lon, angle, distance_yards)
-        points.append(point)
-    
-    return points
-
-
-def midpoint(
-    lat1: float, lon1: float,
-    lat2: float, lon2: float
-) -> Tuple[float, float]:
-    """Calculate the midpoint between two coordinates."""
-    lat1_rad = math.radians(lat1)
-    lat2_rad = math.radians(lat2)
-    lon1_rad = math.radians(lon1)
-    delta_lon = math.radians(lon2 - lon1)
-    
-    bx = math.cos(lat2_rad) * math.cos(delta_lon)
-    by = math.cos(lat2_rad) * math.sin(delta_lon)
-    
-    mid_lat = math.atan2(
-        math.sin(lat1_rad) + math.sin(lat2_rad),
-        math.sqrt((math.cos(lat1_rad) + bx) ** 2 + by ** 2)
-    )
-    mid_lon = lon1_rad + math.atan2(by, math.cos(lat1_rad) + bx)
-    
-    return (math.degrees(mid_lat), math.degrees(mid_lon))
-
-
-def polygon_centroid(vertices: List[Tuple[float, float]]) -> Tuple[float, float]:
-    """Calculate the centroid of a polygon."""
-    if not vertices:
-        return (0.0, 0.0)
-    
-    avg_lat = sum(v[0] for v in vertices) / len(vertices)
-    avg_lon = sum(v[1] for v in vertices) / len(vertices)
-    return (avg_lat, avg_lon)
-
-
-def calculate_hole_distances(map_features: Dict) -> Dict:
-    """Calculate all relevant distances for a hole from its map features."""
-    distances = {
-        "tee_to_green_front": None,
-        "tee_to_green_back": None,
-        "tee_to_green_center": None,
-        "green_depth": None,
-        "route_distance": None,  # Route distance via waypoints (targets)
-        "targets": [],
-        "hazards": []
+def _round_to_dict(r):
+    return {
+        "course_name": r.course_name,
+        "tee_color": r.tee_color,
+        "date": r.date,
+        "total_score": r.total_score,
+        "par": r.par,
+        "tee_rating": r.tee_rating,
+        "tee_slope": r.tee_slope,
+        "target_score": r.target_score,
+        "holes_played": r.holes_played,
+        "holes_choice": r.holes_choice,
+        "round_type": r.round_type,
+        "is_serious": r.is_serious,
+        "is_sim": r.is_sim,
+        "notes": r.notes,
+        "scores": r.scores or [],
+        "detailed_stats": r.detailed_stats or [],
     }
-    
-    tee = map_features.get("tee")
-    green_front = map_features.get("green_front")
-    green_back = map_features.get("green_back")
-    
-    if not tee:
-        return distances
-    
-    tee_lat, tee_lon = tee.get("lat"), tee.get("lon")
-    if tee_lat is None or tee_lon is None:
-        return distances
-    
-    if green_front and green_front.get("lat") is not None:
-        gf_lat, gf_lon = green_front["lat"], green_front["lon"]
-        distances["tee_to_green_front"] = haversine_distance(
-            tee_lat, tee_lon, gf_lat, gf_lon
-        )
-        
-        if green_back and green_back.get("lat") is not None:
-            gb_lat, gb_lon = green_back["lat"], green_back["lon"]
-            distances["tee_to_green_back"] = haversine_distance(
-                tee_lat, tee_lon, gb_lat, gb_lon
-            )
-            distances["green_depth"] = haversine_distance(
-                gf_lat, gf_lon, gb_lat, gb_lon
-            )
-            
-            center = midpoint(gf_lat, gf_lon, gb_lat, gb_lon)
-            distances["tee_to_green_center"] = haversine_distance(
-                tee_lat, tee_lon, center[0], center[1]
-            )
-            
-            # Calculate route distance (tee -> targets -> green_back)
-            # This handles curved fairways using targets as waypoints
-            route_distance = _calculate_route_distance(
-                tee_lat, tee_lon,
-                gb_lat, gb_lon,
-                map_features.get("targets", [])
-            )
-            if route_distance is not None:
-                distances["route_distance"] = route_distance
-    
-    for target in map_features.get("targets", []):
-        if target.get("lat") is not None:
-            t_lat, t_lon = target["lat"], target["lon"]
-            dist_from_tee = haversine_distance(tee_lat, tee_lon, t_lat, t_lon)
-            
-            dist_to_green = None
-            if green_front and green_front.get("lat") is not None:
-                dist_to_green = haversine_distance(
-                    t_lat, t_lon, 
-                    green_front["lat"], green_front["lon"]
-                )
-            
-            distances["targets"].append({
-                "name": target.get("name", "Target"),
-                "from_tee": dist_from_tee,
-                "to_green": dist_to_green
-            })
-    
-    for hazard in map_features.get("hazards", []):
-        if hazard.get("lat") is not None:
-            h_lat, h_lon = hazard["lat"], hazard["lon"]
-            dist_from_tee = haversine_distance(tee_lat, tee_lon, h_lat, h_lon)
-            
-            distances["hazards"].append({
-                "type": hazard.get("type", "hazard"),
-                "from_tee": dist_from_tee
-            })
-    
-    return distances
 
 
-def _calculate_route_distance(
-    tee_lat: float, tee_lon: float,
-    green_back_lat: float, green_back_lon: float,
-    targets: List[Dict]
-) -> Optional[float]:
-    """
-    Calculate route distance from tee to green_back through waypoints (targets).
-    
-    Uses targets as waypoints in order (sorted by distance from tee), computing
-    sum of segment distances: tee -> target[0] -> target[1] -> ... -> green_back
-    
-    This helps model curved fairways by using targets as intermediate waypoints.
-    
-    Args:
-        tee_lat, tee_lon: Tee position
-        green_back_lat, green_back_lon: Green back position
-        targets: List of target dicts with lat/lon keys
-    
-    Returns:
-        Route distance in yards, or None if no targets (use straight-line instead)
-    """
-    # Filter targets that have valid coordinates
-    valid_targets = [t for t in targets if t.get("lat") is not None and t.get("lon") is not None]
-    
-    if not valid_targets:
-        # No waypoints, route distance equals straight-line distance
-        return None
-    
-    # Sort targets by distance from tee (approximate play order)
-    sorted_targets = sorted(
-        valid_targets,
-        key=lambda t: haversine_distance(tee_lat, tee_lon, t["lat"], t["lon"])
-    )
-    
-    # Build route: tee -> sorted targets -> green_back
-    route_points = [(tee_lat, tee_lon)]
-    for t in sorted_targets:
-        route_points.append((t["lat"], t["lon"]))
-    route_points.append((green_back_lat, green_back_lon))
-    
-    # Sum segment distances
-    total_distance = 0.0
-    for i in range(len(route_points) - 1):
-        p1 = route_points[i]
-        p2 = route_points[i + 1]
-        segment_dist = haversine_distance(p1[0], p1[1], p2[0], p2[1])
-        total_distance += segment_dist
-    
-    return round(total_distance, 1)
+def _course_to_dict(c):
+    tee_boxes = []
+    yardages = {}
+    for tb in c.tee_boxes:
+        tee_boxes.append({"color": tb.color, "rating": tb.rating, "slope": tb.slope, "handicap": tb.handicap})
+        yardages[tb.color] = tb.yardages or []
+    return {
+        "name": c.name,
+        "club": c.club or "",
+        "pars": c.pars or [],
+        "tee_boxes": tee_boxes,
+        "yardages": yardages,
+    }
 
 
-def validate_yardage_difference(
-    map_distance: float,
-    scorecard_yardage: int,
-    tolerance_percent: float = 10.0
-) -> Tuple[bool, float]:
-    """Check if the map-calculated distance differs significantly from scorecard."""
-    if scorecard_yardage == 0:
-        return (True, 0.0)
-    
-    diff = abs(map_distance - scorecard_yardage)
-    percent_diff = (diff / scorecard_yardage) * 100
-    
-    return (percent_diff <= tolerance_percent, round(percent_diff, 1))
+def _club_to_dict(c):
+    d = {"name": c.name, "distance": c.distance, "notes": c.notes or ""}
+    if c.partials:
+        d["partials"] = c.partials
+    return d
 
 
-def polygon_area_sqyards(vertices: List[Tuple[float, float]]) -> float:
-    """Calculate approximate area of a polygon in square yards."""
-    if len(vertices) < 3:
-        return 0.0
-    
-    centroid = polygon_centroid(vertices)
-    
-    local_coords = []
-    for v in vertices:
-        x = haversine_distance(centroid[0], centroid[1], centroid[0], v[1])
-        if v[1] < centroid[1]:
-            x = -x
-        
-        y = haversine_distance(centroid[0], centroid[1], v[0], centroid[1])
-        if v[0] < centroid[0]:
-            y = -y
-        
-        local_coords.append((x, y))
-    
-    n = len(local_coords)
-    area = 0.0
-    for i in range(n):
-        j = (i + 1) % n
-        area += local_coords[i][0] * local_coords[j][1]
-        area -= local_coords[j][0] * local_coords[i][1]
-    
-    return abs(area) / 2.0
-
-
-def polygon_area_from_vertices(vertices: List[Dict]) -> float:
-    """
-    Calculate polygon area from a list of vertex dicts with lat/lon keys.
-    Pure Python implementation using shoelace formula with local projection.
-    
-    Args:
-        vertices: List of dicts with 'lat' and 'lon' keys
-    
-    Returns:
-        Area in square yards (approximate)
-    """
-    if len(vertices) < 3:
-        return 0.0
-    
-    # Convert to tuple format
-    coords = [(v["lat"], v["lon"]) for v in vertices]
-    return polygon_area_sqyards(coords)
-
-
-# ============================================================================
-# YARDBOOK DATA MODELS (from yardbook_data.py)
-# ============================================================================
-
-@dataclass
-class GeoPoint:
-    """A geographic point with latitude and longitude."""
-    lat: Optional[float] = None
-    lon: Optional[float] = None
-    
-    def is_set(self) -> bool:
-        return self.lat is not None and self.lon is not None
-    
-    def to_dict(self) -> Dict:
-        return {"lat": self.lat, "lon": self.lon}
-    
-    @classmethod
-    def from_dict(cls, data: Dict) -> 'GeoPoint':
-        if not data:
-            return cls()
-        return cls(lat=data.get("lat"), lon=data.get("lon"))
-
-
-@dataclass 
-class Target:
-    """A target point on the hole (layup, landing zone, etc.)."""
-    name: str = "Target"
-    lat: Optional[float] = None
-    lon: Optional[float] = None
-    
-    def to_dict(self) -> Dict:
-        return {"name": self.name, "lat": self.lat, "lon": self.lon}
-    
-    @classmethod
-    def from_dict(cls, data: Dict) -> 'Target':
-        return cls(
-            name=data.get("name", "Target"),
-            lat=data.get("lat"),
-            lon=data.get("lon")
-        )
-
-
-@dataclass
-class Hazard:
-    """A hazard point (water, bunker, OB, etc.)."""
-    hazard_type: str = "water"
-    lat: Optional[float] = None
-    lon: Optional[float] = None
-    
-    def to_dict(self) -> Dict:
-        return {"type": self.hazard_type, "lat": self.lat, "lon": self.lon}
-    
-    @classmethod
-    def from_dict(cls, data: Dict) -> 'Hazard':
-        return cls(
-            hazard_type=data.get("type", "water"),
-            lat=data.get("lat"),
-            lon=data.get("lon")
-        )
-
-
-@dataclass
-class Polygon:
-    """A polygon overlay (fairway, green, water, bunker)."""
-    vertices: List[Dict] = field(default_factory=list)
-    
-    def add_vertex(self, lat: float, lon: float):
-        self.vertices.append({"lat": lat, "lon": lon})
-    
-    def remove_last_vertex(self):
-        if self.vertices:
-            self.vertices.pop()
-    
-    def clear(self):
-        self.vertices = []
-    
-    def is_valid(self) -> bool:
-        return len(self.vertices) >= 3
-    
-    def to_list(self) -> List[Dict]:
-        return self.vertices
-    
-    @classmethod
-    def from_list(cls, data: List) -> 'Polygon':
-        poly = cls()
-        if data:
-            poly.vertices = data
-        return poly
-
-
-@dataclass
-class HoleMapFeatures:
-    """All map features for a single hole."""
-    tee: GeoPoint = field(default_factory=GeoPoint)
-    green_front: GeoPoint = field(default_factory=GeoPoint)
-    green_back: GeoPoint = field(default_factory=GeoPoint)
-    targets: List[Target] = field(default_factory=list)
-    hazards: List[Hazard] = field(default_factory=list)
-    # CHANGED: Now stores list of polygons per type to support multiple bunkers, water hazards, etc.
-    polygons: Dict[str, List[Polygon]] = field(default_factory=dict)
-    slope_arrows: List[Dict] = field(default_factory=list)
-    aim_breaks: List[GeoPoint] = field(default_factory=list)
-    notes: str = ""
-    last_modified: str = ""
-    
-    def __post_init__(self):
-        # CHANGED: Removed "native" from default polygon types
-        default_polygon_types = ["fairway", "green", "water", "bunker"]
-        for ptype in default_polygon_types:
-            if ptype not in self.polygons:
-                self.polygons[ptype] = []
-    
-    def add_polygon(self, ptype: str, polygon: Polygon):
-        """Add a polygon to the specified type."""
-        if ptype not in self.polygons:
-            self.polygons[ptype] = []
-        self.polygons[ptype].append(polygon)
-    
-    def get_polygons(self, ptype: str) -> List[Polygon]:
-        """Get all polygons of a specific type."""
-        return self.polygons.get(ptype, [])
-    
-    def get_all_valid_polygons(self) -> List[Tuple[str, int, Polygon]]:
-        """Get all valid polygons with their type and index."""
-        result = []
-        for ptype, poly_list in self.polygons.items():
-            for idx, poly in enumerate(poly_list):
-                if poly.is_valid():
-                    result.append((ptype, idx, poly))
-        return result
-    
-    def remove_polygon(self, ptype: str, index: int) -> bool:
-        """Remove a polygon by type and index."""
-        if ptype in self.polygons and 0 <= index < len(self.polygons[ptype]):
-            self.polygons[ptype].pop(index)
-            return True
-        return False
-    
-    def to_dict(self) -> Dict:
-        # CHANGED: Serialize list of polygons per type
-        polygons_dict = {}
-        for ptype, poly_list in self.polygons.items():
-            valid_polys = [p.to_list() for p in poly_list if p.is_valid()]
-            if valid_polys:
-                polygons_dict[ptype] = valid_polys
-        
-        return {
-            "tee": self.tee.to_dict(),
-            "green_front": self.green_front.to_dict(),
-            "green_back": self.green_back.to_dict(),
-            "targets": [t.to_dict() for t in self.targets],
-            "hazards": [h.to_dict() for h in self.hazards],
-            "polygons": polygons_dict,
-            "slope_arrows": self.slope_arrows,
-            "aim_breaks": [bp.to_dict() for bp in self.aim_breaks],
-            "notes": self.notes,
-            "last_modified": self.last_modified
-        }
-    
-    @classmethod
-    def from_dict(cls, data: Dict) -> 'HoleMapFeatures':
-        if not data:
-            return cls()
-        
-        features = cls(
-            tee=GeoPoint.from_dict(data.get("tee", {})),
-            green_front=GeoPoint.from_dict(data.get("green_front", {})),
-            green_back=GeoPoint.from_dict(data.get("green_back", {})),
-            notes=data.get("notes", ""),
-            last_modified=data.get("last_modified", "")
-        )
-        
-        for t_data in data.get("targets", []):
-            features.targets.append(Target.from_dict(t_data))
-        
-        for h_data in data.get("hazards", []):
-            features.hazards.append(Hazard.from_dict(h_data))
-        
-        # CHANGED: Load polygons - handle both old format (single polygon) and new format (list)
-        for ptype, poly_data in data.get("polygons", {}).items():
-            if ptype not in features.polygons:
-                features.polygons[ptype] = []
-            
-            # Check if it's old format (list of vertex dicts) or new format (list of polygon lists)
-            if poly_data and isinstance(poly_data[0], dict):
-                # Old format: single polygon stored directly as vertex list
-                features.polygons[ptype].append(Polygon.from_list(poly_data))
-            else:
-                # New format: list of polygon vertex lists
-                for vertices in poly_data:
-                    features.polygons[ptype].append(Polygon.from_list(vertices))
-        
-        features.slope_arrows = data.get("slope_arrows", [])
-        
-        for bp_data in data.get("aim_breaks", []):
-            features.aim_breaks.append(GeoPoint.from_dict(bp_data))
-        
-        return features
-    
-    def clear_all(self):
-        """Reset all map features."""
-        self.tee = GeoPoint()
-        self.green_front = GeoPoint()
-        self.green_back = GeoPoint()
-        self.targets = []
-        self.hazards = []
-        for ptype in self.polygons:
-            self.polygons[ptype] = []
-        self.slope_arrows = []
-        self.aim_breaks = []
-        self.notes = ""
-    
-    def has_data(self) -> bool:
-        """Check if any map features have been set."""
-        if self.tee.is_set() or self.green_front.is_set() or self.green_back.is_set():
-            return True
-        if self.targets or self.hazards:
-            return True
-        for poly_list in self.polygons.values():
-            for poly in poly_list:
-                if poly.is_valid():
-                    return True
-        return False
-
-
-class yardbookManager:
-    """Manages yardbook data for courses."""
-    
-    def __init__(self, courses_file: str):
-        self.courses_file = courses_file
-        self._cache: Dict[str, Dict[int, HoleMapFeatures]] = {}
-    
-    def _load_courses(self) -> List[Dict]:
-        if not os.path.exists(self.courses_file):
-            return []
-        with open(self.courses_file, 'r') as f:
-            return json.load(f)
-    
-    def _save_courses(self, courses: List[Dict]):
-        with open(self.courses_file, 'w') as f:
-            json.dump(courses, f, indent=2)
-    
-    def get_hole_features(self, course_name: str, hole_num: int) -> HoleMapFeatures:
-        cache_key = course_name
-        if cache_key in self._cache and hole_num in self._cache[cache_key]:
-            return self._cache[cache_key][hole_num]
-        
-        courses = self._load_courses()
-        for course in courses:
-            if course.get("name") == course_name:
-                holes_data = course.get("holes", {})
-                hole_key = str(hole_num)
-                
-                if hole_key in holes_data:
-                    hole_data = holes_data[hole_key]
-                    map_features_data = hole_data.get("map_features", {})
-                    features = HoleMapFeatures.from_dict(map_features_data)
-                else:
-                    features = HoleMapFeatures()
-                
-                if cache_key not in self._cache:
-                    self._cache[cache_key] = {}
-                self._cache[cache_key][hole_num] = features
-                
-                return features
-        
-        return HoleMapFeatures()
-    
-    def save_hole_features(self, course_name: str, hole_num: int, features: HoleMapFeatures):
-        features.last_modified = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        courses = self._load_courses()
-        
-        for course in courses:
-            if course.get("name") == course_name:
-                if "holes" not in course:
-                    course["holes"] = {}
-                
-                hole_key = str(hole_num)
-                
-                if hole_key not in course["holes"]:
-                    course["holes"][hole_key] = {}
-                
-                pars = course.get("pars", [])
-                if hole_num <= len(pars):
-                    course["holes"][hole_key]["par"] = pars[hole_num - 1]
-                
-                course["holes"][hole_key]["map_features"] = features.to_dict()
-                
-                break
-        
-        self._save_courses(courses)
-        
-        cache_key = course_name
-        if cache_key not in self._cache:
-            self._cache[cache_key] = {}
-        self._cache[cache_key][hole_num] = features
-    
-    def clear_hole_features(self, course_name: str, hole_num: int):
-        features = HoleMapFeatures()
-        self.save_hole_features(course_name, hole_num, features)
-    
-    def get_course_yardbook_summary(self, course_name: str) -> Dict:
-        courses = self._load_courses()
-        
-        for course in courses:
-            if course.get("name") == course_name:
-                num_holes = len(course.get("pars", []))
-                holes_with_data = 0
-                holes_complete = 0
-                
-                holes_data = course.get("holes", {})
-                
-                for h in range(1, num_holes + 1):
-                    hole_key = str(h)
-                    if hole_key in holes_data:
-                        map_features = holes_data[hole_key].get("map_features", {})
-                        if map_features:
-                            features = HoleMapFeatures.from_dict(map_features)
-                            if features.has_data():
-                                holes_with_data += 1
-                                if features.tee.is_set() and features.green_front.is_set():
-                                    holes_complete += 1
-                
-                return {
-                    "total_holes": num_holes,
-                    "holes_with_data": holes_with_data,
-                    "holes_complete": holes_complete,
-                    "completion_percent": round((holes_complete / num_holes) * 100, 1) if num_holes > 0 else 0
-                }
-        
-        return {"total_holes": 0, "holes_with_data": 0, "holes_complete": 0, "completion_percent": 0}
-    
-    def invalidate_cache(self, course_name: Optional[str] = None):
-        if course_name:
-            self._cache.pop(course_name, None)
-        else:
-            self._cache.clear()
-
-
-# Yardbook UI presets
-DISTANCE_RING_PRESETS = {
-    "driver": {"distance": 250, "color": "#FF6B6B", "label": "Driver"},
-    "3_wood": {"distance": 225, "color": "#4ECDC4", "label": "3 Wood"},
-    "5_wood": {"distance": 200, "color": "#45B7D1", "label": "5 Wood"},
-    "hybrid": {"distance": 180, "color": "#96CEB4", "label": "Hybrid"},
-    "5_iron": {"distance": 160, "color": "#FFEAA7", "label": "5 Iron"},
-    "7_iron": {"distance": 140, "color": "#DDA0DD", "label": "7 Iron"},
-    "9_iron": {"distance": 120, "color": "#98D8C8", "label": "9 Iron"},
-    "pw": {"distance": 100, "color": "#F7DC6F", "label": "PW"},
-}
-
-POLYGON_STYLES = {
-    "fairway": {"fill_color": "#90EE90", "outline_color": "#228B22", "fill_opacity": 0.3, "label": "Fairway"},
-    "green": {"fill_color": "#006400", "outline_color": "#004000", "fill_opacity": 0.5, "label": "Green"},
-    "water": {"fill_color": "#1E90FF", "outline_color": "#0000CD", "fill_opacity": 0.4, "label": "Water"},
-    "bunker": {"fill_color": "#F4E4C1", "outline_color": "#C4A961", "fill_opacity": 0.5, "label": "Bunker"},
-}
-
-MARKER_STYLES = {
-    "tee": {"color": "#FF4444", "label": "T", "size": 12},
-    "green_front": {"color": "#44FF44", "label": "F", "size": 10},
-    "green_back": {"color": "#44FF44", "label": "B", "size": 10},
-    "target": {"color": "#FFFF44", "label": "●", "size": 10},
-    "hazard_water": {"color": "#4444FF", "label": "W", "size": 10},
-    "hazard_bunker": {"color": "#F4E4C1", "label": "S", "size": 10},
-    "hazard_ob": {"color": "#FFFFFF", "label": "OB", "size": 10},
-}
-
-
-
-
-# ============================================================================
-# PDF RULEBOOK CLASS
-# ============================================================================
-
-class PDFRulebook:
-    """
-    Direct PDF-based rulebook access.
-    Parses the Rules of Golf PDF on-the-fly for searches and browsing.
-    """
-    
-    def __init__(self, pdf_path):
-        self.pdf_path = pdf_path
-        self.doc = None
-        self._cache = None
-        self._page_text_cache = {}
-        
-        if _pymupdf_available and fitz and os.path.exists(pdf_path):
-            self.doc = fitz.open(pdf_path)
-        
-    def is_available(self):
-        """Check if PDF is loaded and ready."""
-        return self.doc is not None
-    
-    def get_version(self):
-        """Return version info from the PDF."""
-        if not self.is_available():
-            return {"version": "Unknown", "last_updated": "Unknown"}
-        
-        # Extract version from PDF metadata or first page
-        metadata = self.doc.metadata
-        title = metadata.get('title', '')
-        
-        # Try to find year in title or filename
-        year_match = re.search(r'20\d{2}', title) or re.search(r'20\d{2}', self.pdf_path)
-        version = year_match.group(0) if year_match else "2023"
-        
-        return {
-            "version": version,
-            "last_updated": datetime.fromtimestamp(os.path.getmtime(self.pdf_path)).strftime("%Y-%m-%d")
-        }
-    
-    def get_page_text(self, page_num):
-        """Get text from a specific page with caching."""
-        if page_num in self._page_text_cache:
-            return self._page_text_cache[page_num]
-        
-        if not self.is_available() or page_num >= len(self.doc):
-            return ""
-        
-        text = self.doc[page_num].get_text()
-        self._page_text_cache[page_num] = text
-        return text
-    
-    def get_total_pages(self):
-        """Return total number of pages."""
-        return len(self.doc) if self.is_available() else 0
-    
-    def _parse_toc_from_pdf(self):
-        """
-        Parse the Table of Contents directly from the PDF.
-        Uses multiple strategies to ensure all chapters/rules are captured.
-        Returns list of {'level': int, 'title': str, 'page': int} dicts.
-        
-        Improved to handle chapters 5 and 6 correctly by:
-        1. Scanning more pages for TOC entries
-        2. Using more robust pattern matching
-        3. Actively searching for all 24 rules in the document
-        """
-        if not self.is_available():
-            return []
-        
-        entries = []
-        
-        # Strategy 1: Try to use PDF's built-in TOC (outline) first
-        try:
-            toc = self.doc.get_toc()
-            if toc and len(toc) > 5:  # Has reasonable TOC
-                for level, title, page in toc:
-                    normalized_level = min(max(level, 1), 3)
-                    entries.append({
-                        'level': normalized_level,
-                        'title': title.strip(),
-                        'page': page
-                    })
-                # Even with built-in TOC, ensure all rules are present
-                entries = self._ensure_all_rules_present(entries)
-                return entries
-        except:
-            pass
-        
-        # Strategy 2: Parse TOC from text content (extended range: pages 3-15)
-        toc_text = ""
-        for page_num in range(3, 16):
-            if page_num < len(self.doc):
-                page = self.doc[page_num]
-                toc_text += page.get_text() + "\n"
-        
-        lines = toc_text.split('\n')
-        i = 0
-        
-        # Enhanced patterns for matching TOC entries
-        toc_patterns = [
-            # Pattern: backspace character separator (common in PDFs)
-            (r'^(.+?)\x08\s*(\d+)$', None),
-            # Pattern: dots leading to page number
-            (r'^(.+?)\s*\.{2,}\s*(\d+)$', None),
-            # Pattern: Rule with various separators (dash, en-dash, colon, space)
-            (r'^(Rule\s+\d+[a-z]?\s*[–\-:\s]+.+?)\s+(\d+)$', 2),
-            # Pattern: Just "Rule X" with page number (handles minimalist TOC)
-            (r'^(Rule\s+\d+[a-z]?)\s+(\d+)$', 2),
-            # Pattern: Roman numeral sections
-            (r'^([IVX]+\.\s+.+?)\s+(\d+)$', 1),
-            # Pattern: Numbered subsections (5.1, 5.2, etc.)
-            (r'^(\d+\.\d+[a-z]?\s+.+?)\s+(\d+)$', 3),
-            # Pattern: Title followed by multiple spaces and page number
-            (r'^(.{5,}?)\s{3,}(\d+)$', None),
-        ]
-        
-        while i < len(lines):
-            line = lines[i].strip()
-            
-            # Skip empty lines, headers, standalone page numbers
-            if not line or line == "Contents" or line == "Table of Contents":
-                i += 1
-                continue
-            
-            # Skip standalone page numbers
-            if line.isdigit() and len(line) <= 3:
-                i += 1
-                continue
-            
-            matched = False
-            for pattern, forced_level in toc_patterns:
-                match = re.match(pattern, line, re.IGNORECASE)
-                if match:
-                    title = match.group(1).strip()
-                    page_str = match.group(2).strip()
-                    
-                    if title and page_str.isdigit():
-                        page_num = int(page_str)
-                        
-                        # Skip unreasonable page numbers
-                        if page_num > 500:
-                            continue
-                        
-                        # Determine hierarchy level
-                        level = forced_level if forced_level else self._determine_toc_level(title)
-                        
-                        # Clean up title
-                        title = re.sub(r'\s+', ' ', title).strip()
-                        
-                        entries.append({
-                            'level': level,
-                            'title': title,
-                            'page': page_num
-                        })
-                        matched = True
-                        break
-            
-            # Strategy 3: Handle split lines (title on one line, page on next)
-            if not matched and line and not line.isdigit():
-                if i + 1 < len(lines):
-                    next_line = lines[i + 1].strip()
-                    if next_line.isdigit() and int(next_line) < 500:
-                        title = line.strip()
-                        page_num = int(next_line)
-                        
-                        level = self._determine_toc_level(title)
-                        title = re.sub(r'\s+', ' ', title).strip()
-                        
-                        if len(title) > 2:
-                            entries.append({
-                                'level': level,
-                                'title': title,
-                                'page': page_num
-                            })
-                            i += 1
-            
-            i += 1
-        
-        # Strategy 4: Ensure all rules 1-24 are present
-        entries = self._ensure_all_rules_present(entries)
-        
-        # Sort entries by page number
-        entries.sort(key=lambda x: x['page'])
-        
-        return entries
-    
-    def _ensure_all_rules_present(self, entries):
-        """
-        Ensure all 24 rules are present in the TOC entries.
-        Searches the document for any missing rules.
-        """
-        rules_found = set()
-        for entry in entries:
-            # Match "Rule X" at start of title
-            match = re.match(r'Rule\s+(\d+)', entry['title'], re.IGNORECASE)
-            if match:
-                rules_found.add(int(match.group(1)))
-        
-        # Check for missing rules and find them in the document
-        for rule_num in range(1, 25):
-            if rule_num not in rules_found:
-                rule_entry = self._find_rule_in_document(rule_num)
-                if rule_entry:
-                    entries.append(rule_entry)
-                    rules_found.add(rule_num)
-        
-        return entries
-    
-    def _determine_toc_level(self, title: str) -> int:
-        """Determine the hierarchy level of a TOC entry."""
-        # Level 1: Parts (Roman numerals), major sections
-        if re.match(r'^[IVX]+\.\s', title):
-            return 1
-        if any(title.startswith(x) for x in ['Foreword', 'Principal Changes', 'How to Use', 'Index', 'Other Publications']):
-            return 1
-        if 'Definitions' in title:
-            return 1
-        
-        # Level 2: Main Rules
-        if re.match(r'^Rule\s+\d+\s*[–\-:]?', title):
-            return 2
-        
-        # Level 3: Sub-rules
-        if re.match(r'^\d+\.\d+', title):
-            return 3
-        
-        return 2
-    
-    def _find_rule_in_document(self, rule_num: int):
-        """
-        Search the document for a specific rule heading.
-        Enhanced to handle various formatting of rule headers including chapters 5 and 6.
-        """
-        if not self.is_available():
-            return None
-        
-        # Multiple patterns to match rule headers in various formats
-        patterns = [
-            # Standard formats with separators
-            rf'Rule\s+{rule_num}\s*[–\-:]\s*([^\n]+)',
-            rf'RULE\s+{rule_num}\s*[–\-:]\s*([^\n]+)',
-            # Rule with just space before title
-            rf'Rule\s+{rule_num}\s+([A-Z][^\n]+)',
-            rf'RULE\s+{rule_num}\s+([A-Z][^\n]+)',
-            # Rule on its own line (title may follow)
-            rf'^\s*Rule\s+{rule_num}\s*$',
-            rf'^\s*RULE\s+{rule_num}\s*$',
-        ]
-        
-        for page_num in range(len(self.doc)):
-            text = self.get_page_text(page_num)
-            
-            for pattern in patterns:
-                match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
-                if match:
-                    # Try to get the rule title from the match
-                    if match.lastindex and match.lastindex >= 1:
-                        rule_title = match.group(1).strip()
-                    else:
-                        # Title not captured, try to extract from next line
-                        match_end = match.end()
-                        remaining = text[match_end:match_end + 200]
-                        title_match = re.match(r'\s*[–\-:]?\s*([A-Z][^\n]+)', remaining)
-                        if title_match:
-                            rule_title = title_match.group(1).strip()
-                        else:
-                            rule_title = f"Rule {rule_num}"
-                    
-                    # Clean up the title
-                    rule_title = re.sub(r'\s+', ' ', rule_title)
-                    # Remove trailing numbers that might be page numbers
-                    rule_title = re.sub(r'\s+\d+\s*$', '', rule_title)
-                    if len(rule_title) > 60:
-                        rule_title = rule_title[:60] + "..."
-                    
-                    # Avoid generic titles
-                    if rule_title.lower().strip() == f"rule {rule_num}":
-                        rule_title = f"Rule {rule_num}"
-                    
-                    return {
-                        'level': 2,
-                        'title': f"Rule {rule_num} – {rule_title}" if rule_title != f"Rule {rule_num}" else rule_title,
-                        'page': page_num + 1
-                    }
-        
-        return None
-        
-        return None
-    
-    def _parse_structure(self):
-        """Parse PDF to extract rule structure. Results are cached."""
-        if self._cache is not None:
-            return self._cache
-        
-        # Try to load from cache file first
-        if os.path.exists(RULEBOOK_CACHE_FILE):
-            try:
-                with open(RULEBOOK_CACHE_FILE, 'r') as f:
-                    cached = json.load(f)
-                    if cached.get('pdf_mtime') == os.path.getmtime(self.pdf_path):
-                        self._cache = cached
-                        return self._cache
-            except (json.JSONDecodeError, OSError):
-                pass
-        
-        if not self.is_available():
-            return {"toc": [], "sections": [], "rules": {}}
-        
-        # Parse TOC directly from PDF
-        toc_entries = self._parse_toc_from_pdf()
-        
-        # Build TOC items with unique IDs
-        toc_items = []
-        sections = []
-        
-        for i, entry in enumerate(toc_entries):
-            toc_item = {
-                "id": f"toc_{i}",
-                "level": entry['level'],
-                "title": entry['title'],
-                "page": entry['page']
-            }
-            toc_items.append(toc_item)
-            
-            # Also add to sections for backward compatibility
-            if entry['level'] <= 2:
-                sections.append({
-                    "id": toc_item["id"],
-                    "title": entry['title'],
-                    "page": entry['page'],
-                    "level": entry['level']
-                })
-        
-        self._cache = {
-            "toc": toc_items,
-            "sections": sections,
-            "rules": {},
-            "pdf_mtime": os.path.getmtime(self.pdf_path)
-        }
-        
-        # Save cache
-        try:
-            os.makedirs(os.path.dirname(RULEBOOK_CACHE_FILE), exist_ok=True)
-            with open(RULEBOOK_CACHE_FILE, 'w') as f:
-                json.dump(self._cache, f)
-        except OSError:
-            pass
-        
-        return self._cache
-    
-    def get_toc(self):
-        """Return the full hierarchical table of contents parsed from the PDF."""
-        structure = self._parse_structure()
-        return structure.get("toc", [])
-    
-    def get_all_sections(self):
-        """Return list of (section_id, section_title) tuples for backward compatibility."""
-        structure = self._parse_structure()
-        return [(s["id"], s["title"]) for s in structure.get("sections", [])]
-    
-    def get_all_sections_with_pages(self):
-        """Return list of (section_id, section_title, page_num) tuples."""
-        structure = self._parse_structure()
-        return [(s["id"], s["title"], s.get("page", 0)) for s in structure.get("sections", [])]
-    
-    def get_section_rules(self, section_id):
-        """Get all rules in a specific section."""
-        structure = self._parse_structure()
-        rules = []
-        
-        for rule_id, rule in structure["rules"].items():
-            if rule.get("section_id") == section_id:
-                rules.append({
-                    "id": rule["id"],
-                    "title": rule["title"],
-                    "content": rule.get("content", ""),
-                    "page": rule.get("page", 0)
-                })
-        
-        # Sort by rule ID (1.1, 1.2, 1.3, etc.)
-        rules.sort(key=lambda x: [int(n) if n.isdigit() else n for n in re.split(r'(\d+)', x["id"])])
-        return rules
-    
-    def get_rule_by_id(self, rule_id):
-        """Get a specific rule by its ID."""
-        structure = self._parse_structure()
-        rule = structure["rules"].get(rule_id)
-        
-        if not rule:
-            return None
-        
-        # Find section info
-        section_id = rule.get("section_id", rule_id.split('.')[0])
-        section_title = ""
-        for sec in structure["sections"]:
-            if sec["id"] == section_id:
-                section_title = sec["title"]
-                break
-        
-        return {
-            "section_id": section_id,
-            "section_title": section_title,
-            "rule": {
-                "id": rule["id"],
-                "title": rule["title"],
-                "content": rule.get("content", ""),
-                "page": rule.get("page", 0)
-            }
-        }
-    
-    def search(self, query, max_results=50):
-        """
-        Search the PDF for rules matching the query.
-        Returns list of matching rules with context.
-        """
-        if not self.is_available():
-            return []
-        
-        query_lower = query.lower()
-        results = []
-        structure = self._parse_structure()
-        
-        # Search in parsed rules first (faster, structured)
-        for rule_id, rule in structure["rules"].items():
-            score = 0
-            
-            # Check title match (higher weight)
-            if query_lower in rule["title"].lower():
-                score += 10
-            
-            # Check ID match
-            if query_lower in rule_id.lower():
-                score += 5
-            
-            # Check content match
-            content = rule.get("content", "").lower()
-            if query_lower in content:
-                score += 1
-                # Boost for multiple occurrences
-                score += min(content.count(query_lower), 5)
-            
-            if score > 0:
-                # Find section info
-                section_id = rule.get("section_id", rule_id.split('.')[0])
-                section_title = ""
-                for sec in structure["sections"]:
-                    if sec["id"] == section_id:
-                        section_title = sec["title"]
-                        break
-                
-                results.append({
-                    "section_id": section_id,
-                    "section_title": section_title,
-                    "rule_id": rule["id"],
-                    "rule_title": rule["title"],
-                    "content": rule.get("content", ""),
-                    "page": rule.get("page", 0),
-                    "_score": score
-                })
-        
-        # Sort by relevance score
-        results.sort(key=lambda x: x["_score"], reverse=True)
-        
-        # Remove score from results
-        for r in results:
-            del r["_score"]
-        
-        return results[:max_results]
-    
-    def search_pdf_pages(self, query, context_chars=200):
-        """
-        Direct PDF text search with page references.
-        Returns list of (page_num, snippet) tuples.
-        """
-        if not self.is_available():
-            return []
-        
-        query_lower = query.lower()
-        results = []
-        
-        for page_num in range(len(self.doc)):
-            page_text = self.get_page_text(page_num)
-            text_lower = page_text.lower()
-            
-            # Find all occurrences
-            start = 0
-            while True:
-                pos = text_lower.find(query_lower, start)
-                if pos == -1:
-                    break
-                
-                # Extract context around match
-                ctx_start = max(0, pos - context_chars)
-                ctx_end = min(len(page_text), pos + len(query) + context_chars)
-                snippet = page_text[ctx_start:ctx_end].strip()
-                
-                # Clean up snippet
-                snippet = ' '.join(snippet.split())
-                if ctx_start > 0:
-                    snippet = "..." + snippet
-                if ctx_end < len(page_text):
-                    snippet = snippet + "..."
-                
-                results.append({
-                    "page": page_num + 1,  # 1-indexed for display
-                    "snippet": snippet
-                })
-                
-                start = pos + 1
-                
-                # Limit results per page
-                if len([r for r in results if r["page"] == page_num + 1]) >= 3:
-                    break
-        
-        return results
-    
-    def get_page_content(self, page_num):
-        """Get full content of a specific page."""
-        if not self.is_available() or page_num < 0 or page_num >= len(self.doc):
-            return ""
-        return self.get_page_text(page_num)
-    
-    def clear_cache(self):
-        """Clear all caches to force re-parsing."""
-        self._cache = None
-        self._page_text_cache = {}
-        if os.path.exists(RULEBOOK_CACHE_FILE):
-            os.remove(RULEBOOK_CACHE_FILE)
-    
-    def close(self):
-        """Close the PDF document."""
-        if self.doc:
-            self.doc.close()
-            self.doc = None
-
-
-# --- Backend Logic ---
 class GolfBackend:
-    def __init__(self):
-        os.makedirs('data', exist_ok=True)
-        self.courses = load_json(COURSES_FILE)
-        self.rounds = load_json(ROUNDS_FILE)
-        self.clubs = load_json(CLUBS_FILE)
-        self.rulebook = self._load_rulebook()
-        self.bookmarks = load_json(BOOKMARKS_FILE) if os.path.exists(BOOKMARKS_FILE) else []
-        self.rule_notes = load_json(RULE_NOTES_FILE) if os.path.exists(RULE_NOTES_FILE) else {}
-        self.pdf_annotations = self._load_pdf_annotations()
-        self.page_bookmarks = self._load_page_bookmarks()
-        self.user_prefs = self._load_user_prefs()
-        self.stats_cache = self._load_stats_cache()
-    
-    def _load_user_prefs(self):
-        """Load user preferences from file.
-        
-        # CHANGED: Added support for favorite_courses and preferred_tee_color
-        # with backward compatibility - preserves any unknown keys.
-        """
-        defaults = {
-            "entry_mode": "quick",
-            "favorite_courses": [],
-            "preferred_tee_color": "White"
-        }
-        if os.path.exists(USER_PREFS_FILE):
-            try:
-                data = load_json(USER_PREFS_FILE)
-                if isinstance(data, dict):
-                    # Merge with defaults, preserving existing + unknown keys
-                    for key, value in defaults.items():
-                        if key not in data:
-                            data[key] = value
-                    return data
-            except:
-                pass
-        return defaults.copy()
-    
-    def save_user_prefs(self):
-        """Save user preferences to file."""
-        save_json(USER_PREFS_FILE, self.user_prefs)
-    
-    def get_entry_mode(self):
-        """Get the last used entry mode (quick or detailed)."""
-        return self.user_prefs.get("entry_mode", "quick")
-    
-    def set_entry_mode(self, mode):
-        """Set the entry mode preference."""
-        self.user_prefs["entry_mode"] = mode
-        self.save_user_prefs()
-    
-    # CHANGED: Added favorite_courses and preferred_tee_color getters/setters
-    def get_favorite_courses(self) -> List[str]:
-        """Get list of favorite course names."""
-        return self.user_prefs.get("favorite_courses", [])
-    
-    def set_favorite_courses(self, courses: List[str]):
-        """Set the list of favorite courses."""
-        self.user_prefs["favorite_courses"] = courses
-        self.save_user_prefs()
-    
-    def add_favorite_course(self, course_name: str):
-        """Add a course to favorites if not already present."""
-        favorites = self.get_favorite_courses()
-        if course_name not in favorites:
-            favorites.append(course_name)
-            self.set_favorite_courses(favorites)
-    
-    def remove_favorite_course(self, course_name: str):
-        """Remove a course from favorites."""
-        favorites = self.get_favorite_courses()
-        if course_name in favorites:
-            favorites.remove(course_name)
-            self.set_favorite_courses(favorites)
-    
-    def get_preferred_tee_color(self) -> str:
-        """Get the user's preferred tee box color."""
-        return self.user_prefs.get("preferred_tee_color", "White")
-    
-    def set_preferred_tee_color(self, color: str):
-        """Set the user's preferred tee box color."""
-        self.user_prefs["preferred_tee_color"] = color
-        self.save_user_prefs()
-    
-    def _load_stats_cache(self):
-        """Load computed stats cache from file."""
-        if os.path.exists(STATS_CACHE_FILE):
-            try:
-                return load_json(STATS_CACHE_FILE)
-            except:
-                return {}
-        return {}
-    
-    def save_stats_cache(self):
-        """Save stats cache to file."""
-        save_json(STATS_CACHE_FILE, self.stats_cache)
-    
-    def invalidate_stats_cache(self):
-        """Mark stats cache as invalid (needs recomputation)."""
-        self.stats_cache["valid"] = False
-        self.save_stats_cache()
-    
-    def _load_pdf_annotations(self):
-        """Load PDF annotations (highlights, notes) from file."""
-        if os.path.exists(PDF_ANNOTATIONS_FILE):
-            try:
-                data = load_json(PDF_ANNOTATIONS_FILE)
-                return data if isinstance(data, dict) else {}
-            except:
-                return {}
-        return {}
-    
-    def _load_page_bookmarks(self):
-        """Load bookmarked page numbers from file."""
-        if os.path.exists(PAGE_BOOKMARKS_FILE):
-            try:
-                data = load_json(PAGE_BOOKMARKS_FILE)
-                return data if isinstance(data, list) else []
-            except:
-                return []
-        return []
+    def __init__(self, user_id=1):
+        self.user_id = user_id
+        self._user_prefs_cache = None
 
-    # ---- Courses ----
+    @property
+    def user_prefs(self):
+        if self._user_prefs_cache is None:
+            self._user_prefs_cache = self._load_user_prefs()
+        return self._user_prefs_cache
+
+    @user_prefs.setter
+    def user_prefs(self, value):
+        self._user_prefs_cache = value
+
+    # --- user prefs ---
+
+    def _load_user_prefs(self):
+        row = db.session.get(UserPrefs, self.user_id)
+        if row:
+            d = {"entry_mode": row.entry_mode or "quick"}
+            if row.preferred_tee:
+                d["preferred_tee"] = row.preferred_tee
+            return d
+        return {"entry_mode": "quick"}
+
+    def save_user_prefs(self):
+        row = db.session.get(UserPrefs, self.user_id)
+        if row:
+            row.entry_mode = self.user_prefs.get("entry_mode", "quick")
+            row.preferred_tee = self.user_prefs.get("preferred_tee")
+        else:
+            row = UserPrefs(
+                user_id=self.user_id,
+                entry_mode=self.user_prefs.get("entry_mode", "quick"),
+                preferred_tee=self.user_prefs.get("preferred_tee"),
+            )
+            db.session.add(row)
+        db.session.commit()
+
+    # --- stats cache ---
+
+    def invalidate_stats_cache(self):
+        row = db.session.get(StatsCache, self.user_id)
+        if row:
+            row.valid = False
+        else:
+            row = StatsCache(user_id=self.user_id, valid=False, version=0, data=None)
+            db.session.add(row)
+        db.session.commit()
+
+    # --- courses ---
+
     def get_courses(self):
-        return self.courses
+        return [
+            _course_to_dict(c)
+            for c in Course.query.filter_by(user_id=self.user_id).all()
+        ]
 
     def get_course_by_name(self, name):
-        return next((c for c in self.courses if c["name"] == name), None)
+        c = Course.query.filter_by(user_id=self.user_id, name=name).first()
+        return _course_to_dict(c) if c else None
+
+    def _prepare_course_data(self, course_data):
+        par_total = sum(course_data["pars"])
+        for box in course_data["tee_boxes"]:
+            rating = box.get("rating")
+            box["handicap"] = round(rating - par_total, 1) if rating is not None else None
+        if "yardages" not in course_data:
+            course_data["yardages"] = {}
 
     def add_course(self, course_data):
-        par_total = sum(course_data["pars"])
-        for box in course_data["tee_boxes"]:
-            hc = (box["slope"] / 113) * (box["rating"] - par_total)
-            box["handicap"] = round(hc, 1)
-        # Ensure yardages field exists (backward compatibility)
-        if "yardages" not in course_data:
-            course_data["yardages"] = {}
-        self.courses.append(course_data)
-        save_json(COURSES_FILE, self.courses)
+        self._prepare_course_data(course_data)
+        course = Course(
+            user_id=self.user_id,
+            club=course_data.get("club", ""),
+            name=course_data["name"],
+            pars=course_data["pars"],
+        )
+        db.session.add(course)
+        db.session.flush()
+        yardages_map = course_data.get("yardages", {})
+        for tb in course_data.get("tee_boxes", []):
+            tee_box = TeeBox(
+                course_id=course.id,
+                color=tb["color"],
+                rating=tb.get("rating"),
+                slope=tb.get("slope"),
+                handicap=tb.get("handicap"),
+                yardages=yardages_map.get(tb["color"], []),
+            )
+            db.session.add(tee_box)
+        db.session.commit()
 
     def update_course(self, original_name, course_data):
-        par_total = sum(course_data["pars"])
-        for box in course_data["tee_boxes"]:
-            hc = (box["slope"] / 113) * (box["rating"] - par_total)
-            box["handicap"] = round(hc, 1)
-        # Ensure yardages field exists (backward compatibility)
-        if "yardages" not in course_data:
-            course_data["yardages"] = {}
-        for i, c in enumerate(self.courses):
-            if c["name"] == original_name:
-                self.courses[i] = course_data
-                break
-        save_json(COURSES_FILE, self.courses)
+        self._prepare_course_data(course_data)
+        c = Course.query.filter_by(user_id=self.user_id, name=original_name).first()
+        if not c:
+            return
+        c.club = course_data.get("club", "")
+        c.name = course_data["name"]
+        c.pars = course_data["pars"]
+
+        # Replace tee boxes
+        for tb in list(c.tee_boxes):
+            db.session.delete(tb)
+        db.session.flush()
+
+        yardages_map = course_data.get("yardages", {})
+        for tb in course_data.get("tee_boxes", []):
+            tee_box = TeeBox(
+                course_id=c.id,
+                color=tb["color"],
+                rating=tb.get("rating"),
+                slope=tb.get("slope"),
+                handicap=tb.get("handicap"),
+                yardages=yardages_map.get(tb["color"], []),
+            )
+            db.session.add(tee_box)
+        db.session.commit()
+        self.invalidate_stats_cache()
 
     def delete_course(self, name):
-        """Remove a course by name."""
-        self.courses = [c for c in self.courses if c["name"] != name]
-        save_json(COURSES_FILE, self.courses)
+        c = Course.query.filter_by(user_id=self.user_id, name=name).first()
+        if c:
+            db.session.delete(c)
+            db.session.commit()
+        self.invalidate_stats_cache()
 
-    def get_clubs_list(self):
-        """Return list of unique club names."""
-        return list(set(c.get("club", "") for c in self.courses if c.get("club")))
+    # --- rounds ---
 
-    def get_courses_by_club(self, club_name):
-        """Return courses belonging to a specific club."""
-        return [c for c in self.courses if c.get("club") == club_name]
-
-    def get_course_yardages(self, course_name, tee_color):
-        """Get yardages for a specific course and tee box."""
-        course = self.get_course_by_name(course_name)
-        if not course:
-            return None
-        yardages = course.get("yardages", {})
-        return yardages.get(tee_color, [])
-
-    def get_course_total_yardage(self, course_name, tee_color, holes_choice="full_18"):
-        """Get total yardage for specified holes."""
-        yardages = self.get_course_yardages(course_name, tee_color)
-        if not yardages:
-            return None
-        
-        if holes_choice == "front_9":
-            return sum(yardages[:9]) if len(yardages) >= 9 else sum(yardages)
-        elif holes_choice == "back_9":
-            return sum(yardages[9:18]) if len(yardages) >= 18 else sum(yardages[:9])
-        else:
-            return sum(yardages)
-
-    def calculate_course_handicap(self, course_name, tee_color, holes_choice="full_18"):
-        """
-        Calculate Course Handicap for a specific course/tee combination.
-        
-        Formula (USGA/WHS): Course Handicap = Handicap Index × (Slope / 113) + (Course Rating - Par)
-        
-        For 9 holes, the course handicap is halved.
-        
-        Returns: (course_handicap, target_score) tuple, or (None, None) if no handicap established
-        """
-        handicap_index = self.calculate_handicap_index()
-        if handicap_index is None:
-            return None, None
-        
-        course = self.get_course_by_name(course_name)
-        if not course:
-            return None, None
-        
-        box = next((b for b in course["tee_boxes"] if b["color"] == tee_color), None)
-        if not box:
-            return None, None
-        
-        slope = box["slope"]
-        rating = box["rating"]
-        par_total = sum(course["pars"])
-        
-        # Full 18-hole course handicap
-        course_handicap = handicap_index * (slope / 113) + (rating - par_total)
-        
-        if holes_choice in ["front_9", "back_9"]:
-            # For 9 holes, halve the course handicap and adjust par
-            course_handicap = course_handicap / 2
-            if holes_choice == "front_9":
-                par = sum(course["pars"][:9])
-            else:
-                par = sum(course["pars"][9:]) if len(course["pars"]) > 9 else sum(course["pars"][:9])
-        else:
-            par = par_total
-        
-        course_handicap = round(course_handicap, 1)
-        target_score = par + round(course_handicap)
-        
-        return course_handicap, target_score
-
-    # ---- Rounds ----
     def get_rounds(self):
-        return self.rounds
+        return [
+            _round_to_dict(r)
+            for r in Round.query.filter_by(user_id=self.user_id).order_by(Round.id).all()
+        ]
 
     def add_round(self, round_data):
         course = self.get_course_by_name(round_data["course_name"])
         if not course:
-            return
-        box = next(b for b in course["tee_boxes"] if b["color"] == round_data["tee_color"])
-        par = sum(course["pars"])
-        round_data["target_score"] = par + round(box["handicap"])
-        round_data["tee_rating"] = box["rating"]
-        round_data["tee_slope"] = box["slope"]
-        round_data["par"] = par
-        # Add timestamp if not present
+            raise ValueError(f"Course not found: {round_data.get('course_name')}")
+        box = next((b for b in course["tee_boxes"] if b["color"] == round_data["tee_color"]), None)
+        if not box:
+            raise ValueError(f"Tee box not found: {round_data.get('tee_color')}")
+        holes_choice = round_data.get("holes_choice", "full_18")
+        pars = course["pars"]
+        if holes_choice == "front_9":
+            par = sum(pars[:9])
+        elif holes_choice == "back_9":
+            par = sum(pars[9:])
+        else:
+            par = sum(pars)
         if "date" not in round_data:
             round_data["date"] = datetime.now().strftime("%Y-%m-%d %H:%M")
-        self.rounds.append(round_data)
-        save_json(ROUNDS_FILE, self.rounds)
-        self.invalidate_stats_cache()  # Stats need recomputation
+        row = Round(
+            user_id=self.user_id,
+            course_name=round_data["course_name"],
+            tee_color=round_data["tee_color"],
+            date=round_data["date"],
+            total_score=round_data["total_score"],
+            par=par,
+            tee_rating=box["rating"],
+            tee_slope=box["slope"],
+            target_score=par + round(box["handicap"] or 0),
+            holes_played=round_data.get("holes_played", 18),
+            holes_choice=holes_choice,
+            round_type=round_data.get("round_type", "solo"),
+            is_serious=round_data.get("is_serious", False),
+            is_sim=round_data.get("is_sim", False),
+            notes=round_data.get("notes", ""),
+            scores=round_data.get("scores", []),
+            detailed_stats=round_data.get("detailed_stats", []),
+        )
+        db.session.add(row)
+        db.session.commit()
+        self.invalidate_stats_cache()
 
     def delete_round(self, index):
-        """Delete a round by its index."""
-        if 0 <= index < len(self.rounds):
-            del self.rounds[index]
-            save_json(ROUNDS_FILE, self.rounds)
-            self.invalidate_stats_cache()
-
-    def update_round(self, index, round_data):
-        """Update a round at the given index."""
-        if 0 <= index < len(self.rounds):
-            self.rounds[index] = round_data
-            save_json(ROUNDS_FILE, self.rounds)
+        row = Round.query.filter_by(user_id=self.user_id).order_by(Round.id).offset(index).limit(1).first()
+        if row:
+            db.session.delete(row)
+            db.session.commit()
             self.invalidate_stats_cache()
 
     def get_filtered_rounds(self, round_type="all", sort_by="recent"):
-        """
-        Filter and sort rounds.
-        round_type: 'all', 'solo', 'scramble'
-        sort_by: 'recent', 'best', 'worst'
-        
-        For best/worst sorting, uses score relative to par to properly compare
-        9-hole and 18-hole rounds (e.g., 80 on par 72 = +8, 54 on par 35 = +19)
-        """
-        rounds_with_idx = [(i, r) for i, r in enumerate(self.rounds)]
+        rounds_with_idx = list(enumerate(self.get_rounds()))
 
-        # Filter by type
         if round_type == "solo":
             rounds_with_idx = [(i, r) for i, r in rounds_with_idx
-                              if r.get("round_type", "solo") == "solo"]
+                               if r.get("round_type", "solo") == "solo" and not r.get("is_sim")]
         elif round_type == "scramble":
             rounds_with_idx = [(i, r) for i, r in rounds_with_idx
-                              if r.get("round_type") == "scramble"]
+                               if r.get("round_type") == "scramble"]
+        elif round_type == "sim":
+            rounds_with_idx = [(i, r) for i, r in rounds_with_idx
+                               if r.get("is_sim")]
 
-        # Sort
         if sort_by == "recent":
             rounds_with_idx.sort(key=lambda x: x[1].get("date", ""), reverse=True)
         elif sort_by == "best":
-            # Sort by score relative to par (lower is better)
             rounds_with_idx.sort(key=lambda x: self._get_score_relative_to_par(x[1]))
         elif sort_by == "worst":
-            # Sort by score relative to par (higher is worse)
             rounds_with_idx.sort(key=lambda x: self._get_score_relative_to_par(x[1]), reverse=True)
 
         return rounds_with_idx
-    
-    def _get_score_relative_to_par(self, round_data: dict) -> int:
-        """
-        Calculate score relative to par for proper comparison of 9 vs 18 hole rounds.
-        Returns total_score - total_par (e.g., 80 on par 72 = +8)
-        """
+
+    def _get_score_relative_to_par(self, round_data):
         total_score = round_data.get("total_score", 999)
-        total_par = round_data.get("total_par", 0)
-        
+        total_par = round_data.get("par", 0)
         if total_par == 0:
-            # Fallback: estimate par based on holes played
             holes_played = round_data.get("holes_played", 18)
-            total_par = holes_played * 4  # Assume par 4 average
-        
+            total_par = holes_played * 4
         return total_score - total_par
 
-    # ---- Aggregates ----
+    # --- handicap ---
+
     def calculate_9hole_expected_differential(self, handicap_index):
-        """
-        Calculate expected 9-hole differential based on current handicap index.
-        Formula from 2024 WHS rules: Expected Score = (0.52 × Handicap_Index) + 1.2
-        """
         if handicap_index is None:
             return None
         return (0.52 * handicap_index) + 1.2
 
     def calculate_score_differential(self, round_data, current_handicap=None):
-        """
-        Calculate score differential for a round.
-        For 9-hole rounds, uses the 2024 WHS method with expected score.
-        """
         try:
             holes_played = round_data.get("holes_played", 18)
             total_score = round_data["total_score"]
@@ -1683,102 +291,58 @@ class GolfBackend:
             tee_slope = round_data["tee_slope"]
 
             if holes_played == 18:
-                # Standard 18-hole calculation
                 diff = (113 * (total_score - tee_rating)) / tee_slope
             else:
-                # 9-hole calculation (2024 WHS rules)
-                # First calculate 9-hole differential
                 nine_hole_diff = (113 * (total_score - tee_rating)) / tee_slope
-
-                # Add expected differential for the unplayed 9
                 if current_handicap is not None:
                     expected_diff = self.calculate_9hole_expected_differential(current_handicap)
                     diff = nine_hole_diff + expected_diff
                 else:
-                    # If no handicap established, double the 9-hole diff as approximation
                     diff = nine_hole_diff * 2
 
             return round(diff, 1)
         except (ZeroDivisionError, KeyError):
             return None
 
-    def calculate_handicap_index(self):
-        """
-        Calculate handicap index using serious, solo rounds (both 9 and 18 hole).
-        Uses the official USGA/WHS formula with the handicap table adjustments.
-        9-hole rounds are converted to 18-hole equivalents using expected score.
-        
-        When no 18-hole rounds exist, 9-hole rounds are combined in pairs or
-        doubled (as approximation) to establish an initial handicap.
-        """
-        # Collect all eligible rounds separated by hole count
+    def calculate_handicap_index(self, _rounds=None):
+        all_rounds = _rounds if _rounds is not None else self.get_rounds()
         rounds_18 = []
         rounds_9 = []
-        
-        for r in self.rounds:
-            is_solo = r.get("round_type", "solo") == "solo"
-            is_serious = r.get("is_serious", False)
-            
-            if is_solo and is_serious:
+        for r in all_rounds:
+            if r.get("round_type", "solo") == "solo" and r.get("is_serious") and not r.get("is_sim"):
                 holes = r.get("holes_played", 18)
                 if holes == 18:
                     rounds_18.append(r)
                 elif holes == 9:
                     rounds_9.append(r)
-        
-        # First pass: calculate differentials for 18-hole rounds to establish base handicap
-        diffs_18 = []
-        for r in rounds_18:
-            diff = self.calculate_score_differential(r)
-            if diff is not None:
-                diffs_18.append(diff)
-        
-        # Calculate preliminary handicap from 18-hole rounds if we have enough
+
+        diffs_18 = [d for d in (self.calculate_score_differential(r) for r in rounds_18) if d is not None]
+
         preliminary_handicap = None
         if len(diffs_18) >= 3:
-            sorted_diffs = sorted(diffs_18)
-            preliminary_handicap = self._apply_handicap_table(sorted_diffs)
-        
-        # If no preliminary handicap from 18-hole rounds, try to establish one from 9-hole rounds
-        # by using the doubling approximation method
+            preliminary_handicap = self._apply_handicap_table(sorted(diffs_18))
+
         if preliminary_handicap is None and len(rounds_9) >= 3:
-            # Calculate approximate differentials by doubling 9-hole diffs
-            approx_diffs = []
-            for r in rounds_9:
-                diff = self.calculate_score_differential(r, current_handicap=None)
-                if diff is not None:
-                    approx_diffs.append(diff)
-            
+            approx_diffs = [d for d in (self.calculate_score_differential(r) for r in rounds_9) if d is not None]
             if len(approx_diffs) >= 3:
-                sorted_approx = sorted(approx_diffs)
-                preliminary_handicap = self._apply_handicap_table(sorted_approx)
-        
-        # Second pass: include all rounds using the preliminary handicap (if available)
-        all_diffs = []
-        for r in rounds_18:
-            diff = self.calculate_score_differential(r)
-            if diff is not None:
-                all_diffs.append(diff)
-        
+                preliminary_handicap = self._apply_handicap_table(sorted(approx_diffs))
+
+        all_diffs = list(diffs_18)
         for r in rounds_9:
-            # Use preliminary handicap if available, otherwise use doubling approximation
             diff = self.calculate_score_differential(r, preliminary_handicap)
             if diff is not None:
                 all_diffs.append(diff)
-        
+
         if len(all_diffs) < 3:
             return None
-        
+
         all_diffs.sort()
         return self._apply_handicap_table(all_diffs)
 
     def _apply_handicap_table(self, sorted_diffs):
-        """Apply the USGA handicap table to sorted differentials."""
         n = len(sorted_diffs)
-
         if n < 3:
             return None
-
         if n == 3:
             idx = sorted_diffs[0] - 2.0
         elif n == 4:
@@ -1801,358 +365,167 @@ class GolfBackend:
             idx = mean(sorted_diffs[:7])
         else:
             idx = mean(sorted_diffs[:8])
-
-        # Apply 0.96 multiplier (bonus for improvement)
         return round(idx * 0.96, 1)
 
-    def get_handicap_rounds_count(self):
-        """Return count of rounds eligible for handicap calculation."""
-        count_18 = 0
-        count_9 = 0
-        for r in self.rounds:
+    # --- aggregates ---
+
+    def _round_summary_counts(self):
+        counts = {
+            "total": 0, "serious": 0, "solo": 0, "scramble": 0,
+            "holes_18": 0, "holes_9": 0,
+            "hc_18": 0, "hc_9": 0, "hc_holes": 0,
+            "serious_18_scores": [], "serious_9_scores": [],
+        }
+        for r in self.get_rounds():
+            counts["total"] += 1
+            holes = r.get("holes_played", 18)
             is_solo = r.get("round_type", "solo") == "solo"
             is_serious = r.get("is_serious", False)
-            if is_solo and is_serious:
-                if r.get("holes_played") == 18:
-                    count_18 += 1
-                elif r.get("holes_played") == 9:
-                    count_9 += 1
-        return {"18_hole": count_18, "9_hole": count_9, "total": count_18 + count_9}
+            is_scramble = r.get("round_type") == "scramble"
+            if is_serious:
+                counts["serious"] += 1
+            if is_solo:
+                counts["solo"] += 1
+            if is_scramble:
+                counts["scramble"] += 1
+            if holes == 18:
+                counts["holes_18"] += 1
+            elif holes == 9:
+                counts["holes_9"] += 1
+            if is_solo and is_serious and not r.get("is_sim"):
+                counts["hc_holes"] += holes
+                if holes == 18:
+                    counts["hc_18"] += 1
+                    counts["serious_18_scores"].append(r["total_score"])
+                elif holes == 9:
+                    counts["hc_9"] += 1
+                    counts["serious_9_scores"].append(r["total_score"])
+        return counts
 
-    def get_total_holes_played(self):
-        """Return total holes played for handicap-eligible rounds."""
-        total = 0
-        for r in self.rounds:
-            is_solo = r.get("round_type", "solo") == "solo"
-            is_serious = r.get("is_serious", False)
-            if is_solo and is_serious:
-                total += r.get("holes_played", 0)
-        return total
-
-    def get_best_round(self, holes_filter=None):
-        """
-        Get best serious solo round.
-        holes_filter: None for any, 18 for 18-hole only, 9 for 9-hole only
-        """
-        serious_rounds = [r for r in self.rounds
+    def get_best_round(self, is_sim=False):
+        all_rounds = list(enumerate(self.get_rounds()))
+        if is_sim:
+            candidates = [(i, r) for i, r in all_rounds if r.get("is_sim")]
+        else:
+            candidates = [(i, r) for i, r in all_rounds
                           if r.get("is_serious")
-                          and r.get("round_type", "solo") == "solo"]
+                          and r.get("round_type", "solo") == "solo"
+                          and not r.get("is_sim")]
+        if not candidates:
+            return None, None
 
-        if holes_filter:
-            serious_rounds = [r for r in serious_rounds if r.get("holes_played") == holes_filter]
-
-        if not serious_rounds:
-            return None
-
-        # For comparison, normalize to score vs par
-        def score_vs_par(r):
+        def score_vs_par(ir):
+            r = ir[1]
             return r["total_score"] - r.get("par", 36 if r.get("holes_played") == 9 else 72)
 
-        return min(serious_rounds, key=score_vs_par)
+        idx, best = min(candidates, key=score_vs_par)
+        return best, idx
 
     def get_score_differentials(self):
-        """Return list of all score differentials for serious solo rounds."""
-        # Get current handicap for 9-hole calculations
-        current_handicap = self.calculate_handicap_index()
-
+        all_rounds = self.get_rounds()
+        eligible = [
+            (r, r.get("holes_played", 18)) for r in all_rounds
+            if r.get("round_type", "solo") == "solo" and r.get("is_serious")
+        ]
+        has_nine_hole = any(holes == 9 for _, holes in eligible)
+        current_handicap = self.calculate_handicap_index(_rounds=all_rounds) if has_nine_hole else None
         diffs = []
-        for r in self.rounds:
-            is_solo = r.get("round_type", "solo") == "solo"
-            is_serious = r.get("is_serious", False)
-
-            if is_solo and is_serious:
-                holes = r.get("holes_played", 18)
-                if holes == 18:
-                    diff = self.calculate_score_differential(r)
-                elif holes == 9 and current_handicap is not None:
-                    diff = self.calculate_score_differential(r, current_handicap)
-                else:
-                    continue
-
-                if diff is not None:
-                    diffs.append({
-                        "diff": diff,
-                        "course": r["course_name"],
-                        "score": r["total_score"],
-                        "holes": holes,
-                        "date": r.get("date", "N/A")
-                    })
-
+        for r, holes in eligible:
+            if holes == 18:
+                diff = self.calculate_score_differential(r)
+            elif holes == 9:
+                diff = self.calculate_score_differential(r, current_handicap)
+            else:
+                continue
+            if diff is not None:
+                diffs.append({
+                    "diff": diff,
+                    "course": r["course_name"],
+                    "score": r["total_score"],
+                    "holes": holes,
+                    "date": r.get("date", "N/A"),
+                })
         return sorted(diffs, key=lambda x: x["diff"])
 
-    # ---- Club Distances ----
-    def get_clubs(self):
-        """Return all saved clubs with distances."""
-        return self.clubs
+    # --- clubs ---
 
     def add_club(self, club_data):
-        """
-        Add a new club.
-        club_data: {"name": "7 Iron", "distance": 150, "notes": ""}
-        """
-        # Check for duplicate
-        existing = next((c for c in self.clubs if c["name"].lower() == club_data["name"].lower()), None)
+        existing = Club.query.filter(
+            Club.user_id == self.user_id,
+            db.func.lower(Club.name) == club_data["name"].lower()
+        ).first()
         if existing:
             return False
-        self.clubs.append(club_data)
-        save_json(CLUBS_FILE, self.clubs)
+        club = Club(
+            user_id=self.user_id,
+            name=club_data["name"],
+            distance=club_data.get("distance"),
+            notes=club_data.get("notes", ""),
+            partials=club_data.get("partials"),
+        )
+        db.session.add(club)
+        db.session.commit()
         return True
 
     def update_club(self, original_name, club_data):
-        """Update an existing club."""
-        for i, c in enumerate(self.clubs):
-            if c["name"] == original_name:
-                self.clubs[i] = club_data
-                save_json(CLUBS_FILE, self.clubs)
-                return True
-        return False
+        club = Club.query.filter_by(user_id=self.user_id, name=original_name).first()
+        if not club:
+            return False
+        club.name = club_data["name"]
+        club.distance = club_data.get("distance")
+        club.notes = club_data.get("notes", "")
+        club.partials = club_data.get("partials")
+        db.session.commit()
+        return True
+
+    def update_club_partial(self, name, swing, new_dist):
+        club = Club.query.filter_by(user_id=self.user_id, name=name).first()
+        if not club:
+            return False
+        partials = dict(club.partials or {})
+        partials[swing] = new_dist
+        club.partials = partials
+        db.session.commit()
+        return True
 
     def delete_club(self, name):
-        """Delete a club by name."""
-        self.clubs = [c for c in self.clubs if c["name"] != name]
-        save_json(CLUBS_FILE, self.clubs)
+        club = Club.query.filter_by(user_id=self.user_id, name=name).first()
+        if club:
+            db.session.delete(club)
+            db.session.commit()
 
     def get_clubs_sorted_by_distance(self):
-        """Return clubs sorted by distance (longest first)."""
-        return sorted(self.clubs, key=lambda c: c.get("distance", 0), reverse=True)
+        clubs = Club.query.filter_by(user_id=self.user_id).all()
+        return sorted([_club_to_dict(c) for c in clubs], key=lambda c: c.get("distance") or 0, reverse=True)
 
-    # ---- Rulebook Management (PDF-based) ----
-    def _load_rulebook(self):
-        """Load the rulebook from PDF."""
-        return PDFRulebook(RULEBOOK_PDF)
-    
-    def is_rulebook_available(self):
-        """Check if rulebook PDF is loaded."""
-        return self.rulebook.is_available()
+    # --- statistics ---
 
-    def get_rulebook(self):
-        """Return the rulebook object."""
-        return self.rulebook
-
-    def get_rulebook_version(self):
-        """Return the rulebook version info."""
-        return self.rulebook.get_version()
-
-    def search_rulebook(self, query):
-        """
-        Search the rulebook for rules matching the query.
-        Returns list of matching rules with section info.
-        """
-        return self.rulebook.search(query)
-    
-    def search_rulebook_pages(self, query):
-        """
-        Search PDF pages directly for the query.
-        Returns list of page matches with snippets.
-        """
-        return self.rulebook.search_pdf_pages(query)
-
-    def get_rule_by_id(self, rule_id):
-        """Get a specific rule by its ID."""
-        return self.rulebook.get_rule_by_id(rule_id)
-
-    def get_all_sections(self):
-        """Return list of all sections for navigation."""
-        return [(s[0], s[1]) for s in self.rulebook.get_all_sections()]
-    
-    def get_all_sections_with_pages(self):
-        """Return list of all sections with page numbers."""
-        return self.rulebook.get_all_sections()
-
-    def get_section_rules(self, section_id):
-        """Get all rules in a specific section."""
-        return self.rulebook.get_section_rules(section_id)
-    
-    def get_page_content(self, page_num):
-        """Get the content of a specific PDF page."""
-        return self.rulebook.get_page_content(page_num)
-    
-    def get_total_pages(self):
-        """Get total number of pages in the rulebook."""
-        return self.rulebook.get_total_pages()
-
-    def set_rulebook_path(self, pdf_path):
-        """
-        Change the rulebook PDF path.
-        This allows for rulebook updates without code changes.
-        """
-        if os.path.exists(pdf_path):
-            # Close old PDF if open
-            if self.rulebook:
-                self.rulebook.close()
-            
-            # Copy to data directory
-            import shutil
-            shutil.copy(pdf_path, RULEBOOK_PDF)
-            
-            # Reload rulebook
-            self.rulebook = PDFRulebook(RULEBOOK_PDF)
-            self.rulebook.clear_cache()  # Force re-parsing
-            return True
-        return False
-
-    def import_rulebook_from_file(self, filepath):
-        """Import a rulebook from a PDF file."""
-        try:
-            return self.set_rulebook_path(filepath)
-        except Exception as e:
-            print(f"Error importing rulebook: {e}")
-            return False
-
-    # ---- Bookmarks ----
-    def get_bookmarks(self):
-        """Return all bookmarked rules."""
-        return self.bookmarks
-
-    def add_bookmark(self, rule_id):
-        """Add a rule to bookmarks."""
-        if rule_id not in self.bookmarks:
-            self.bookmarks.append(rule_id)
-            save_json(BOOKMARKS_FILE, self.bookmarks)
-            return True
-        return False
-
-    def remove_bookmark(self, rule_id):
-        """Remove a rule from bookmarks."""
-        if rule_id in self.bookmarks:
-            self.bookmarks.remove(rule_id)
-            save_json(BOOKMARKS_FILE, self.bookmarks)
-            return True
-        return False
-
-    def is_bookmarked(self, rule_id):
-        """Check if a rule is bookmarked."""
-        return rule_id in self.bookmarks
-
-    # ---- Rule Notes ----
-    def get_rule_notes(self, rule_id):
-        """Get user notes for a specific rule."""
-        return self.rule_notes.get(rule_id, "")
-
-    def set_rule_notes(self, rule_id, notes):
-        """Set user notes for a specific rule."""
-        if notes.strip():
-            self.rule_notes[rule_id] = notes.strip()
-        elif rule_id in self.rule_notes:
-            del self.rule_notes[rule_id]
-        save_json(RULE_NOTES_FILE, self.rule_notes)
-
-    def get_all_notes(self):
-        """Return all rules with notes."""
-        return self.rule_notes
-
-    # ---- PDF Annotations (ForeFlight-style) ----
-    def get_pdf_annotations(self):
-        """Get all PDF annotations (highlights, notes by page)."""
-        return self.pdf_annotations
-    
-    def save_pdf_annotations(self, annotations):
-        """Save PDF annotations to file."""
-        self.pdf_annotations = annotations
-        save_json(PDF_ANNOTATIONS_FILE, annotations)
-    
-    def get_page_annotations(self, page_num):
-        """Get annotations for a specific page."""
-        return self.pdf_annotations.get(str(page_num), [])
-    
-    def add_page_annotation(self, page_num, annotation):
-        """Add an annotation to a specific page."""
-        page_key = str(page_num)
-        if page_key not in self.pdf_annotations:
-            self.pdf_annotations[page_key] = []
-        self.pdf_annotations[page_key].append(annotation)
-        save_json(PDF_ANNOTATIONS_FILE, self.pdf_annotations)
-    
-    def clear_page_annotations(self, page_num):
-        """Clear all annotations from a specific page."""
-        page_key = str(page_num)
-        if page_key in self.pdf_annotations:
-            del self.pdf_annotations[page_key]
-            save_json(PDF_ANNOTATIONS_FILE, self.pdf_annotations)
-
-    # ---- Page Bookmarks (ForeFlight-style) ----
-    def get_page_bookmarks(self):
-        """Get list of bookmarked page numbers."""
-        return self.page_bookmarks
-    
-    def save_page_bookmarks(self, bookmarks):
-        """Save page bookmarks to file."""
-        self.page_bookmarks = sorted(list(set(bookmarks)))
-        save_json(PAGE_BOOKMARKS_FILE, self.page_bookmarks)
-    
-    def add_page_bookmark(self, page_num):
-        """Add a page to bookmarks."""
-        if page_num not in self.page_bookmarks:
-            self.page_bookmarks.append(page_num)
-            self.page_bookmarks.sort()
-            save_json(PAGE_BOOKMARKS_FILE, self.page_bookmarks)
-            return True
-        return False
-    
-    def remove_page_bookmark(self, page_num):
-        """Remove a page from bookmarks."""
-        if page_num in self.page_bookmarks:
-            self.page_bookmarks.remove(page_num)
-            save_json(PAGE_BOOKMARKS_FILE, self.page_bookmarks)
-            return True
-        return False
-    
-    def is_page_bookmarked(self, page_num):
-        """Check if a page is bookmarked."""
-        return page_num in self.page_bookmarks
-
-    # ---- Statistics ----
     def get_statistics(self):
-        """Return various statistics about the player's rounds."""
-        total_rounds = len(self.rounds)
-        serious_rounds = len([r for r in self.rounds if r.get("is_serious")])
-        solo_rounds = len([r for r in self.rounds if r.get("round_type", "solo") == "solo"])
-        scramble_rounds = len([r for r in self.rounds if r.get("round_type") == "scramble"])
-
-        # Count by holes
-        rounds_18 = len([r for r in self.rounds if r.get("holes_played") == 18])
-        rounds_9 = len([r for r in self.rounds if r.get("holes_played") == 9])
-
-        # Average score for serious 18-hole rounds
-        serious_18 = [r for r in self.rounds
-                      if r.get("is_serious") and r.get("holes_played") == 18]
-        avg_score_18 = None
-        if serious_18:
-            avg_score_18 = round(mean(r["total_score"] for r in serious_18), 1)
-
-        # Average score for serious 9-hole rounds
-        serious_9 = [r for r in self.rounds
-                     if r.get("is_serious") and r.get("holes_played") == 9]
-        avg_score_9 = None
-        if serious_9:
-            avg_score_9 = round(mean(r["total_score"] for r in serious_9), 1)
-
-        handicap_counts = self.get_handicap_rounds_count()
-        total_holes = self.get_total_holes_played()
-
+        c = self._round_summary_counts()
+        s18 = c["serious_18_scores"]
+        s9 = c["serious_9_scores"]
         return {
-            "total_rounds": total_rounds,
-            "serious_rounds": serious_rounds,
-            "solo_rounds": solo_rounds,
-            "scramble_rounds": scramble_rounds,
-            "rounds_18": rounds_18,
-            "rounds_9": rounds_9,
-            "avg_score_18": avg_score_18,
-            "avg_score_9": avg_score_9,
-            "handicap_eligible_18": handicap_counts["18_hole"],
-            "handicap_eligible_9": handicap_counts["9_hole"],
-            "total_holes_played": total_holes
+            "total_rounds": c["total"],
+            "serious_rounds": c["serious"],
+            "solo_rounds": c["solo"],
+            "scramble_rounds": c["scramble"],
+            "rounds_18": c["holes_18"],
+            "rounds_9": c["holes_9"],
+            "avg_score_18": round(mean(s18), 1) if s18 else None,
+            "avg_score_9": round(mean(s9), 1) if s9 else None,
+            "handicap_eligible_18": c["hc_18"],
+            "handicap_eligible_9": c["hc_9"],
+            "total_holes_played": c["hc_holes"],
         }
 
     def get_advanced_statistics(self):
-        """
-        Calculate advanced statistics from detailed round data.
-        Returns GIR, putting stats, strokes-to-green by par type, club usage, etc.
-        """
-        # Check cache first
-        if self.stats_cache.get("valid") and self.stats_cache.get("advanced_stats"):
-            return self.stats_cache["advanced_stats"]
-        
+        cache_row = db.session.get(StatsCache, self.user_id)
+        if (cache_row
+                and cache_row.valid
+                and cache_row.version == _STATS_CACHE_VERSION
+                and cache_row.data):
+            return cache_row.data
+
         stats = {
             "gir": {"par3": [], "par4": [], "par5": [], "overall": []},
             "putts": {"par3": [], "par4": [], "par5": [], "overall": []},
@@ -2164,75 +537,62 @@ class GolfBackend:
             "club_usage": {},
             "scramble_opportunities": 0,
             "scramble_successes": 0,
-            "fir_attempts": 0,
-            "fir_hits": 0,
+
         }
-        
-        for rd in self.rounds:
+
+        course_by_name = {c["name"]: c for c in self.get_courses()}
+
+        for rd in self.get_rounds():
             if not rd.get("detailed_stats"):
                 continue
-            
-            course = self.get_course_by_name(rd["course_name"])
+            course = course_by_name.get(rd["course_name"])
             if not course:
                 continue
-            
+            is_sim = rd.get("is_sim", False)
             pars = course["pars"]
             detailed = rd["detailed_stats"]
-            
+
             for hole_idx, hole_data in enumerate(detailed):
                 if hole_idx >= len(pars):
                     continue
-                    
                 par = pars[hole_idx]
-                par_key = f"par{par}" if par in [3, 4, 5] else None
-                
+                par_key = f"par{par}" if par in {3, 4, 5} else None
                 strokes_to_green = hole_data.get("strokes_to_green")
                 putts = hole_data.get("putts")
                 clubs_used = hole_data.get("clubs_used", [])
                 score = hole_data.get("score")
-                
-                # GIR calculation
+
                 if strokes_to_green is not None:
-                    gir_target = par - 2  # Par 3: 1 stroke, Par 4: 2 strokes, Par 5: 3 strokes
+                    gir_target = par - 2
                     is_gir = strokes_to_green <= gir_target
                     stats["gir"]["overall"].append(1 if is_gir else 0)
                     if par_key:
                         stats["gir"][par_key].append(1 if is_gir else 0)
                         stats["strokes_to_green"][par_key].append(strokes_to_green)
-                    
-                    # Scramble tracking (missed GIR but made bogey or better)
                     if not is_gir and score is not None:
                         stats["scramble_opportunities"] += 1
-                        if score <= par + 1:  # Bogey or better
+                        if score <= par + 1:
                             stats["scramble_successes"] += 1
-                
-                # Putting stats
-                if putts is not None:
+
+                if putts is not None and not is_sim:
                     stats["putts"]["overall"].append(putts)
                     stats["total_holes_with_putts"] += 1
                     if par_key:
                         stats["putts"][par_key].append(putts)
-                    
                     if putts >= 3:
                         stats["three_putt_count"] += 1
                     elif putts == 2:
                         stats["two_putt_count"] += 1
                     elif putts == 1:
                         stats["one_putt_count"] += 1
-                
-                # FIR tracking (fairway in regulation for par 4/5)
-                fir = hole_data.get("fir")
-                if fir is not None and par in [4, 5]:
-                    stats["fir_attempts"] += 1
-                    if fir:
-                        stats["fir_hits"] += 1
-                
-                # Club usage tracking (exclude putter from ranking)
+
+
                 for club in clubs_used:
-                    if club.lower() != "putter":
+                    if club != "X":
                         stats["club_usage"][club] = stats["club_usage"].get(club, 0) + 1
-        
-        # Calculate averages and percentages
+
+        thp = stats["total_holes_with_putts"]
+        sco = stats["scramble_opportunities"]
         result = {
             "gir_overall": self._calc_percentage(stats["gir"]["overall"]),
             "gir_par3": self._calc_percentage(stats["gir"]["par3"]),
@@ -2245,106 +605,83 @@ class GolfBackend:
             "avg_strokes_to_green_par3": self._calc_average(stats["strokes_to_green"]["par3"]),
             "avg_strokes_to_green_par4": self._calc_average(stats["strokes_to_green"]["par4"]),
             "avg_strokes_to_green_par5": self._calc_average(stats["strokes_to_green"]["par5"]),
-            "three_putt_rate": round(stats["three_putt_count"] / stats["total_holes_with_putts"] * 100, 1) if stats["total_holes_with_putts"] > 0 else None,
-            "two_putt_rate": round(stats["two_putt_count"] / stats["total_holes_with_putts"] * 100, 1) if stats["total_holes_with_putts"] > 0 else None,
-            "one_putt_rate": round(stats["one_putt_count"] / stats["total_holes_with_putts"] * 100, 1) if stats["total_holes_with_putts"] > 0 else None,
-            "fir_overall": round(stats["fir_hits"] / stats["fir_attempts"] * 100, 1) if stats["fir_attempts"] > 0 else None,
-            "scramble_rate": round(stats["scramble_successes"] / stats["scramble_opportunities"] * 100, 1) if stats["scramble_opportunities"] > 0 else None,
+            "three_putt_rate": round(stats["three_putt_count"] / thp * 100, 1) if thp > 0 else None,
+            "two_putt_rate": round(stats["two_putt_count"] / thp * 100, 1) if thp > 0 else None,
+            "one_putt_rate": round(stats["one_putt_count"] / thp * 100, 1) if thp > 0 else None,
+
+            "scramble_rate": round(stats["scramble_successes"] / sco * 100, 1) if sco > 0 else None,
             "club_usage": stats["club_usage"],
-            "total_holes_tracked": stats["total_holes_with_putts"],
-            "scramble_opportunities": stats["scramble_opportunities"],
+            "total_holes_tracked": thp,
+            "scramble_opportunities": sco,
             "scramble_successes": stats["scramble_successes"],
         }
-        
-        # Cache the result
-        self.stats_cache["advanced_stats"] = result
-        self.stats_cache["valid"] = True
-        self.save_stats_cache()
-        
+
+        if not cache_row:
+            cache_row = StatsCache(user_id=self.user_id)
+            db.session.add(cache_row)
+        cache_row.valid = True
+        cache_row.version = _STATS_CACHE_VERSION
+        cache_row.data = result
+        db.session.commit()
+
         return result
-    
+
     def _calc_percentage(self, values):
-        """Calculate percentage from a list of 0s and 1s."""
         if not values:
             return None
         return round(sum(values) / len(values) * 100, 1)
-    
+
     def _calc_average(self, values):
-        """Calculate average from a list of numbers."""
         if not values:
             return None
         return round(mean(values), 2)
-    
+
     def get_club_analytics(self):
-        """
-        Analyze club usage patterns.
-        Returns clubs ranked by usage, rarely used clubs, and category breakdown.
-        """
         adv_stats = self.get_advanced_statistics()
         club_usage = adv_stats.get("club_usage", {})
-        
         if not club_usage:
             return {
                 "ranked_clubs": [],
                 "rarely_used": [],
                 "never_used": [],
                 "category_breakdown": {},
-                "total_shots": 0
+                "total_shots": 0,
             }
-        
         total_shots = sum(club_usage.values())
-        
-        # Rank clubs by usage (most to least)
         ranked = sorted(club_usage.items(), key=lambda x: x[1], reverse=True)
         ranked_clubs = [
             {"name": name, "count": count, "percentage": round(count / total_shots * 100, 1)}
             for name, count in ranked
         ]
-        
-        # Find rarely used clubs (< 3% of shots)
         rarely_used = [c for c in ranked_clubs if c["percentage"] < 3]
-        
-        # Find clubs in bag that were never used
-        bag_clubs = [c["name"] for c in self.clubs if c["name"].lower() != "putter"]
+        bag_clubs = [c["name"] for c in self.get_clubs_sorted_by_distance()]
         used_clubs = set(club_usage.keys())
         never_used = [c for c in bag_clubs if c not in used_clubs]
-        
-        # Category breakdown
         category_breakdown = {}
         for club_name, count in club_usage.items():
-            cat_info = CLUB_CATEGORIES.get(club_name, {"category": "other"})
-            cat = cat_info["category"]
+            cat = CLUB_CATEGORIES.get(club_name, "other")
             category_breakdown[cat] = category_breakdown.get(cat, 0) + count
-        
         return {
             "ranked_clubs": ranked_clubs,
             "rarely_used": rarely_used,
             "never_used": never_used,
             "category_breakdown": category_breakdown,
-            "total_shots": total_shots
+            "total_shots": total_shots,
         }
-    
+
     def get_stroke_leak_analysis(self):
-        """
-        Analyze where the player is losing the most strokes.
-        Returns insights about tee-to-green vs putting performance.
-        """
         adv_stats = self.get_advanced_statistics()
-        
         insights = []
-        
-        # Check strokes to green vs par expectations
         avg_stg_par4 = adv_stats.get("avg_strokes_to_green_par4")
         if avg_stg_par4 is not None:
-            excess = avg_stg_par4 - 2  # Expectation is 2 for par 4
+            excess = avg_stg_par4 - 2
             if excess > 1:
                 insights.append({
                     "area": "approach",
                     "severity": "high" if excess > 2 else "medium",
                     "message": f"On Par 4s, you're averaging {avg_stg_par4:.1f} strokes to reach the green (target: 2)",
-                    "stat": avg_stg_par4
+                    "stat": avg_stg_par4,
                 })
-        
         avg_stg_par3 = adv_stats.get("avg_strokes_to_green_par3")
         if avg_stg_par3 is not None:
             excess = avg_stg_par3 - 1
@@ -2353,72 +690,239 @@ class GolfBackend:
                     "area": "tee_shots_par3",
                     "severity": "high" if excess > 1 else "medium",
                     "message": f"On Par 3s, you're averaging {avg_stg_par3:.1f} strokes to reach the green (target: 1)",
-                    "stat": avg_stg_par3
+                    "stat": avg_stg_par3,
                 })
-        
-        # Check putting
         three_putt_rate = adv_stats.get("three_putt_rate")
         if three_putt_rate is not None and three_putt_rate > 10:
             insights.append({
                 "area": "putting",
                 "severity": "high" if three_putt_rate > 20 else "medium",
                 "message": f"3-putt rate is {three_putt_rate:.1f}% ({adv_stats.get('total_holes_tracked', 0)} holes tracked)",
-                "stat": three_putt_rate
+                "stat": three_putt_rate,
             })
-        
         avg_putts = adv_stats.get("avg_putts_overall")
         if avg_putts is not None and avg_putts > 2.1:
             insights.append({
                 "area": "putting_avg",
                 "severity": "medium",
                 "message": f"Averaging {avg_putts:.2f} putts per hole (tour avg: ~1.8)",
-                "stat": avg_putts
+                "stat": avg_putts,
             })
-        
-        # GIR insights
         gir_overall = adv_stats.get("gir_overall")
         if gir_overall is not None and gir_overall < 30:
             insights.append({
                 "area": "gir",
                 "severity": "high" if gir_overall < 20 else "medium",
                 "message": f"GIR is {gir_overall:.1f}% (amateur target: 30-40%)",
-                "stat": gir_overall
+                "stat": gir_overall,
             })
-        
-        # Sort by severity
         severity_order = {"high": 0, "medium": 1, "low": 2}
         insights.sort(key=lambda x: severity_order.get(x["severity"], 2))
-        
         return insights
 
+    # --- training sessions ---
 
-# ---- Scorecard Export Helper Functions ----
+    # Iron names in descending order used for adaptive drill ordering
+    _IRON_ORDER = ["9 Iron", "8 Iron", "7 Iron", "6 Iron", "5 Iron", "4 Iron", "3 Iron", "2 Iron"]
+    _HYBRID_ORDER = ["5 Hybrid", "4 Hybrid", "3 Hybrid", "2 Hybrid"]
+
+    def get_adaptive_drill_template(self):
+        clubs = Club.query.filter_by(user_id=self.user_id).all()
+        club_names = {c.name for c in clubs}
+        club_lower = {c.name.lower() for c in clubs}
+
+        def has(name):
+            return name.lower() in club_lower
+
+        categories = []
+
+        # RANGE WARM-UP — always first
+        categories.append({"category": "RANGE WARM-UP", "clubs": [], "instructions": (
+            "One-Handed Swing Drill — Use a PW or 9-iron. Take your normal address. "
+            "For the left-arm drill, remove your right hand and make full-speed swings, feeling the left arm guide the club through impact and naturally release. "
+            "For the right-arm drill, remove your left hand and feel the right hand supply power and control the wrist hinge through the hitting zone. "
+            "The single-arm constraint eliminates compensations and grooves a natural swing path. "
+            "Combine both feelings in the two-handed swings. "
+            "Recommended by Harvey Penick and widely used in modern practice curricula."
+        ), "drills": [
+            {"name": "10 swings — left arm only", "resultType": "check",
+             "desc": "Full-speed swings with left arm only. Feel the swing path and natural release through the ball."},
+            {"name": "10 swings — right arm only", "resultType": "check",
+             "desc": "Full-speed swings with right arm only. Feel the power source and wrist hinge."},
+            {"name": "10 swings — both arms", "resultType": "check",
+             "desc": "Full swings combining the feelings from each arm. Build rhythm before hitting your first shot."},
+        ]})
+
+        # PUTTING — always included
+        categories.append({"category": "PUTTING", "clubs": [], "drills": [
+            {"name": "20 in a row from 3'", "resultType": "streak", "resultLabel": "Best streak",
+             "desc": "Set up 3 feet from the hole. Make 20 consecutive putts — keep going past 20. Start over on any miss."},
+            {"name": "8/10 from 6'", "resultType": "count", "target": 10, "resultLabel": "Made",
+             "desc": "Place 10 balls around the hole at 6 feet. Make at least 8 to pass."},
+            {"name": "10 in a row from 20 ft", "resultType": "streak", "resultLabel": "Best streak",
+             "desc": "From 20 feet, make 10 consecutive putts within a 3-foot circle. Start over on any miss."},
+            {"name": "10 in a row from 30 ft", "resultType": "streak", "resultLabel": "Best streak",
+             "desc": "From 30 feet, make 10 consecutive putts within a 3-foot circle. Lag putting focus. Start over on any miss."},
+            {"name": "8/10 from 50 ft", "resultType": "count", "target": 10, "resultLabel": "Made",
+             "desc": "From 50 feet, get 8 of 10 putts to stop within a 3-foot circle of the hole."},
+            {"name": "3 Strikes and You're Out", "resultType": "count", "resultLabel": "Total makes",
+             "desc": "Putt from different spots around the hole. Three misses ends the game. Track total makes before striking out."},
+            {"name": "20 Tee Game", "resultType": "count", "target": 20, "resultLabel": "Made",
+             "desc": "Place 20 tees at various distances and positions around the hole. Make as many as possible."},
+        ]})
+
+        # CHIPPING — only if user has GW or LW
+        chipping_clubs = [c for c in ["GW", "SW", "LW"] if has(c)]
+        if chipping_clubs:
+            categories.append({"category": "CHIPPING", "clubs": chipping_clubs, "instructions": (
+                "Chip to a target circle around the hole. Each drill is 10 balls — "
+                "count how many land the 1st bounce inside the circle. "
+                "Use your standard chip setup: ball back, weight forward, quiet hands."
+            ), "drills": [
+                {"name": "10 yd — 1st bounce in circle", "resultType": "count", "target": 10, "resultLabel": "Made"},
+                {"name": "15 yd — 1st bounce in circle", "resultType": "count", "target": 10, "resultLabel": "Made"},
+                {"name": "25 yd — 1st bounce in circle", "resultType": "count", "target": 10, "resultLabel": "Made"},
+            ]})
+
+        # WEDGE MATRIX — calibrate partial distances for all wedges
+        wedge_clubs = [c for c in clubs if c.name in {"LW", "SW", "GW", "PW"} or "wedge" in c.name.lower()]
+        if wedge_clubs:
+            wedge_club_dicts = [{"name": c.name, "partials": c.partials or {}, "full": c.distance} for c in wedge_clubs]
+            categories.append({
+                "category": "WEDGE MATRIX",
+                "clubs": [c.name for c in wedge_clubs],
+                "wedge_clubs": wedge_club_dicts,
+                "drills": [],
+                "resultType": "wedge_matrix",
+                "instructions": (
+                    "Hit 10 balls per swing length per club. Count how many carry within ±5 yards "
+                    "of your stored distance for that swing (shown below each button). "
+                    "If you consistently score higher than stored, save the new distance — it becomes your updated baseline."
+                ),
+            })
+
+        # IRONS + HYBRIDS — 9i first (short to long), distance-control benchmark
+        club_dist_map = {c.name: c.distance for c in clubs}
+        iron_drills = []
+        for iron in self._IRON_ORDER:
+            if iron in club_names:
+                iron_drills.append({
+                    "name": iron,
+                    "clubName": iron,
+                    "distance": club_dist_map.get(iron),
+                    "resultType": "count",
+                    "target": 10,
+                    "resultLabel": "In range",
+                })
+        for hybrid in self._HYBRID_ORDER:
+            if hybrid in club_names:
+                iron_drills.append({
+                    "name": hybrid,
+                    "clubName": hybrid,
+                    "distance": club_dist_map.get(hybrid),
+                    "resultType": "count",
+                    "target": 10,
+                    "resultLabel": "In range",
+                })
+        if iron_drills:
+            categories.append({
+                "category": "IRONS",
+                "clubs": [d["name"] for d in iron_drills],
+                "drills": iron_drills,
+                "instructions": (
+                    "Iron Distance Control — For each iron, hit 10 balls at your stored carry distance. "
+                    "Count how many land within 10 yards of target (±10 yd circle, ~6% of a 150 yd shot — "
+                    "the PGA Tour average dispersion benchmark for mid-irons). "
+                    "This tests repeatability, not peak distance. "
+                    "If you're consistently outside 10 yards, your stored distance may need updating."
+                ),
+            })
+
+        # WOODS — Driver + fairway woods, one drill each
+        _WOOD_ORDER = ["7 Wood", "5 Wood", "3 Wood", "Driver"]
+        wood_drills = []
+        for wood in _WOOD_ORDER:
+            if wood in club_names:
+                wood_drills.append({
+                    "name": wood,
+                    "clubName": wood,
+                    "distance": club_dist_map.get(wood),
+                    "resultType": "count",
+                    "target": 25,
+                    "resultLabel": "Fairways",
+                })
+        if wood_drills:
+            categories.append({
+                "category": "WOODS",
+                "clubs": [d["clubName"] for d in wood_drills],
+                "drills": wood_drills,
+                "instructions": (
+                    "Fairway Finder — Hit 25 balls per club. Count how many land in your target corridor (fairway or equivalent). "
+                    "Focus on a consistent pre-shot routine: same alignment, same trigger, same tempo. "
+                    "Do not chase distance — repeatable contact and direction is the goal."
+                ),
+            })
+
+        return categories
+
+    def get_training_sessions(self, limit=None):
+        q = TrainingSession.query.filter_by(user_id=self.user_id).order_by(TrainingSession.id.desc())
+        if limit:
+            q = q.limit(limit)
+        return [_training_to_dict(s) for s in q.all()]
+
+    def add_training_session(self, data):
+        session = TrainingSession(
+            user_id=self.user_id,
+            date=data.get("date", datetime.now().strftime("%Y-%m-%d")),
+            drills=data.get("drills", []),
+            notes=data.get("notes", ""),
+            duration_minutes=data.get("duration_minutes"),
+        )
+        db.session.add(session)
+        for drill in data.get("drills", []):
+            if drill.get("resultType") == "wedge_matrix":
+                for upd in drill.get("pendingPartialUpdates", []):
+                    self.update_club_partial(upd["club"], upd["swing"], upd["dist"])
+        db.session.commit()
+        return _training_to_dict(session)
+
+    def delete_training_session(self, session_id):
+        session = TrainingSession.query.filter_by(id=session_id, user_id=self.user_id).first()
+        if session:
+            db.session.delete(session)
+            db.session.commit()
+            return True
+        return False
+
+
+def _training_to_dict(s):
+    return {
+        "id": s.id,
+        "date": s.date,
+        "drills": s.drills or [],
+        "notes": s.notes or "",
+        "duration_minutes": s.duration_minutes,
+    }
+
+
+# ---- Scorecard Export ----
 def generate_scorecard_data(backend, round_data):
-    """
-    Generate formatted scorecard data for export.
-    Returns a dictionary with all data needed for PDF/image export.
-    """
     course = backend.get_course_by_name(round_data["course_name"])
     pars = course["pars"] if course else [4] * len(round_data.get("scores", []))
-    
-    # Get yardages if available
     yardages = []
     if course:
         tee_color = round_data.get("tee_color", "")
         yardages = course.get("yardages", {}).get(tee_color, [])
-    
     scores = round_data.get("scores", [])
     diff = round_data.get("total_score", 0) - round_data.get("par", 72)
-    diff_str = f"+{diff}" if diff > 0 else str(diff)
-    
-    # Calculate front/back 9 totals
+    diff_str = f"+{diff}" if diff > 0 else ("E" if diff == 0 else str(diff))
     front_9_scores = [s for s in scores[:9] if s is not None]
     back_9_scores = [s for s in scores[9:18] if s is not None] if len(scores) > 9 else []
     front_9_pars = pars[:9]
     back_9_pars = pars[9:18] if len(pars) > 9 else []
     front_9_yards = yardages[:9] if len(yardages) >= 9 else yardages
     back_9_yards = yardages[9:18] if len(yardages) >= 18 else []
-    
     return {
         "course_name": round_data.get("course_name", "Unknown Course"),
         "club_name": course.get("club", "") if course else "",
@@ -2432,6 +936,7 @@ def generate_scorecard_data(backend, round_data):
         "target_score": round_data.get("target_score", "N/A"),
         "round_type": round_data.get("round_type", "solo"),
         "is_serious": round_data.get("is_serious", False),
+        "is_sim": round_data.get("is_sim", False),
         "notes": round_data.get("notes", ""),
         "pars": pars,
         "scores": scores,
@@ -2442,7 +947,7 @@ def generate_scorecard_data(backend, round_data):
             "yardages": front_9_yards,
             "par_total": sum(front_9_pars),
             "score_total": sum(front_9_scores) if front_9_scores else 0,
-            "yards_total": sum(front_9_yards) if front_9_yards else 0
+            "yards_total": sum(front_9_yards) if front_9_yards else 0,
         },
         "back_9": {
             "pars": back_9_pars,
@@ -2450,6 +955,6 @@ def generate_scorecard_data(backend, round_data):
             "yardages": back_9_yards,
             "par_total": sum(back_9_pars) if back_9_pars else 0,
             "score_total": sum(back_9_scores) if back_9_scores else 0,
-            "yards_total": sum(back_9_yards) if back_9_yards else 0
-        }
+            "yards_total": sum(back_9_yards) if back_9_yards else 0,
+        },
     }

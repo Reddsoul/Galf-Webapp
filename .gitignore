@@ -1,4 +1,8 @@
-data/
+NOT OUTPUT/
+seed_demo.py
 __pycache__/
-.vscode/
-webapp/
+data/
+sync.sh
+instance/
+*.pyc
+.DS_Store

@@ -1,0 +1,16 @@
+services:
+  galf:
+    build: .
+    ports:
+      - "${PORT:-5003}:${PORT:-5003}"
+    volumes:
+      - galf-data:/data
+    environment:
+      - PORT=${PORT:-5003}
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - DATA_PATH=/data
+      - APP_NAME=${APP_NAME:-Galf}
+    restart: unless-stopped
+
+volumes:
+  galf-data:

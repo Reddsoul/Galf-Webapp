@@ -1,0 +1,11 @@
+migrate.py
+data/
+.env
+.git
+__pycache__
+*.pyc
+training_data/
+Scorecard Gen/
+instance/
+CLAUDE.md
+MANUAL.md
