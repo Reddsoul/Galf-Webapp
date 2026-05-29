@@ -278,66 +278,63 @@ class GolfBackend:
 
     # --- handicap ---
 
-    def calculate_9hole_expected_differential(self, handicap_index):
-        if handicap_index is None:
-            return None
-        return (0.52 * handicap_index) + 1.2
-
-    def calculate_score_differential(self, round_data, current_handicap=None):
+    def calculate_score_differential(self, round_data):
         try:
-            holes_played = round_data.get("holes_played", 18)
-            total_score = round_data["total_score"]
-            tee_rating = round_data["tee_rating"]
-            tee_slope = round_data["tee_slope"]
-
-            if holes_played == 18:
-                diff = (113 * (total_score - tee_rating)) / tee_slope
-            else:
-                nine_hole_diff = (113 * (total_score - tee_rating)) / tee_slope
-                if current_handicap is not None:
-                    expected_diff = self.calculate_9hole_expected_differential(current_handicap)
-                    diff = nine_hole_diff + expected_diff
-                else:
-                    diff = nine_hole_diff * 2
-
+            diff = (113 * (round_data["total_score"] - round_data["tee_rating"])) / round_data["tee_slope"]
             return round(diff, 1)
         except (ZeroDivisionError, KeyError):
             return None
 
+    def _pair_nine_holes(self, rounds_9):
+        """Pair front_9 + back_9 from same course+tee into virtual 18-hole dicts."""
+        from collections import defaultdict
+        buckets = defaultdict(lambda: {"front": [], "back": []})
+        for r in rounds_9:
+            choice = r.get("holes_choice", "")
+            if choice == "front_9":
+                buckets[(r.get("course_name"), r.get("tee_color"))]["front"].append(r)
+            elif choice == "back_9":
+                buckets[(r.get("course_name"), r.get("tee_color"))]["back"].append(r)
+
+        paired = []
+        for (course, tee), halves in buckets.items():
+            fronts = sorted(halves["front"], key=lambda r: r.get("date", ""))
+            backs  = sorted(halves["back"],  key=lambda r: r.get("date", ""))
+            for front, back in zip(fronts, backs):
+                # If individual rating < 50 it's already a 9-hole rating (sum both halves).
+                # If >= 50 it's the full 18-hole rating stored per half (use one copy).
+                r = front["tee_rating"]
+                combined_rating = (r + back["tee_rating"]) if r < 50 else r
+                paired.append({
+                    "course_name": course,
+                    "tee_color": tee,
+                    "total_score": front["total_score"] + back["total_score"],
+                    "tee_rating": combined_rating,
+                    "tee_slope": front["tee_slope"],
+                    "holes_played": 18,
+                    "date": max(front.get("date", ""), back.get("date", "")),
+                    "_paired": True,
+                    "_front": front,
+                    "_back": back,
+                })
+        return paired
+
     def calculate_handicap_index(self, _rounds=None):
         all_rounds = _rounds if _rounds is not None else self.get_rounds()
-        rounds_18 = []
-        rounds_9 = []
-        for r in all_rounds:
-            if r.get("round_type", "solo") == "solo" and r.get("is_serious") and not r.get("is_sim"):
-                holes = r.get("holes_played", 18)
-                if holes == 18:
-                    rounds_18.append(r)
-                elif holes == 9:
-                    rounds_9.append(r)
+        eligible = [
+            r for r in all_rounds
+            if r.get("round_type", "solo") == "solo" and r.get("is_serious")
+            and r.get("holes_played", 18) in (9, 18)
+        ][-20:]
 
-        diffs_18 = [d for d in (self.calculate_score_differential(r) for r in rounds_18) if d is not None]
+        rounds_18 = [r for r in eligible if r.get("holes_played", 18) == 18]
+        rounds_9  = [r for r in eligible if r.get("holes_played", 18) == 9]
+        all_18 = rounds_18 + self._pair_nine_holes(rounds_9)
 
-        preliminary_handicap = None
-        if len(diffs_18) >= 3:
-            preliminary_handicap = self._apply_handicap_table(sorted(diffs_18))
-
-        if preliminary_handicap is None and len(rounds_9) >= 3:
-            approx_diffs = [d for d in (self.calculate_score_differential(r) for r in rounds_9) if d is not None]
-            if len(approx_diffs) >= 3:
-                preliminary_handicap = self._apply_handicap_table(sorted(approx_diffs))
-
-        all_diffs = list(diffs_18)
-        for r in rounds_9:
-            diff = self.calculate_score_differential(r, preliminary_handicap)
-            if diff is not None:
-                all_diffs.append(diff)
-
-        if len(all_diffs) < 3:
+        diffs = [d for d in (self.calculate_score_differential(r) for r in all_18) if d is not None]
+        if len(diffs) < 3:
             return None
-
-        all_diffs.sort()
-        return self._apply_handicap_table(all_diffs)
+        return self._apply_handicap_table(sorted(diffs))
 
     def _apply_handicap_table(self, sorted_diffs):
         n = len(sorted_diffs)
@@ -427,27 +424,33 @@ class GolfBackend:
     def get_score_differentials(self):
         all_rounds = self.get_rounds()
         eligible = [
-            (r, r.get("holes_played", 18)) for r in all_rounds
+            r for r in all_rounds
             if r.get("round_type", "solo") == "solo" and r.get("is_serious")
+            and r.get("holes_played", 18) in (9, 18)
         ]
-        has_nine_hole = any(holes == 9 for _, holes in eligible)
-        current_handicap = self.calculate_handicap_index(_rounds=all_rounds) if has_nine_hole else None
+        rounds_18 = [r for r in eligible if r.get("holes_played", 18) == 18]
+        rounds_9  = [r for r in eligible if r.get("holes_played", 18) == 9]
+        all_18 = rounds_18 + self._pair_nine_holes(rounds_9)
+
         diffs = []
-        for r, holes in eligible:
-            if holes == 18:
-                diff = self.calculate_score_differential(r)
-            elif holes == 9:
-                diff = self.calculate_score_differential(r, current_handicap)
-            else:
+        for r in all_18:
+            diff = self.calculate_score_differential(r)
+            if diff is None:
                 continue
-            if diff is not None:
-                diffs.append({
-                    "diff": diff,
-                    "course": r["course_name"],
-                    "score": r["total_score"],
-                    "holes": holes,
-                    "date": r.get("date", "N/A"),
-                })
+            if r.get("_paired"):
+                f, b = r["_front"], r["_back"]
+                label = f"{r['course_name']} (F9 {f['total_score']} + B9 {b['total_score']})"
+                score = r["total_score"]
+            else:
+                label = r["course_name"]
+                score = r["total_score"]
+            diffs.append({
+                "diff": diff,
+                "course": label,
+                "score": score,
+                "holes": 18,
+                "date": r.get("date", "N/A"),
+            })
         return sorted(diffs, key=lambda x: x["diff"])
 
     # --- clubs ---
@@ -505,8 +508,22 @@ class GolfBackend:
 
     def get_statistics(self):
         c = self._round_summary_counts()
-        s18 = c["serious_18_scores"]
-        s9 = c["serious_9_scores"]
+        # Avg scores: include sim rounds, derive 9h datapoints from 18h rounds
+        all_18_scores, all_9_scores = [], []
+        for r in self.get_rounds():
+            is_solo = r.get("round_type", "solo") == "solo"
+            is_serious = r.get("is_serious", False)
+            is_sim = r.get("is_sim", False)
+            score = r.get("total_score")
+            if score is None or not is_solo:
+                continue
+            if is_serious or is_sim:
+                holes = r.get("holes_played", 18)
+                if holes == 18:
+                    all_18_scores.append(score)
+                    all_9_scores.append(score / 2)
+                elif holes == 9:
+                    all_9_scores.append(score)
         return {
             "total_rounds": c["total"],
             "total_irl": c["total"] - c["sim"],
@@ -516,8 +533,8 @@ class GolfBackend:
             "scramble_rounds": c["scramble"],
             "rounds_18": c["holes_18"],
             "rounds_9": c["holes_9"],
-            "avg_score_18": round(mean(s18), 1) if s18 else None,
-            "avg_score_9": round(mean(s9), 1) if s9 else None,
+            "avg_score_18": round(mean(all_18_scores), 1) if all_18_scores else None,
+            "avg_score_9": round(mean(all_9_scores), 1) if all_9_scores else None,
             "handicap_eligible_18": c["hc_18"],
             "handicap_eligible_9": c["hc_9"],
             "total_holes_played": c["hc_holes"],
@@ -585,7 +602,7 @@ class GolfBackend:
                     # rounds would taint it with random auto-putts — exclude them.
                     if not is_gir and score is not None and not is_sim:
                         stats["scramble_opportunities"] += 1
-                        if score <= par + 1:
+                        if score <= par:
                             stats["scramble_successes"] += 1
 
                 if putts is not None and not is_sim:

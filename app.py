@@ -317,7 +317,7 @@ def get_local_ip():
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5003))
+    port = int(os.environ.get("PORT", 8443))
     ip = get_local_ip()
     print(f"\n{'='*50}")
     print(f"  {_APP_NAME} is running!")

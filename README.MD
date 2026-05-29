@@ -127,4 +127,10 @@ All config via environment variables (or `.env` file):
 
 ---
 
+## Known Limitations / TODO
+
+- **Genuine 9-hole courses.** `calculate_score_differential` (Backend.py) assumes every stored `tee_rating` is an **18-hole** rating and halves it for 9-hole rounds. Correct for playing the front/back 9 of an 18-hole course (the only case today). A *true* 9-hole course — 9 pars, a 9-hole rating (~34) entered directly — would be wrongly halved to ~17. Fix when needed: detect 9-hole courses (e.g. `len(pars) == 9`) at round save and skip the `/2`, or store both the 9- and 18-hole ratings on the tee box.
+
+---
+
 ## For a full screen-by-screen reference, see [MANUAL.md](MANUAL.md).

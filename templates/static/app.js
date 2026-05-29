@@ -1255,7 +1255,7 @@ function renderTraining() {
   if (!cat) { v.innerHTML = '<div class="hint">Category not found.</div>'; return; }
 
   const info = catMap[catName] || { baseIdx: 0 };
-  const pct = Math.round(((curIdx) / total) * 100);
+  const pct = Math.round(((curIdx + 1) / total) * 100);
   const isLast = curIdx === total - 1;
 
   const instructionsBanner = cat.instructions
@@ -1866,16 +1866,20 @@ async function beginEntry(){
 const SUGGEST_TOL = 6; // yards (~18 ft) — "reached the pin" window
 
 // Min-shots reach of `target` within ±tol using repeatable `moves`
-// ([{label, carry}]). Returns {shots, err, path:[label]} or null.
+// ([{label, carry, pen}]). `pen` = 1 for a partial swing (¾/½/¼), 0 for a full
+// swing — we rank solutions shots → fewest-partials → error, so full clubs are
+// preferred over partial swings whenever they reach the pin in the same #shots.
+// Returns {shots, pen, err, path:[move]} or null.
 function dpReach(target, moves, tol){
   const T = Math.round(target);
-  const set = moves.map(m=>({label:m.label, c:Math.round(m.carry||0)})).filter(m=>m.c>0);
-  if(T<=tol) return {shots:0, err:T, path:[]}; // already at the pin
+  const set = moves.map(m=>({label:m.label, c:Math.round(m.carry||0), pen:m.pen?1:0})).filter(m=>m.c>0);
+  if(T<=tol) return {shots:0, pen:0, err:T, path:[]}; // already at the pin
   if(!set.length) return null;
-  // best[r] = fewest-shots way to ARRIVE at "r yards remaining" (r>tol, still short)
+  // best[r] = lexicographically-min (shots, pen) way to ARRIVE at "r yards
+  // remaining" (r>tol, still short)
   const best = new Array(T+1).fill(null);
-  best[T] = {shots:0, from:-1, move:null};
-  let goal = null; // {shots, err, endR, move} — landed inside ±tol window
+  best[T] = {shots:0, pen:0, from:-1, move:null};
+  let goal = null; // {shots, pen, err, endR, move} — landed inside ±tol window
   for(let r=T; r>=0; r--){
     const cur = best[r];
     if(!cur) continue;
@@ -1883,22 +1887,23 @@ function dpReach(target, moves, tol){
     for(const m of set){
       const nr = r - m.c;
       const shots = cur.shots + 1;
+      const pen = cur.pen + m.pen;
       if(nr >= -tol && nr <= tol){            // landed in pin window
         const err = Math.abs(nr);
-        if(!goal || shots<goal.shots || (shots===goal.shots && err<goal.err))
-          goal = {shots, err, endR:r, move:m};
+        if(!goal || shots<goal.shots || (shots===goal.shots && (pen<goal.pen || (pen===goal.pen && err<goal.err))))
+          goal = {shots, pen, err, endR:r, move:m};
       } else if(nr > tol){                     // still short → record state
         const ex = best[nr];
-        if(!ex || shots < ex.shots) best[nr] = {shots, from:r, move:m};
+        if(!ex || shots<ex.shots || (shots===ex.shots && pen<ex.pen)) best[nr] = {shots, pen, from:r, move:m};
       }
       // nr < -tol → overshoot past the green beyond tol → illegal, skip
     }
   }
-  // walk returns move objects {label, c} from first shot to last
+  // walk returns move objects {label, c, pen} from first shot to last
   const walk = (endR)=>{ const p=[]; let r=endR; while(r!==T){const n=best[r]; if(!n||n.from<0)break; p.unshift(n.move); r=n.from;} return p; };
-  if(goal){ const p=walk(goal.endR); p.push(goal.move); return {shots:goal.shots, err:goal.err, path:p}; }
+  if(goal){ const p=walk(goal.endR); p.push(goal.move); return {shots:goal.shots, pen:goal.pen, err:goal.err, path:p}; }
   // Fallback: nothing lands inside tol (e.g. no wedge partials) — get as close as possible
-  for(let r=0; r<T; r++){ if(best[r]) return {shots:best[r].shots, err:r, path:walk(r)}; }
+  for(let r=0; r<T; r++){ if(best[r]) return {shots:best[r].shots, pen:best[r].pen, err:r, path:walk(r)}; }
   return null;
 }
 
@@ -1910,23 +1915,24 @@ function suggestClubs(yardage, sortedClubs){
   // Move set (driver excluded — handled as a forced first shot below):
   // every full club carry + every partial-wedge distance.
   const moves = sortedClubs.filter(c=>!isDriver(c))
-    .map(c=>({label:abbrClub(c.name), carry:c.distance||0}));
+    .map(c=>({label:abbrClub(c.name), carry:c.distance||0, pen:0}));
   if(S.wedgeMatrix && S.wedgeMatrix.length){
     for(const p of S.wedgeMatrix){
       const sl = {'3/4':'¾','1/2':'½','1/4':'¼'}[p.swing] || p.swing;
-      moves.push({label:`${abbrClub(p.name)} ${sl}`, carry:p.dist||0});
+      moves.push({label:`${abbrClub(p.name)} ${sl}`, carry:p.dist||0, pen:1});
     }
   }
-  const better = (a,b)=> !b || a.shots<b.shots || (a.shots===b.shots && a.err<b.err);
+  // shots → fewest partial swings → error
+  const better = (a,b)=> !b || a.shots<b.shots || (a.shots===b.shots && (a.pen<b.pen || (a.pen===b.pen && a.err<b.err)));
   // Case A: no driver
   let bestSol = dpReach(yardage, moves, tol);
   // Case B: driver as the mandatory first shot (only when bag includes one and it helps)
   if(driver && (driver.distance||0)>0 && driver.distance<=yardage+tol){
     const rem = yardage - driver.distance;
     let sol = null;
-    const drv = {label:'D', c:driver.distance};
-    if(rem>=-tol && rem<=tol) sol = {shots:1, err:Math.abs(rem), path:[drv]};
-    else if(rem>tol){ const sub=dpReach(rem, moves, tol); if(sub) sol={shots:sub.shots+1, err:sub.err, path:[drv,...sub.path]}; }
+    const drv = {label:'D', c:driver.distance, pen:0};
+    if(rem>=-tol && rem<=tol) sol = {shots:1, pen:0, err:Math.abs(rem), path:[drv]};
+    else if(rem>tol){ const sub=dpReach(rem, moves, tol); if(sub) sol={shots:sub.shots+1, pen:sub.pen, err:sub.err, path:[drv,...sub.path]}; }
     if(sol && better(sol, bestSol)) bestSol = sol;
   }
   if(!bestSol || !bestSol.path.length) return '';
@@ -3443,7 +3449,7 @@ async function renderStats(){
             ${svgRing(scrPct, scrColor, 64, 6)}
             <div class="stat-mini-label" style="margin-top:6px">Scramble Rate</div>
           </div>
-          <div class="stat-mini" style="text-align:center">
+          <div class="stat-mini" style="display:flex;flex-direction:column;align-items:center;justify-content:center">
             <div class="stat-mini-val" style="font-size:20px">${stats.total_irl||0} <span style="color:var(--text2)">/</span> ${stats.total_sim||0}</div>
             <div class="stat-mini-label">Rounds (IRL / Sim)</div>
             <div style="font-size:10px;color:var(--text2)">${stats.all_holes_played||0} holes played</div>
@@ -4387,7 +4393,8 @@ async function scanSave() {
   const payload = { name, club, pars, tee_boxes: teeBoxes, yardages };
 
   try {
-    await POST('/api/courses/scan/confirm', payload);
+    const res = await POST('/api/courses/scan/confirm', payload);
+    if (res && res.ok === false) { showAlert('Save Failed', res.error || 'Check all required fields and try again.'); return; }
     S.courses = await GET('/api/courses');
     S.viewCourseName = name;
     show('course-detail');
