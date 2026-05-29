@@ -14,6 +14,7 @@ The large number at the top is your **WHS Handicap Index**, calculated from your
 - Beneath the dashes it tells you how many more holes you need: _"Play 38 more holes to establish"_
 - Once established, the number updates automatically every time you save a new round
 - Shown to one decimal place (e.g. `12.3`)
+- Tap the handicap number to jump straight to the [Statistics](#6-statistics) Overview
 
 ### Best Round Card
 
@@ -72,13 +73,15 @@ Logging a round is a three-step flow: **Setup ▶ Entry ▶ Review & Save**.
 
 The setup screen collects everything Galf needs before you start entering scores.
 
-#### Club / Facility
-
-A dropdown of all the clubs (golf facilities) you have added courses for. Select the facility you played at. The Course list below updates automatically.
-
 #### Course
 
-A list of courses at the selected facility. Tap a course name to select it — a green checkmark appears. If there is only one course at the facility it is pre-selected.
+A single **Course** field. It shows the currently selected course (name, facility, holes, and par) or _"Select a course"_ if none is picked yet. Tap it to open the **course search sheet**:
+
+- A search box is pinned at the top — type any part of a course or facility name to filter instantly.
+- A **Recent** section lists your last few courses for one-tap selection. (The first time, it is seeded from the courses in your played rounds.)
+- Below that, every course is listed grouped by **Club / Facility**, alphabetical.
+
+Tap a course to select it (a green checkmark marks the current one) and the sheet closes. Tap **Cancel** to close without changing the selection.
 
 #### Tee Box
 
@@ -148,7 +151,7 @@ The large number in the center is your running score for the current hole. It sh
 #### Navigation
 
 - **◀** — go back to the previous hole to correct a score. On hole 1, tapping ◀ exits the round without saving and returns to the Home screen.
-- **▶** — jump forward (only works on holes already scored)
+- **▶** — the single advance control. It moves to the next hole, or — on milestone holes — opens the round-flow dialogs (see [Advancing & Finishing](#advancing--finishing) below).
 
 #### Numpad
 
@@ -157,12 +160,9 @@ Buttons 1–9 are individual digit taps. For scores of 10 or above, tap two digi
 | Button | What it does |
 |---|---|
 | **1–9** | Sets / appends a digit to the current hole score |
-| **0** | Appends a zero (e.g. `1` then `0` = score of 10) |
-| **Forfeit** | Marks the hole with a score of par+2 (double bogey max). Used when you pick up or don't finish a hole. A confirmation prompt appears. |
-| **Next ▶** | Moves to the next hole |
-| **✓ Done** | Appears on the last hole — finishes entry and goes to the Review screen |
+| **0** | Appends a zero (e.g. `1` then `0` = score of 10) — centered under the keypad |
 
-If you tap **Done** and any hole is missing a score, the app shows which hole numbers are incomplete and does not proceed.
+There is no Forfeit or Next button on the numpad. Advancing between holes and finishing the round are both driven by the top **▶** arrow. Any holes left blank are forfeited (recorded as par+2) when you finish — see [Advancing & Finishing](#advancing--finishing).
 
 ---
 
@@ -180,15 +180,13 @@ Shows the clubs tapped so far in sequence (e.g. `D ▶ 7i ▶ P`). A club curren
 
 #### Club Suggestion
 
-If yardages are entered for this course and tee, and you have clubs in your bag, Galf shows a **Suggested** club sequence for the hole yardage using a greedy algorithm:
+If yardages are entered for this course and tee, and you have clubs in your bag, Galf shows a **Suggested** club sequence for the hole yardage:
 
-> _Suggested: D ▶ 9i ▶ P_
+> _Suggested: D ▶ 9i_
 
-It picks the longest club in your bag that fits the remaining distance, subtracts it, and repeats until the hole is covered. The putter can only appear once. If two clubs have the same distance, the one you use more often is preferred.
+The hole yardage is measured tee-to-center-of-green, so the goal is to land the final shot at the pin in the **fewest shots**. Galf solves this exactly (a shortest-path search, not the old greedy guess): it finds the sequence with the smallest number of shots that lands within ~6 yards of the pin, breaking ties by whichever ends closest. Clubs may repeat (e.g. `250yd = 2 × 125`). The **Driver** is only ever used as the very first shot. Partial-wedge distances you entered in the Clubs tab are included as extra options, so a suggestion may end in a partial swing such as `SW ¾`.
 
-If no full club fits the remaining distance (e.g. 30 yards left after the last approach), Galf falls back to the nearest partial wedge swing — for example `SW ¾` or `PW ½`. Partial swings only appear in suggestions if you have entered partial distances for that wedge in the Clubs tab.
-
-This is a starting point — not a prescription. You still tap whatever you actually hit.
+The sequence is shown longest shot first, since the ball advances down the hole. This is a starting point — not a prescription. You still tap whatever you actually hit.
 
 #### Simulator Auto-Putts
 
@@ -202,26 +200,24 @@ The rolled count appears as _"Sim putts: 2"_ on screen. If you tap the Putter bu
 
 #### Club Keypad
 
-Clubs are arranged in a **fixed 3×4 grid** — 9 club cells across the top three rows, and a fixed action row at the bottom. The layout never changes regardless of which clubs are in your bag.
+Clubs are arranged in a **fixed grid** — 9 club cells across three rows, plus a fixed action row at the bottom. The layout never changes regardless of which clubs are in your bag.
 
 ```
 Driver      │ Woods      │ Hybrids
-Long (2i–4i)│ Mid (5i–7i)│ Short (8i–9i)
-Wedges (hi) │ Wedges (lo)│ Putter
+Long (2i–4i)│ Mid (5i–7i)│ Short (8i–9i, PW)
+Wedges 1    │ Wedges 2   │ Wedges 3
 ────────────┼────────────┼────────────
-Forfeit     │ ◀ Undo     │ Next ▶
++1 Penalty  │ Putter     │ ◀ Undo
 ```
 
 **Layout rules:**
 - If you carry no hybrids, your woods are split evenly across the two top-row cells.
-- All wedges (PW, GW, SW, LW) are pooled together, sorted longest carry first, and split evenly across the two wedge cells.
-- The 5-iron sits in the Mid cell (5i–7i), not Long.
+- The 5-iron sits in the Mid cell (5i–7i), not Long. The **pitching wedge (PW)** lives in the Short cell with the 8i/9i, sorted last (highest loft).
+- Your remaining wedges (GW, SW, LW) are pooled, sorted longest carry first, and split as evenly as possible across the **three** wedge cells in row 3 (extra wedges go to the longer-carry cells first).
 
 Cells that group more than one club (e.g. **3w · 5w**) use **Nokia-style multi-tap**: tap the cell once to select the first club, tap again before the timer fires to cycle to the next, and so on. After ~0.9 seconds of no input the selection is committed automatically. **Cells with only one club commit immediately** — no wait needed.
 
 While a cell is cycling, the active club is displayed larger and the others are dimmed — you can always see all options in the cell at once.
-
-The **Putter** cell is always in the bottom-right of the club area (above Next ▶) and is tinted green so it stands out.
 
 Tap clubs in the order you hit them on the hole. The sequence appears in the score display as `D ▶ 7i ▶ [9i]` — brackets indicate a multi-tap selection that hasn't committed yet.
 
@@ -229,13 +225,42 @@ Tap clubs in the order you hit them on the hole. The sequence appears in the sco
 
 | Button | What it does |
 |---|---|
-| **Forfeit** | Marks hole with par+2 (double bogey max). Confirmation required. |
-| **◀ Undo** | If a multi-tap is in progress, cancels it. Otherwise removes the last committed club. |
-| **Next ▶** / **✓ Done** | Commits any pending multi-tap, then advances to the next hole or finishes entry. |
+| **+1 Penalty** | Adds a penalty stroke. Multi-tap to cycle the type — **Water/Penalty Area**, **OB/Lost Ball**, **Unplayable**. See [Penalty Strokes](#penalty-strokes) below. |
+| **Putter** | Adds a putt. Tinted green. (The putter is always present even if it isn't in your bag.) |
+| **◀ Undo** | If a multi-tap is in progress, cancels it. Otherwise removes the last committed club/putt/penalty. |
+
+There is no Forfeit button. Advancing and finishing are driven by the top **▶** arrow (see [Advancing & Finishing](#advancing--finishing)); blank holes are forfeited at finish.
+
+#### Penalty Strokes
+
+The **+1 Penalty** button records a penalty stroke. Multi-tap it to choose the type:
+
+| Type | Use for |
+|---|---|
+| **Water / Penalty Area** | Ball in a water hazard or marked penalty area |
+| **OB / Lost Ball** | Out of bounds or a lost ball |
+| **Unplayable** | Declared unplayable lie |
+
+Every penalty costs **+1** and counts toward your score and strokes-to-green just like a shot — it shows in the sequence as `+Wtr`, `+OB`, or `+Unp`. Penalties are **not** counted as real club hits, so they are excluded from club usage and the club-suggestion algorithm. The type breakdown feeds the **Penalties** card on the Performance stats screen.
 
 ---
 
-### 2.4 Review & Save
+### 2.4 Advancing & Finishing
+
+Both entry modes use the top **▶** arrow as the single control for moving through the round. What it does depends on where you are:
+
+| Situation | What ▶ does |
+|---|---|
+| Any normal hole | Steps to the next hole |
+| **18-hole round, leaving hole 9** with the back 9 still untouched | Opens a **Front 9 Complete** summary (your front-9 score, diff, and birdie/par/bogey tally) with: **Continue to Back 9 ▶** or **Finish — 9 Holes** (saves just the front 9) |
+| **9-hole round, last hole** on a course that has 18 holes of data | Opens a **Round Complete** summary with: **Finish & Review** or **Add Back 9 / Add Front 9 (play 18)** — extending appends the holes you haven't played and keeps going |
+| **Last hole** otherwise | Goes to finish (Review & Save) |
+
+When you finish, any holes still blank are not blocked — Galf shows a **Forfeit Empty Holes?** prompt listing them and, on confirm, records each as par+2 (double bogey) before moving to Review. This replaces the old per-hole Forfeit button.
+
+---
+
+### 2.5 Review & Save
 
 After the last hole, you land on the **Review & Save** screen.
 
@@ -251,7 +276,7 @@ An optional text field at the bottom. Use it to jot down anything about the roun
 
 Tap **Save Round** to write the round to your history. Your Handicap Index updates immediately. You are taken to the Rounds screen.
 
-> The Review & Save screen has no back button. If you need to fix a score, use **◀** on the entry screen to step back through holes before tapping **✓ Done**.
+> The Review & Save screen has no back button. If you need to fix a score, use **◀** on the entry screen to step back through holes before finishing with **▶**.
 
 ---
 
@@ -519,10 +544,10 @@ Below the handicap, four quick-stat cells:
 
 | Cell | What it means |
 |---|---|
-| **Total Rounds** | Every round ever logged (all types) |
-| **Best Round** | Your lowest score vs. par — shown as the total score with the diff (e.g. `82 (+10)`) |
+| **Total IRL** | Number of real (non-simulator) rounds logged |
+| **Total Sim** | Number of simulator rounds logged |
 | **Avg Score (9h)** | Average total score across serious 9-hole rounds only |
-| **Holes Played** | Total holes logged in serious solo rounds — tracks progress toward the 54-hole handicap threshold |
+| **Avg Score (18h)** | Average total score across serious 18-hole rounds only |
 
 Below the quick numbers, a list of your **top 8 score differentials** sorted best to worst. Each row shows the course, date, hole count, raw score, and the computed differential. The top 3 are highlighted green — these are the rounds carrying the most weight in your handicap.
 
@@ -560,9 +585,21 @@ Percentage of holes where you missed the green in regulation but still made boge
 - Orange — 15–29%
 - Red — below 15%
 
-#### Avg Strokes to Green (Par 4)
+#### Rounds (IRL / Sim)
 
-How many strokes on average it takes you to reach the green on par 4 holes. Target is 2.0 (meaning you hit the green in regulation). Higher numbers indicate approach shot struggles.
+Beside the scramble ring, a cell shows your round counts as **IRL / Sim** with the total holes played across all rounds beneath. A quick at-a-glance count of how much you've logged.
+
+#### Penalties
+
+Total penalty strokes across your detailed rounds, with the per-round average. Color:
+
+- Green — zero penalties
+- Orange — under 1 per round
+- Red — 1 or more per round
+
+A three-column breakdown below the total splits penalties into **Water**, **OB / Lost**, and **Unplayable** — the types you tagged with the **+1 Penalty** button during detailed entry.
+
+> GIR and strokes-to-green include simulator rounds (the approach shots are your real input — only putts are auto-rolled). Putting and scramble rates use real rounds only, since they depend on the auto-rolled putts.
 
 ---
 

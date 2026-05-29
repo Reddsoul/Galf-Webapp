@@ -7,11 +7,11 @@ A self-hosted mobile golf companion that lives on your iPhone. Log rounds, track
 ## What It Does
 
 - **Handicap tracking** — Calculates a real WHS/USGA Handicap Index per 2024 rules (18-hole and 9-hole rounds both handled correctly). Requires 54 logged holes to establish.
-- **Round logging** — Quick score entry (just total score) or detailed hole-by-hole entry with GIR, putts, and club tracking.
+- **Round logging** — Quick score entry (just total score) or detailed hole-by-hole entry with GIR, putts, club, and penalty tracking. A searchable course picker with a Recent list speeds setup. 9-hole rounds can be extended to 18 mid-round, and 18-hole rounds can be finished early as a 9.
 - **Practice sessions** — Adaptive drill templates built from your bag. Covers warm-up, putting, chipping, Wedge Matrix (calibrates partial carry distances per wedge), irons, and woods. Saving a session writes updated wedge distances back to your club bag automatically. Sessions saved to history.
-- **Stats** — GIR %, scrambling, putts per round, stroke leak analysis by hole position.
+- **Stats** — GIR %, scrambling, putts per round, penalty strokes (water / OB / unplayable, plus per-round average), and stroke leak analysis by hole position.
 - **Course library** — Store hole pars, per-tee yardages, slope rating, and course rating. Multiple tee colors per course.
-- **Club bag** — Track carry distances per club; the app suggests clubs during detailed entry.
+- **Club bag** — Track carry distances (and partial-wedge distances) per club; during detailed entry the app suggests the fewest-shots club sequence to reach the pin.
 - **Simulator rounds** — Tracked separately, excluded from real handicap.
 - **Personal bests** — Home screen shows best IRL and simulator scorecards on a single toggle card.
 - **Activity heatmap** — 18-week calendar on the home screen showing days you played a round, practiced, or both.

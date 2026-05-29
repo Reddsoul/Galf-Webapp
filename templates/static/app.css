@@ -5,7 +5,6 @@
   --bg: #EEF2EB;
   --card: #FFFFFF;
   --accent: #1B6B3A;
-  --accent-tint: rgba(27,107,58,0.10);
   --green: #34C759;
   --red: #FF3B30;
   --orange: #FF9500;
@@ -292,6 +291,7 @@ textarea.form-input { min-height: 100px; resize: vertical; }
   transition: transform 0.1s ease;
 }
 .numpad-btn:active { background: var(--active-overlay); transform: scale(0.95); }
+.numpad-btn.zero { grid-column: 2; } /* center 0 in the middle column, same width as digits */
 .numpad-btn.forfeit { background: var(--red); color: #fff; font-size: 15px; border-radius: 10px; }
 .numpad-btn.next-hole { background: var(--green); color: #fff; font-size: 15px; border-radius: 10px; }
 
@@ -368,6 +368,18 @@ textarea.form-input { min-height: 100px; resize: vertical; }
   background: var(--green); color: #fff;
   font-size: 14px; font-weight: 700; border-color: transparent;
   flex-direction: row; gap: 4px;
+}
+.club-grid-btn.action-penalty {
+  background: var(--red); color: #fff;
+  font-size: 14px; font-weight: 700; border-color: transparent;
+  flex-direction: row; gap: 4px;
+}
+/* Putter in the action row — green tint (is-putter), laid out like an action button */
+.club-grid-btn.action-putter { flex-direction: row; gap: 4px; }
+.club-grid-btn.action-putter .kp-club { font-size: 16px; }
+/* Penalty mid-cycle (multi-tap) — match the keypad pending highlight */
+.club-grid-btn.action-penalty.is-pending {
+  background: var(--accent); transform: scale(1.04);
 }
 
 
@@ -1024,6 +1036,55 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 .dialog-btn.is-cancel {
   background: var(--card); font-weight: 600; border-radius: 16px;
 }
+
+/* ================================================================
+   COURSE PICKER — field on the log-setup page + search sheet
+   ================================================================ */
+.ls-course-field {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 12px; background: var(--bg); border-radius: 10px;
+  cursor: pointer; border: 2px solid transparent;
+}
+.ls-course-field:active { background: var(--active-overlay); }
+.ls-course-field.placeholder { justify-content: space-between; color: var(--text2); }
+.ls-cf-name { font-size: 15px; font-weight: 600; }
+.ls-cf-sub  { font-size: 12px; color: var(--text2); margin-top: 2px; }
+.ls-cf-chevron { color: var(--accent); font-size: 14px; font-weight: 600; flex-shrink: 0; }
+
+.course-sheet {
+  width: 100%; max-width: 520px; height: 85vh;
+  background: var(--card); border-radius: 16px 16px 0 0;
+  display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 -4px 24px rgba(0,0,0,0.22);
+}
+.course-sheet-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 14px; border-bottom: 0.5px solid var(--sep); flex-shrink: 0;
+}
+.course-search {
+  flex: 1; border: none; background: var(--bg); border-radius: 10px;
+  padding: 10px 12px; font-size: 16px; color: var(--text); font-family: inherit;
+}
+.course-search:focus { outline: 2px solid var(--accent); }
+.course-sheet-cancel {
+  background: none; border: none; color: var(--accent);
+  font-size: 15px; font-weight: 600; cursor: pointer; font-family: inherit; padding: 6px 4px;
+}
+.course-sheet-list { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: 16px; }
+.cs-section-label {
+  font-size: 11px; font-weight: 700; color: var(--text2);
+  text-transform: uppercase; letter-spacing: 0.5px; padding: 14px 16px 6px;
+}
+.cs-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px; cursor: pointer; border-bottom: 0.5px solid var(--sep);
+}
+.cs-row:active { background: var(--active-overlay); }
+.cs-row.sel { background: rgba(0,122,255,0.06); }
+.cs-row-main { flex: 1; min-width: 0; }
+.cs-row-name { font-size: 15px; font-weight: 500; }
+.cs-row-sub  { font-size: 12px; color: var(--text2); margin-top: 2px; }
+.cs-check { color: var(--accent); font-weight: 700; font-size: 16px; }
 
 /* ================================================================
    PHASE 3 POLISH — card shadow depth + corner consistency

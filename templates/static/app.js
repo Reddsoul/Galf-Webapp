@@ -482,7 +482,7 @@ async function renderHome() {
           <div class="home-hc-label">Handicap Index</div>
           ${hcSub?`<div class="home-hc-sub" style="margin-top:8px">${hcSub}</div>`:''}
         </div>
-        <div class="home-hero-right">
+        <div class="home-hero-right" onclick="statsTab='overview';show('stats')" style="cursor:pointer" role="button" aria-label="View statistics">
           <div class="home-hc-value${hasHC?'':' hc-pending'}">${hcStr}</div>
         </div>
       </div>
@@ -939,8 +939,9 @@ async function startTraining() {
     show('training');
     return;
   }
-  T.selectedCategories = T.template.map(c => c.category);
-  T.selectedClubs = _defaultSelectedClubs();
+  // Fresh session: nothing pre-selected — the user picks categories and clubs.
+  T.selectedCategories = [];
+  T.selectedClubs = {};
   T.wedgeMatrix = {};
   T.activeCatIdx = 0;
   show('training-setup');
@@ -1201,10 +1202,7 @@ function tsCatToggle(catName) {
 }
 
 function tsClubToggle(catName, clubName) {
-  if (!T.selectedClubs[catName]) {
-    const cat = T.template.find(c => c.category === catName);
-    T.selectedClubs[catName] = cat ? [..._catClubNames(cat)] : [];
-  }
+  if (!T.selectedClubs[catName]) T.selectedClubs[catName] = [];
   const arr = T.selectedClubs[catName];
   const i = arr.indexOf(clubName);
   if (i >= 0) arr.splice(i, 1);
@@ -1537,14 +1535,6 @@ function renderLogSetup() {
     return;
   }
 
-  // Group courses by club — stored on S so lsClubChanged() can reuse without rebuilding
-  S.logClubMap={};
-  for(const c of S.courses){const k=c.club||'Other';if(!S.logClubMap[k])S.logClubMap[k]=[];S.logClubMap[k].push(c);}
-  const clubNames=Object.keys(S.logClubMap).sort();
-
-  // Build club selector
-  let clubOpts=`<option value="" disabled selected>Pick one</option>`+clubNames.map(cn=>`<option value="${esc(cn)}">${esc(cn)}</option>`).join('');
-
   const today=new Date().toISOString().substring(0,10);
 
   // Auto-select scramble disables serious
@@ -1581,13 +1571,8 @@ function renderLogSetup() {
     ${_draftBanner}
 
     <div class="card">
-      <div class="section-head" style="margin-bottom:8px">Club / Facility</div>
-      <select class="form-select" id="ls-club" onchange="lsClubChanged()">${clubOpts}</select>
-    </div>
-
-    <div class="card">
       <div class="section-head" style="margin-bottom:8px">Course</div>
-      <div id="ls-course-list"></div>
+      <div id="ls-course-field"></div>
     </div>
 
     <div class="card">
@@ -1639,7 +1624,8 @@ function renderLogSetup() {
     </div>
   `;
 
-  lsClubChanged();
+  renderCourseField();
+  lsRefreshTees();
 }
 
 function setR(el,gid){document.getElementById(gid).querySelectorAll('.radio-opt').forEach(b=>b.classList.remove('active'));el.classList.add('active');}
@@ -1657,43 +1643,115 @@ function lsTypeChanged(){
   }
 }
 
-function lsClubChanged(){
-  const clubName=document.getElementById('ls-club').value;
-  const container=document.getElementById('ls-course-list');
-  if(!clubName){container.innerHTML='<div class="muted-sm">Select a club to see courses</div>';S.logCourse=null;document.getElementById('ls-tee-pills').innerHTML='';return;}
-  const courses=(S.logClubMap||{})[clubName]||[];
-
-  // Course list as tappable rows
-  if(!courses.length){container.innerHTML='<div class="muted-sm">No courses for this club</div>';return;}
-
-  let html='';
-  courses.forEach((c,i)=>{
+// Course selector field on the log-setup page. Tapping opens the search sheet.
+function renderCourseField(){
+  const el=document.getElementById('ls-course-field');
+  if(!el) return;
+  const c=S.logCourse;
+  if(c){
     const tp=c.pars.reduce((a,b)=>a+b,0);
-    const sel=S.logCourse&&S.logCourse.name===c.name;
-    const solo=courses.length===1;
-    const br=solo?'10px':i===0?'10px 10px 0 0':i===courses.length-1?'0 0 10px 10px':'0';
-    const borderTop=i>0&&!solo?'border-top:0.5px solid var(--sep);':'';
-    html+=`<div class="ls-course-row" style="display:flex;align-items:center;padding:12px;cursor:pointer;border-radius:${br};overflow:hidden;border:2px solid ${sel?'var(--accent)':'transparent'};background:${sel?'rgba(0,122,255,0.06)':'var(--bg)'};${borderTop}" onclick="lsPickCourse('${esc(c.name)}')">
-      <div style="flex:1">
-        <div style="font-size:15px;font-weight:${sel?'600':'500'}">${esc(c.name)}</div>
-        <div style="font-size:12px;color:var(--text2)">${c.pars.length} holes · Par ${tp}</div>
+    el.innerHTML=`<div class="ls-course-field" onclick="openCourseSheet()">
+      <div style="flex:1;min-width:0">
+        <div class="ls-cf-name">${esc(c.name)}</div>
+        <div class="ls-cf-sub">${esc(c.club||'Other')} · ${c.pars.length} holes · Par ${tp}</div>
       </div>
-      ${sel?'<div style="color:var(--accent);font-size:16px;font-weight:700">✓</div>':''}
+      <span class="ls-cf-chevron">Change ›</span>
     </div>`;
-  });
-  container.innerHTML=html;
-
-  // Auto-select first if none selected or current not in this club
-  if(!S.logCourse||!courses.find(c=>c.name===S.logCourse.name)){
-    lsPickCourse(courses[0].name);
   } else {
-    lsRefreshTees();
+    el.innerHTML=`<div class="ls-course-field placeholder" onclick="openCourseSheet()">
+      <span>Select a course</span><span class="ls-cf-chevron">›</span>
+    </div>`;
   }
 }
 
-function lsPickCourse(name){
+/* ================================================================
+   COURSE SEARCH SHEET — pinned search + Recent + facility groups
+   ================================================================ */
+const RECENT_COURSES_KEY='galf_recent_courses';
+let _courseSheet=null;
+
+function _getRecentCourses(){ try{ return JSON.parse(localStorage.getItem(RECENT_COURSES_KEY))||[]; }catch(e){ return []; } }
+function _pushRecentCourse(name){
+  let r=_getRecentCourses().filter(n=>n!==name);
+  r.unshift(name);
+  r=r.slice(0,6);
+  try{ localStorage.setItem(RECENT_COURSES_KEY, JSON.stringify(r)); }catch(e){}
+  S.logRecentCourses=r;
+}
+
+async function openCourseSheet(){
+  if(!S.logRecentCourses) S.logRecentCourses=_getRecentCourses();
+  // Seed recents from played rounds the first time (existing users have no local list yet)
+  if(!S.logRecentCourses.length){
+    try{
+      const rounds=await GET('/api/rounds?round_type=all&sort=recent');
+      const seen=new Set(), seed=[];
+      for(const rd of (rounds||[])){
+        const n=rd.course_name;
+        if(n && !seen.has(n) && S.courses.find(c=>c.name===n)){ seen.add(n); seed.push(n); if(seed.length>=6) break; }
+      }
+      S.logRecentCourses=seed;
+    }catch(e){}
+  }
+  _courseSheet=_showDialog(`
+    <div class="course-sheet" onclick="event.stopPropagation()">
+      <div class="course-sheet-header">
+        <input class="course-search" id="cs-search" type="search" placeholder="Search courses" autocomplete="off" oninput="csFilter(this.value)">
+        <button class="course-sheet-cancel" onclick="csClose()">Cancel</button>
+      </div>
+      <div class="course-sheet-list" id="cs-list">${csBuildListHtml('')}</div>
+    </div>`);
+  const inp=document.getElementById('cs-search');
+  if(inp) setTimeout(()=>inp.focus(),50);
+}
+
+function csClose(){ if(_courseSheet){ _courseSheet.remove(); _courseSheet=null; } }
+function csFilter(q){ const l=document.getElementById('cs-list'); if(l) l.innerHTML=csBuildListHtml(q); }
+
+function csRow(c){
+  const tp=c.pars.reduce((a,b)=>a+b,0);
+  const sel=S.logCourse&&S.logCourse.name===c.name;
+  return `<div class="cs-row${sel?' sel':''}" onclick="csPick('${esc(c.name)}')">
+    <div class="cs-row-main"><div class="cs-row-name">${esc(c.name)}</div>
+    <div class="cs-row-sub">${esc(c.club||'Other')} · ${c.pars.length} holes · Par ${tp}</div></div>
+    ${sel?'<span class="cs-check">✓</span>':''}
+  </div>`;
+}
+
+function csBuildListHtml(query){
+  const q=(query||'').trim().toLowerCase();
+  let html='';
+  // Recent (only when not searching)
+  if(!q){
+    const recents=(S.logRecentCourses||[]).map(n=>S.courses.find(c=>c.name===n)).filter(Boolean);
+    if(recents.length){
+      html+='<div class="cs-section-label">Recent</div>';
+      html+=recents.map(csRow).join('');
+    }
+  }
+  // All courses grouped by facility, alphabetical
+  const groups={};
+  for(const c of S.courses){
+    if(q && !(c.name.toLowerCase().includes(q) || (c.club||'').toLowerCase().includes(q))) continue;
+    const k=c.club||'Other';
+    (groups[k]=groups[k]||[]).push(c);
+  }
+  const facilities=Object.keys(groups).sort();
+  if(!facilities.length) return html+'<div class="muted-sm" style="padding:18px 16px">No matching courses</div>';
+  for(const f of facilities){
+    html+=`<div class="cs-section-label">${esc(f)}</div>`;
+    groups[f].sort((a,b)=>a.name.localeCompare(b.name));
+    html+=groups[f].map(csRow).join('');
+  }
+  return html;
+}
+
+function csPick(name){
   S.logCourse=S.courses.find(c=>c.name===name);
-  lsClubChanged(); // Re-renders course list (with selection) and calls lsRefreshTees()
+  _pushRecentCourse(name);
+  csClose();
+  renderCourseField();
+  lsRefreshTees();
 }
 
 function lsRefreshTees(){
@@ -1755,6 +1813,23 @@ function abbrClub(name){
   return name.substring(0,3).toUpperCase();
 }
 
+/* ================================================================
+   PENALTY STROKES — all golf penalties cost +1; we track the type
+   for stats. Stored in S.holeClubs as tokens (PNW/PNO/PNU) so they
+   count toward the score but are excluded from club analytics.
+   ================================================================ */
+const PEN_TYPES = [
+  { tok:'PNW', short:'Wtr', label:'Water / Penalty Area' },
+  { tok:'PNO', short:'OB',  label:'OB / Lost Ball' },
+  { tok:'PNU', short:'Unp', label:'Unplayable' },
+];
+function isPenalty(t){ return t==='PNW'||t==='PNO'||t==='PNU'; }
+function penShort(t){ const p=PEN_TYPES.find(x=>x.tok===t); return p?('+'+p.short):t; }
+function tokenLabel(t){ return isPenalty(t)?penShort(t):t; }
+// Penalty acts as a pseudo-keypad-cell so it reuses the Nokia multi-tap cycle.
+function _penaltyCell(){ return { key:'penalty', clubs:PEN_TYPES.map(p=>({name:p.label, abbr:p.tok})) }; }
+function getKeypadCell(key){ return key==='penalty' ? _penaltyCell() : buildKeypadCells().find(c=>c.key===key); }
+
 async function beginEntry(){
   if(!S.logCourse){showAlert('Select a Course','Pick a course before starting.');return;}
   if(!S.logTee){showAlert('Select a Tee Box','Pick a tee box before starting.');return;}
@@ -1781,39 +1856,88 @@ async function beginEntry(){
 
 /* ================================================================
    CLUB SUGGESTION (Feature 1)
-   Greedy: pick longest club ≤ remaining, subtract, repeat.
-   Uses clubUsage as tiebreaker for equal-distance clubs.
+   Yardages are tee→center-of-green, so the goal is to land the final
+   shot within SUGGEST_TOL yards of the pin using the fewest shots.
+   Greedy fails (orphan remainders → overshoot/gap), so we run an exact
+   DP / shortest-path: minimize shots, then minimize final error.
+   Repeats allowed (250yd = 2×125). Driver only as the very first shot —
+   enforced by the caller passing sortedClubsNoDriver once a shot exists.
    ================================================================ */
-// sortedClubs must be pre-sorted by (distance desc, usage desc) with putter and zero-distance clubs removed.
-// Use S.sortedClubs (full) or S.sortedClubsNoDriver — both built by buildClubLookups().
-function suggestClubs(yardage, sortedClubs){
-  if(!yardage||!sortedClubs||!sortedClubs.length) return '';
-  let remaining=yardage;
-  const result=[];
-  while(remaining>0){
-    const club=sortedClubs.find(c=>{
-      if((c.distance||0)>remaining) return false;
-      if(c.name.toLowerCase()==='driver'&&result.length>0) return false; // driver: first shot only
-      return true;
-    });
-    if(!club) break;
-    result.push(abbrClub(club.name));
-    remaining-=club.distance;
-  }
-  // Partial wedge fallback: no full club fits remaining yardage — suggest a partial swing
-  if(remaining>0 && S.wedgeMatrix && S.wedgeMatrix.length){
-    const partial=S.wedgeMatrix.find(p=>p.dist<=remaining);
-    if(partial){
-      const swingLabel={'3/4':'¾','1/2':'½','1/4':'¼'}[partial.swing]||partial.swing;
-      result.push(`${abbrClub(partial.name)} ${swingLabel}`);
+const SUGGEST_TOL = 6; // yards (~18 ft) — "reached the pin" window
+
+// Min-shots reach of `target` within ±tol using repeatable `moves`
+// ([{label, carry}]). Returns {shots, err, path:[label]} or null.
+function dpReach(target, moves, tol){
+  const T = Math.round(target);
+  const set = moves.map(m=>({label:m.label, c:Math.round(m.carry||0)})).filter(m=>m.c>0);
+  if(T<=tol) return {shots:0, err:T, path:[]}; // already at the pin
+  if(!set.length) return null;
+  // best[r] = fewest-shots way to ARRIVE at "r yards remaining" (r>tol, still short)
+  const best = new Array(T+1).fill(null);
+  best[T] = {shots:0, from:-1, move:null};
+  let goal = null; // {shots, err, endR, move} — landed inside ±tol window
+  for(let r=T; r>=0; r--){
+    const cur = best[r];
+    if(!cur) continue;
+    if(goal && cur.shots+1 > goal.shots) continue; // can't beat best shot count
+    for(const m of set){
+      const nr = r - m.c;
+      const shots = cur.shots + 1;
+      if(nr >= -tol && nr <= tol){            // landed in pin window
+        const err = Math.abs(nr);
+        if(!goal || shots<goal.shots || (shots===goal.shots && err<goal.err))
+          goal = {shots, err, endR:r, move:m};
+      } else if(nr > tol){                     // still short → record state
+        const ex = best[nr];
+        if(!ex || shots < ex.shots) best[nr] = {shots, from:r, move:m};
+      }
+      // nr < -tol → overshoot past the green beyond tol → illegal, skip
     }
   }
-  return result.join(' ▶ ');
+  // walk returns move objects {label, c} from first shot to last
+  const walk = (endR)=>{ const p=[]; let r=endR; while(r!==T){const n=best[r]; if(!n||n.from<0)break; p.unshift(n.move); r=n.from;} return p; };
+  if(goal){ const p=walk(goal.endR); p.push(goal.move); return {shots:goal.shots, err:goal.err, path:p}; }
+  // Fallback: nothing lands inside tol (e.g. no wedge partials) — get as close as possible
+  for(let r=0; r<T; r++){ if(best[r]) return {shots:best[r].shots, err:r, path:walk(r)}; }
+  return null;
+}
+
+function suggestClubs(yardage, sortedClubs){
+  if(!yardage||!sortedClubs||!sortedClubs.length) return '';
+  const tol = SUGGEST_TOL;
+  const isDriver = c => c.name.toLowerCase().includes('driver');
+  const driver = sortedClubs.find(isDriver);
+  // Move set (driver excluded — handled as a forced first shot below):
+  // every full club carry + every partial-wedge distance.
+  const moves = sortedClubs.filter(c=>!isDriver(c))
+    .map(c=>({label:abbrClub(c.name), carry:c.distance||0}));
+  if(S.wedgeMatrix && S.wedgeMatrix.length){
+    for(const p of S.wedgeMatrix){
+      const sl = {'3/4':'¾','1/2':'½','1/4':'¼'}[p.swing] || p.swing;
+      moves.push({label:`${abbrClub(p.name)} ${sl}`, carry:p.dist||0});
+    }
+  }
+  const better = (a,b)=> !b || a.shots<b.shots || (a.shots===b.shots && a.err<b.err);
+  // Case A: no driver
+  let bestSol = dpReach(yardage, moves, tol);
+  // Case B: driver as the mandatory first shot (only when bag includes one and it helps)
+  if(driver && (driver.distance||0)>0 && driver.distance<=yardage+tol){
+    const rem = yardage - driver.distance;
+    let sol = null;
+    const drv = {label:'D', c:driver.distance};
+    if(rem>=-tol && rem<=tol) sol = {shots:1, err:Math.abs(rem), path:[drv]};
+    else if(rem>tol){ const sub=dpReach(rem, moves, tol); if(sub) sol={shots:sub.shots+1, err:sub.err, path:[drv,...sub.path]}; }
+    if(sol && better(sol, bestSol)) bestSol = sol;
+  }
+  if(!bestSol || !bestSol.path.length) return '';
+  // Display longest shot first (ball advances down the hole)
+  return [...bestSol.path].sort((a,b)=>(b.c||0)-(a.c||0)).map(m=>m.label).join(' ▶ ');
 }
 
 /* ================================================================
-   LOG ROUND ENTRY — numpad: bottom row = Forfeit/0/Next
-   Club grid: 3 cols, last row = Forfeit/Undo/Next
+   LOG ROUND ENTRY — quick numpad: bottom row = Forfeit/0/Next
+   Detailed club grid: 3 cols, action row = +1 Penalty / Undo / —
+   Advancing & finishing is driven by the top ▶ arrow (advanceHole).
    ================================================================ */
 function renderLogEntry(){
   const v=document.getElementById('v-log-entry');
@@ -1824,7 +1948,6 @@ function renderLogEntry(){
   const yard=yardages[holeNum]||'-';
   const isD=S.logMode==='detailed';
   const lastH=hi===S.holesToScore.length-1;
-  const nextLabel=lastH?'✓ Done':'Next ▶';
 
   // Feature 3: Roll sim putts on first load of this hole
   if(isD&&S.logIsSim&&S.holeSimPutts&&S.holeSimPutts[hi]===null){
@@ -1839,9 +1962,9 @@ function renderLogEntry(){
       score=par+2; clubsStr='Forfeited';
     } else {
       const committed=S.holeClubs[hi];
-      const pendingClub=_kpPending?_kpPending.clubs[_kpPending.idx].abbr:null;
-      const displayParts=[...committed.map(c=>c), ...(pendingClub?[`[${pendingClub}]`]:[])];
-      score=(committed.length+(pendingClub?1:0))||null;
+      const pendingTok=_kpPending?_kpPending.clubs[_kpPending.idx].abbr:null;
+      const displayParts=[...committed.map(tokenLabel), ...(pendingTok?[`[${tokenLabel(pendingTok)}]`]:[])];
+      score=(committed.length+(pendingTok?1:0))||null;
       clubsStr=displayParts.length?displayParts.join(' ▶ '):'Tap clubs in order';
     }
   }
@@ -1857,7 +1980,7 @@ function renderLogEntry(){
   if(isD){
     const yardNum=yardages[holeNum]||0;
     if(yardNum&&S.clubs&&S.clubs.length){
-      const played=S.holeClubs[hi].filter(c=>c!=='X'&&c!=='P');
+      const played=S.holeClubs[hi].filter(c=>c!=='X'&&c!=='P'&&!isPenalty(c));
       if(played.length===0){
         const s=suggestClubs(yardNum,S.sortedClubs||[]);
         if(s) suggestStr=`Suggested: ${s}`;
@@ -1878,12 +2001,11 @@ function renderLogEntry(){
     // Nokia fixed 3×4 keypad (rows 0-2: club cells, row 3: action row)
     bottomHtml = buildKeypadHtml(lastH);
   } else {
-    // Quick mode numpad: 1-9, then Forfeit / 0 / Next
+    // Quick mode numpad: 1-9, then 0 centered in the middle column (advance via the
+    // top ▶ arrow, empty holes are forfeited at finish — same flow as detailed mode)
     let btns='';
     for(let n=1;n<=9;n++) btns+=`<button class="numpad-btn" onclick="inputScore(${n})">${n}</button>`;
-    btns+=`<button class="numpad-btn forfeit" onclick="forfeitHole()">Forfeit</button>`;
-    btns+=`<button class="numpad-btn" onclick="inputScore(0)">0</button>`;
-    btns+=`<button class="numpad-btn next-hole" onclick="${lastH?'checkFinish()':'nextH()'}">${nextLabel}</button>`;
+    btns+=`<button class="numpad-btn zero" onclick="inputScore(0)">0</button>`;
     bottomHtml=`<div class="numpad"><div class="numpad-grid">${btns}</div></div>`;
   }
 
@@ -1909,7 +2031,7 @@ function renderLogEntry(){
         ${suggestStr?`<div class="entry-suggest">${esc(suggestStr)}</div>`:''}
         ${isD&&S.logIsSim&&S.holeSimPutts&&S.holeSimPutts[hi]!==null?`<div class="entry-sim-putts">Sim putts: ${S.holeSimPutts[hi]}${S.holeClubs[hi].filter(c=>c==='P').length>0?' (overridden)':''}</div>`:''}
       </div>
-      <button class="entry-nav-btn" onclick="nextH()" ${hi>=S.holesToScore.length-1?'disabled':''}>▶</button>
+      <button class="entry-nav-btn" onclick="advanceHole()">▶</button>
     </div>
     ${bottomHtml}
   `;
@@ -1924,11 +2046,13 @@ function inputScore(n){let c=S.holeScores[S.currentHoleIdx];if(c===null){if(n===
 // Pending tap state: {cellKey, idx, clubs:[{name,abbr}], timerId}
 let _kpPending = null;
 
-// Build the 9-cell fixed layout from S.clubs.
-// Returns array of 9 cell objects in grid order (row-major, rows 0-2).
-// Row 0: Driver | Woods+Hybrids | empty
-// Row 1: Long(2i-4i) | Mid(5i-7i) | Short(8i-9i)
-// Row 2: Wedge group 1 | Wedge group 2 | Putter
+// Build the keypad layout from S.clubs.
+// Returns 9 grid cells (rows 0-2) followed by the putter cell (index 9),
+// which buildKeypadHtml renders in the action row, not the grid.
+// Row 0: Driver | Woods+Hybrids
+// Row 1: Long(2i-4i) | Mid(5i-7i) | Short(8i-9i, PW)
+// Row 2: Wedge group 1 | Wedge group 2 | Wedge group 3
+// Action row: +1 Penalty | Putter | Undo
 function buildKeypadCells() {
   const CELLS = [
     { key:'driver',  clubs:[] },  // [0][0] Driver
@@ -1939,8 +2063,10 @@ function buildKeypadCells() {
     { key:'short',   clubs:[] },  // [1][2] 8i-9i
     { key:'wedge1',  clubs:[] },  // [2][0] Wedge group 1
     { key:'wedge2',  clubs:[] },  // [2][1] Wedge group 2
-    { key:'putter',  clubs:[] },  // [2][2] Putter
+    { key:'wedge3',  clubs:[] },  // [2][2] Wedge group 3
+    { key:'putter',  clubs:[] },  // action row — not part of the grid
   ];
+  const PUTTER = 9;
 
   const allWedges = [];
 
@@ -1948,25 +2074,26 @@ function buildKeypadCells() {
     const n = c.name.toLowerCase();
     const ab = abbrClub(c.name);
     if (ab === 'D' || n.includes('driver')) return 0;
-    if (ab === 'P' || n.includes('putter')) return 8;
     if (n.includes('wood')) return 1;
     if (n.includes('hybrid')) return 2;
+    if (ab === 'PW') return 5;   // pitching wedge lives with the short irons
     if (ab.match(/^\d+[iI]$/)) {
       const num = parseInt(ab);
       if (num <= 4) return 3;  // long: 2i-4i
       if (num <= 7) return 4;  // mid: 5i-7i
       return 5;                // short: 8i-9i
     }
-    return -1; // wedges handled separately
+    return -1; // putter and other wedges handled separately
   }
 
   for (const c of S.clubs) {
     const ab = abbrClub(c.name);
     const n  = c.name.toLowerCase();
+    if (ab === 'P' || n.includes('putter')) { CELLS[PUTTER].clubs.push({ name: c.name, abbr: 'P' }); continue; }
     const idx = cellIdx(c);
     if (idx >= 0) {
       CELLS[idx].clubs.push({ name: c.name, abbr: ab });
-    } else if (ab === 'PW' || ab === 'GW' || ab === 'AW' || ab === 'SW' || ab === 'LW' || n.includes('wedge')) {
+    } else if (ab === 'GW' || ab === 'AW' || ab === 'SW' || ab === 'LW' || n.includes('wedge')) {
       allWedges.push({ name: c.name, abbr: ab, dist: S.distByAbbr[ab] || 0 });
     }
   }
@@ -1979,21 +2106,32 @@ function buildKeypadCells() {
     CELLS[1].clubs = CELLS[1].clubs.slice(0, woodHalf);
   }
 
-  // Sort wedges longest carry first, then split evenly between the two wedge cells
+  // Sort wedges longest carry first, then split as evenly as possible across the
+  // three row-2 cells (extra wedges go to the longer-carry cells first).
   allWedges.sort((a, b) => b.dist - a.dist);
-  const half = Math.ceil(allWedges.length / 2);
-  CELLS[6].clubs = allWedges.slice(0, half).map(w => ({ name: w.name, abbr: w.abbr }));
-  CELLS[7].clubs = allWedges.slice(half).map(w => ({ name: w.name, abbr: w.abbr }));
+  const n = allWedges.length, base = Math.floor(n / 3), rem = n % 3;
+  let w = 0;
+  for (let g = 0; g < 3; g++) {
+    const cnt = base + (g < rem ? 1 : 0);
+    CELLS[6 + g].clubs = allWedges.slice(w, w + cnt).map(x => ({ name: x.name, abbr: x.abbr }));
+    w += cnt;
+  }
 
-  // Sort non-wedge cells longest-distance first, cap at 3
+  // Sort non-wedge cells longest-distance first, cap at 3.
+  // PW always sorts after the numbered irons in the short cell (it's the
+  // highest-lofted club there even if it happens to carry more than the 9i).
   for (const cell of CELLS) {
-    if (cell.key === 'wedge1' || cell.key === 'wedge2') continue;
-    cell.clubs.sort((a, b) => (S.distByAbbr[b.abbr] || 0) - (S.distByAbbr[a.abbr] || 0));
+    if (cell.key === 'wedge1' || cell.key === 'wedge2' || cell.key === 'wedge3') continue;
+    cell.clubs.sort((a, b) => {
+      const pa = a.abbr === 'PW' ? 1 : 0, pb = b.abbr === 'PW' ? 1 : 0;
+      if (pa !== pb) return pa - pb;
+      return (S.distByAbbr[b.abbr] || 0) - (S.distByAbbr[a.abbr] || 0);
+    });
     cell.clubs = cell.clubs.slice(0, 3);
   }
 
   // Putter always present even if not in bag
-  if (!CELLS[8].clubs.length) CELLS[8].clubs = [{ name: 'Putter', abbr: 'P' }];
+  if (!CELLS[PUTTER].clubs.length) CELLS[PUTTER].clubs = [{ name: 'Putter', abbr: 'P' }];
 
   return CELLS;
 }
@@ -2001,12 +2139,11 @@ function buildKeypadCells() {
 // Build the full 12-cell keypad HTML (9 club cells + 3 action cells).
 function buildKeypadHtml(lastH) {
   const cells = buildKeypadCells();
-  const nextLabel = lastH ? '✓ Done' : 'Next ▶';
   let html = '<div class="club-grid-container"><div class="club-grid">';
 
-  for (const cell of cells) {
+  for (const cell of cells.slice(0, 9)) {
     const isPending = _kpPending && _kpPending.cellKey === cell.key;
-    const isPutter  = cell.key === 'putter';
+    const isPutter  = false;
     const isEmpty   = !cell.clubs.length;
 
     if (isEmpty) { html += `<button class="club-grid-btn empty-cell" aria-hidden="true"></button>`; continue; }
@@ -2029,10 +2166,14 @@ function buildKeypadHtml(lastH) {
     </button>`;
   }
 
-  // Action row
-  html += `<button class="club-grid-btn action-forfeit" onclick="forfeitHole()" aria-label="Forfeit hole">Forfeit</button>`;
-  html += `<button class="club-grid-btn action-undo" onclick="undoClub()" aria-label="Undo last club">◀ Undo</button>`;
-  html += `<button class="club-grid-btn action-next" onclick="${lastH ? 'checkFinish()' : 'nextH()'}" aria-label="${lastH ? 'Finish round' : 'Next ▶'}">${nextLabel}</button>`;
+  // Action row: +1 Penalty (multi-tap cycles type) · Putter · Undo
+  // (advancing/finishing is driven by the top ▶ arrow)
+  const penPending = _kpPending && _kpPending.cellKey === 'penalty';
+  const penLabel = penPending ? penShort(_kpPending.clubs[_kpPending.idx].abbr) : '+1 Pen';
+  const putterAbbr = (cells[9] && cells[9].clubs[0]) ? cells[9].clubs[0].abbr : 'P';
+  html += `<button class="club-grid-btn action-penalty${penPending ? ' is-pending' : ''}" onclick="keypadPress('penalty')" aria-label="Add penalty stroke">${penLabel}</button>`;
+  html += `<button class="club-grid-btn is-putter action-putter" onclick="keypadPress('putter')" aria-label="Putter"><span class="kp-club">${putterAbbr}</span></button>`;
+  html += `<button class="club-grid-btn action-undo" onclick="undoClub()" aria-label="Undo last">◀ Undo</button>`;
 
   html += '</div></div>';
   return html;
@@ -2040,8 +2181,7 @@ function buildKeypadHtml(lastH) {
 
 // Handle a keypad cell press (Nokia multi-tap logic).
 function keypadPress(cellKey) {
-  const cells = buildKeypadCells();
-  const cell  = cells.find(c => c.key === cellKey);
+  const cell = getKeypadCell(cellKey);
   if (!cell || !cell.clubs.length) return;
 
   // Single-club cells commit immediately — no multi-tap buffer needed
@@ -2106,24 +2246,6 @@ function _cancelPending() {
   _kpPending = null;
 }
 
-function forfeitHole(){
-  _cancelPending();
-  const holeNum=S.holesToScore[S.currentHoleIdx];
-  const par=S.logCourse.pars[holeNum];
-  const maxScore=par+2;
-  showConfirm(
-    'Forfeit Hole?',
-    `Records a score of ${maxScore} (double bogey max).`,
-    'Forfeit',
-    () => {
-      if(S.logMode==='detailed'){S.holeClubs[S.currentHoleIdx]=['X'];}
-      else{S.holeScores[S.currentHoleIdx]=maxScore;}
-      saveDraft();
-      if(S.currentHoleIdx<S.holesToScore.length-1){S.currentHoleIdx++;saveDraft();renderLogEntry();}
-    }
-  );
-}
-
 function addClub(c){S.holeClubs[S.currentHoleIdx].push(c);saveDraft();renderLogEntry();}
 
 function undoClub(){
@@ -2147,6 +2269,128 @@ function nextH(){
   _flushPending();
   if(S.currentHoleIdx<S.holesToScore.length-1){S.currentHoleIdx++;saveDraft();renderLogEntry();}
 }
+
+// Single advance control (top ▶ arrow + quick-mode Next button).
+// Branches: 9-hole checkpoint on an 18-hole round, finish/extend on a 9-hole
+// round, plain finish on the last hole, otherwise step to the next hole.
+function advanceHole(){
+  _flushPending();
+  const hi=S.currentHoleIdx, len=S.holesToScore.length, lastH=hi===len-1;
+  const pars=S.logCourse.pars;
+  // Crossing the 9-hole mark of an 18-hole round, back 9 still untouched → summary
+  if(!lastH && S.logHoles==='full_18' && hi===8){
+    const backUntouched=S.holesToScore.slice(9).every((_,k)=>{
+      const j=9+k;
+      return !(S.holeClubs[j]&&S.holeClubs[j].length) && (S.holeScores[j]==null||S.holeScores[j]===0);
+    });
+    if(backUntouched){ showNineSummary(); return; }
+  }
+  if(lastH){
+    if((S.logHoles==='front_9'||S.logHoles==='back_9') && pars.length>=18){ showFinishOrExtend(); return; }
+    checkFinish(); return;
+  }
+  S.currentHoleIdx++; saveDraft(); renderLogEntry();
+}
+
+// Aggregate score breakdown over holesToScore[start .. start+count).
+function _nineStats(start,count){
+  const all=computeHoleScores();
+  const s={tot:0,parTot:0,diff:0,eagle:0,birdie:0,par:0,bogey:0,worse:0};
+  for(let i=start;i<start+count&&i<all.length;i++){
+    const sc=all[i].score; if(sc==null||sc===0) continue;
+    const p=S.logCourse.pars[S.holesToScore[i]];
+    s.tot+=sc; s.parTot+=p;
+    const d=sc-p;
+    if(d<=-2)s.eagle++; else if(d===-1)s.birdie++; else if(d===0)s.par++; else if(d===1)s.bogey++; else s.worse++;
+  }
+  s.diff=s.tot-s.parTot;
+  return s;
+}
+function _diffStr(d){ return d>0?`+${d}`:d===0?'E':`${d}`; }
+function _statLine(s){
+  const parts=[];
+  if(s.eagle)parts.push(`${s.eagle} eagle${s.eagle>1?'s':''}`);
+  if(s.birdie)parts.push(`${s.birdie} birdie${s.birdie>1?'s':''}`);
+  if(s.par)parts.push(`${s.par} par${s.par>1?'s':''}`);
+  if(s.bogey)parts.push(`${s.bogey} bogey${s.bogey>1?'s':''}`);
+  if(s.worse)parts.push(`${s.worse} dbl+`);
+  return parts.join(' · ')||'—';
+}
+
+// 18-hole round, front 9 done → summary with Continue / Finish-as-9.
+function showNineSummary(){
+  const s=_nineStats(0,9);
+  const el=_showDialog(`
+    <div class="dialog-sheet">
+      <div class="dialog-card">
+        <div class="dialog-title">Front 9 Complete</div>
+        <div class="dialog-body" style="text-align:center">
+          <div style="font-size:34px;font-weight:700;line-height:1.1">${s.tot} <span style="font-size:18px;color:var(--text2)">(${_diffStr(s.diff)})</span></div>
+          <div style="margin-top:6px;font-size:13px;color:var(--text2)">${_statLine(s)}</div>
+        </div>
+        <div class="dialog-sep"></div>
+        <button class="dialog-btn" id="dlg-cont">Continue to Back 9 ▶</button>
+        <div class="dialog-sep"></div>
+        <button class="dialog-btn" id="dlg-fin9">Finish — 9 Holes</button>
+      </div>
+      <div class="dialog-card"><button class="dialog-btn is-cancel" id="dlg-cancel">Cancel</button></div>
+    </div>`);
+  el.querySelector('#dlg-cont').addEventListener('click',()=>{el.remove();S.currentHoleIdx=9;saveDraft();renderLogEntry();});
+  el.querySelector('#dlg-fin9').addEventListener('click',()=>{el.remove();finishAsNine();});
+  el.querySelector('#dlg-cancel').addEventListener('click',()=>el.remove());
+}
+
+// 9-hole round, last hole reached → finish or extend to 18.
+function showFinishOrExtend(){
+  const s=_nineStats(0,S.holesToScore.length);
+  const canExtend=S.logCourse.pars.length>=18;
+  const extLabel=S.logHoles==='back_9'?'Add Front 9 (play 18)':'Add Back 9 (play 18)';
+  const el=_showDialog(`
+    <div class="dialog-sheet">
+      <div class="dialog-card">
+        <div class="dialog-title">Round Complete</div>
+        <div class="dialog-body" style="text-align:center">
+          <div style="font-size:34px;font-weight:700;line-height:1.1">${s.tot} <span style="font-size:18px;color:var(--text2)">(${_diffStr(s.diff)})</span></div>
+          <div style="margin-top:6px;font-size:13px;color:var(--text2)">${_statLine(s)}</div>
+        </div>
+        <div class="dialog-sep"></div>
+        <button class="dialog-btn" id="dlg-fin">Finish &amp; Review</button>
+        ${canExtend?`<div class="dialog-sep"></div><button class="dialog-btn" id="dlg-ext">${extLabel}</button>`:''}
+      </div>
+      <div class="dialog-card"><button class="dialog-btn is-cancel" id="dlg-cancel">Cancel</button></div>
+    </div>`);
+  el.querySelector('#dlg-fin').addEventListener('click',()=>{el.remove();checkFinish();});
+  if(canExtend) el.querySelector('#dlg-ext').addEventListener('click',()=>{el.remove();extendTo18();});
+  el.querySelector('#dlg-cancel').addEventListener('click',()=>el.remove());
+}
+
+// Truncate an 18-hole round to its first 9 and finish.
+function finishAsNine(){
+  S.holesToScore=S.holesToScore.slice(0,9);
+  S.holeScores=S.holeScores.slice(0,9);
+  S.holeClubs=S.holeClubs.slice(0,9);
+  if(S.holeSimPutts) S.holeSimPutts=S.holeSimPutts.slice(0,9);
+  S.logHoles='front_9';
+  if(S.currentHoleIdx>8) S.currentHoleIdx=8;
+  saveDraft(); checkFinish();
+}
+
+// Grow a 9-hole round to the full 18 by appending the holes not yet played.
+function extendTo18(){
+  const pars=S.logCourse.pars; if(pars.length<18) return;
+  const have=new Set(S.holesToScore);
+  const missing=[]; for(let i=0;i<18;i++) if(!have.has(i)) missing.push(i);
+  if(!missing.length) return;
+  for(const h of missing){
+    S.holesToScore.push(h);
+    S.holeScores.push(null);
+    S.holeClubs.push([]);
+    if(S.holeSimPutts) S.holeSimPutts.push(null);
+  }
+  S.logHoles='full_18';
+  S.currentHoleIdx++; // step into the first newly added hole
+  saveDraft(); renderLogEntry();
+}
 // Compute per-hole results from S state. Returns one entry per hole in S.holesToScore.
 // detailed mode: {score, putts, stg, allClubs}  quick mode: {score, putts:null, stg:null, allClubs:null}
 function computeHoleScores() {
@@ -2161,27 +2405,48 @@ function computeHoleScores() {
       return {score: sc, putts: null, stg: null, allClubs: null};
     }
     const tappedPutts = clubs.filter(c => c === 'P').length;
+    // Tally penalties by type so the stats page can report them.
+    const pen = {water:0, ob:0, unplayable:0};
+    for (const c of clubs) { if(c==='PNW')pen.water++; else if(c==='PNO')pen.ob++; else if(c==='PNU')pen.unplayable++; }
+    const penTotal = pen.water + pen.ob + pen.unplayable;
+    const penObj = penTotal ? {...pen, total:penTotal} : null;
+    // Penalty tokens count toward the score (and strokes-to-green) but are not
+    // real club hits, so they're stripped from clubs_used / analytics.
     if (S.logIsSim && S.holeSimPutts && S.holeSimPutts[i] != null && tappedPutts === 0) {
       const putts = S.holeSimPutts[i];
-      const shotClubs = clubs.filter(c => c !== 'P');
+      const shotClubs = clubs.filter(c => c !== 'P'); // includes penalties
       const sc = shotClubs.length + putts;
-      return {score: sc, putts, stg: shotClubs.length, allClubs: [...shotClubs, ...Array(putts).fill('P')]};
+      const realClubs = shotClubs.filter(c => !isPenalty(c));
+      return {score: sc, putts, stg: shotClubs.length, allClubs: [...realClubs, ...Array(putts).fill('P')], penalties: penObj};
     }
     const sc = clubs.length;
-    return {score: sc, putts: tappedPutts, stg: sc - tappedPutts, allClubs: clubs};
+    return {score: sc, putts: tappedPutts, stg: sc - tappedPutts, allClubs: clubs.filter(c => !isPenalty(c)), penalties: penObj};
   });
 }
 
 function checkFinish(){
   _flushPending(); // commit any in-progress Nokia selection
   const isD=S.logMode==='detailed';
-  const inc=[];
+  const empties=[];
   for(let i=0;i<S.holesToScore.length;i++){
-    if(isD){if(!S.holeClubs[i].length)inc.push(S.holesToScore[i]+1);}
-    else{if(S.holeScores[i]===null||S.holeScores[i]===0)inc.push(S.holesToScore[i]+1);}
+    const empty = isD ? !S.holeClubs[i].length : (S.holeScores[i]===null||S.holeScores[i]===0);
+    if(empty) empties.push(i);
   }
-  if(inc.length){
-    showAlert('Missing Scores',`Enter scores for holes: ${inc.slice(0,5).join(', ')}${inc.length>5?' (+'+( inc.length-5)+' more)':''}`);
+  if(empties.length){
+    const nums=empties.map(i=>S.holesToScore[i]+1);
+    showConfirm(
+      'Forfeit Empty Holes?',
+      `Holes ${nums.slice(0,8).join(', ')}${nums.length>8?' +'+(nums.length-8)+' more':''} have no score. Record each as double bogey (par+2) and finish?`,
+      'Forfeit & Finish',
+      ()=>{
+        for(const i of empties){
+          if(isD) S.holeClubs[i]=['X'];
+          else S.holeScores[i]=S.logCourse.pars[S.holesToScore[i]]+2;
+        }
+        saveDraft();
+        show('log-notes');
+      }
+    );
     return;
   }
   saveDraft();
@@ -2303,7 +2568,7 @@ async function submitRound(){
   const computed=computeHoleScores();
   const scores=computed.map(h=>h.score);
   const det=computed.map(h=>h.allClubs!=null
-    ? {score:h.score,putts:h.putts,strokes_to_green:h.stg,clubs_used:h.allClubs.map(c=>S.clubFullNames[c]||c)}
+    ? {score:h.score,putts:h.putts,strokes_to_green:h.stg,clubs_used:h.allClubs.map(c=>S.clubFullNames[c]||c),...(h.penalties?{penalties:h.penalties}:{})}
     : {score:h.score});
   const total=scores.reduce((a,b)=>a+b,0);const parP=S.holesToScore.reduce((a,hi)=>a+course.pars[hi],0);
   const fullScores=new Array(course.pars.length).fill(null);const fullDet=new Array(course.pars.length).fill(null).map(()=>({}));
@@ -2314,6 +2579,7 @@ async function submitRound(){
   if(res&&res.ok===false){if(btn){btn.disabled=false;btn.style.opacity='1';}showAlert('Save Failed', res.error||'Unknown error');return;}
   clearDraft();
   clearStatsCache();
+  _pushRecentCourse(course.name);
   const diff=total-parP;
   const ds=diff>0?`+${diff}`:diff===0?'E':`${diff}`;
   showAlert('Round Saved!', `${total} (${ds}) · ${course.name} · ${S.holesToScore.length} holes`);
@@ -3067,13 +3333,6 @@ async function renderStats(){
   if(statsTab==='overview'){
     const hcColor = idx!=null ? (idx<15?'var(--green)':idx<25?'var(--accent)':'var(--orange)') : 'var(--text2)';
 
-    // Best round
-    let bestHtml='—';
-    if(best && best.total_score){
-      const bd = best.total_score-(best.par||72);
-      bestHtml = `${best.total_score} <span style="font-size:16px;color:${bd>0?'var(--red)':'var(--green)'}">(${bd>0?'+':''}${bd})</span>`;
-    }
-
     body=`
       <!-- Handicap hero -->
       <div class="stat-card">
@@ -3086,20 +3345,20 @@ async function renderStats(){
       <!-- Quick numbers -->
       <div class="stat-mini-grid">
         <div class="stat-mini">
-          <div class="stat-mini-val">${stats.total_rounds}</div>
-          <div class="stat-mini-label">Total Rounds</div>
+          <div class="stat-mini-val">${stats.total_irl||0}</div>
+          <div class="stat-mini-label">Total IRL</div>
         </div>
         <div class="stat-mini">
-          <div class="stat-mini-val">${bestHtml}</div>
-          <div class="stat-mini-label">Best Round</div>
+          <div class="stat-mini-val">${stats.total_sim||0}</div>
+          <div class="stat-mini-label">Total Sim</div>
         </div>
         <div class="stat-mini">
           <div class="stat-mini-val">${stats.avg_score_9||'—'}</div>
           <div class="stat-mini-label">Avg Score (9h)</div>
         </div>
         <div class="stat-mini">
-          <div class="stat-mini-val">${stats.total_holes_played||0}</div>
-          <div class="stat-mini-label">Holes Played</div>
+          <div class="stat-mini-val">${stats.avg_score_18||'—'}</div>
+          <div class="stat-mini-label">Avg Score (18h)</div>
         </div>
       </div>
 
@@ -3134,8 +3393,6 @@ async function renderStats(){
       </div>
       ${buildPracticeStats(trainingSessions)}`;
     } else {
-      const tracked = adv.total_holes_tracked;
-
       // GIR ring + breakdown
       const girPct = adv.gir_overall;
       const girColor = girPct!=null?(girPct>=30?'var(--green)':girPct>=20?'var(--orange)':'var(--red)'):'var(--text2)';
@@ -3180,19 +3437,36 @@ async function renderStats(){
           </div>
         </div>
 
-        <!-- Scramble + Strokes to Green -->
+        <!-- Scramble + Rounds/Holes -->
         <div class="stat-mini-grid">
           <div class="stat-mini">
             ${svgRing(scrPct, scrColor, 64, 6)}
             <div class="stat-mini-label" style="margin-top:6px">Scramble Rate</div>
           </div>
           <div class="stat-mini" style="text-align:center">
-            <div class="stat-mini-val" style="font-size:20px">${adv.avg_strokes_to_green_par4!=null?adv.avg_strokes_to_green_par4.toFixed(1):'—'}</div>
-            <div class="stat-mini-label">Avg STG (Par 4)</div>
-            <div style="font-size:10px;color:var(--text2)">Target: 2.0</div>
+            <div class="stat-mini-val" style="font-size:20px">${stats.total_irl||0} <span style="color:var(--text2)">/</span> ${stats.total_sim||0}</div>
+            <div class="stat-mini-label">Rounds (IRL / Sim)</div>
+            <div style="font-size:10px;color:var(--text2)">${stats.all_holes_played||0} holes played</div>
           </div>
         </div>
 
+        <!-- Penalties -->
+        ${(()=>{
+          const ppr=adv.penalties_per_round;
+          const penColor=(adv.penalties_total||0)===0?'var(--green)':ppr==null?'var(--text)':ppr<1?'var(--orange)':'var(--red)';
+          return `<div class="stat-card">
+            <div class="stat-card-title">Penalties</div>
+            <div class="stat-hero">
+              <div class="stat-hero-val" style="color:${penColor};font-size:40px">${adv.penalties_total||0}</div>
+              <div class="stat-hero-label">Total Penalty Strokes${ppr!=null?` · ${ppr}/round`:''}</div>
+            </div>
+            <div class="stat-trio">
+              <div class="stat-trio-col"><div class="stat-trio-val">${adv.penalties_water||0}</div><div class="stat-trio-label">Water</div></div>
+              <div class="stat-trio-col"><div class="stat-trio-val">${adv.penalties_ob||0}</div><div class="stat-trio-label">OB / Lost</div></div>
+              <div class="stat-trio-col"><div class="stat-trio-val">${adv.penalties_unplayable||0}</div><div class="stat-trio-label">Unplayable</div></div>
+            </div>
+          </div>`;
+        })()}
 
         ${buildPracticeStats(trainingSessions)}
       `;

@@ -16,7 +16,7 @@ CLUB_CATEGORIES = {
     "Putter": "putter",
 }
 
-_STATS_CACHE_VERSION = 2
+_STATS_CACHE_VERSION = 4
 
 
 def _round_to_dict(r):
@@ -371,17 +371,20 @@ class GolfBackend:
 
     def _round_summary_counts(self):
         counts = {
-            "total": 0, "serious": 0, "solo": 0, "scramble": 0,
-            "holes_18": 0, "holes_9": 0,
+            "total": 0, "serious": 0, "solo": 0, "scramble": 0, "sim": 0,
+            "holes_18": 0, "holes_9": 0, "all_holes": 0,
             "hc_18": 0, "hc_9": 0, "hc_holes": 0,
             "serious_18_scores": [], "serious_9_scores": [],
         }
         for r in self.get_rounds():
             counts["total"] += 1
             holes = r.get("holes_played", 18)
+            counts["all_holes"] += holes
             is_solo = r.get("round_type", "solo") == "solo"
             is_serious = r.get("is_serious", False)
             is_scramble = r.get("round_type") == "scramble"
+            if r.get("is_sim"):
+                counts["sim"] += 1
             if is_serious:
                 counts["serious"] += 1
             if is_solo:
@@ -506,6 +509,8 @@ class GolfBackend:
         s9 = c["serious_9_scores"]
         return {
             "total_rounds": c["total"],
+            "total_irl": c["total"] - c["sim"],
+            "total_sim": c["sim"],
             "serious_rounds": c["serious"],
             "solo_rounds": c["solo"],
             "scramble_rounds": c["scramble"],
@@ -516,6 +521,7 @@ class GolfBackend:
             "handicap_eligible_18": c["hc_18"],
             "handicap_eligible_9": c["hc_9"],
             "total_holes_played": c["hc_holes"],
+            "all_holes_played": c["all_holes"],
         }
 
     def get_advanced_statistics(self):
@@ -534,10 +540,12 @@ class GolfBackend:
             "two_putt_count": 0,
             "one_putt_count": 0,
             "total_holes_with_putts": 0,
+            "holes_with_stg": 0,
             "club_usage": {},
             "scramble_opportunities": 0,
             "scramble_successes": 0,
-
+            "penalties": {"water": 0, "ob": 0, "unplayable": 0, "total": 0},
+            "detailed_rounds": 0,
         }
 
         course_by_name = {c["name"]: c for c in self.get_courses()}
@@ -551,6 +559,7 @@ class GolfBackend:
             is_sim = rd.get("is_sim", False)
             pars = course["pars"]
             detailed = rd["detailed_stats"]
+            stats["detailed_rounds"] += 1
 
             for hole_idx, hole_data in enumerate(detailed):
                 if hole_idx >= len(pars):
@@ -563,13 +572,18 @@ class GolfBackend:
                 score = hole_data.get("score")
 
                 if strokes_to_green is not None:
+                    # GIR / strokes-to-green include sim rounds: the approach
+                    # shots are real player input (only putts are auto-rolled).
+                    stats["holes_with_stg"] += 1
                     gir_target = par - 2
                     is_gir = strokes_to_green <= gir_target
                     stats["gir"]["overall"].append(1 if is_gir else 0)
                     if par_key:
                         stats["gir"][par_key].append(1 if is_gir else 0)
                         stats["strokes_to_green"][par_key].append(strokes_to_green)
-                    if not is_gir and score is not None:
+                    # Scramble depends on the total score (putts included), so sim
+                    # rounds would taint it with random auto-putts — exclude them.
+                    if not is_gir and score is not None and not is_sim:
                         stats["scramble_opportunities"] += 1
                         if score <= par + 1:
                             stats["scramble_successes"] += 1
@@ -591,8 +605,17 @@ class GolfBackend:
                     if club != "X":
                         stats["club_usage"][club] = stats["club_usage"].get(club, 0) + 1
 
+                pen = hole_data.get("penalties")
+                if pen:
+                    stats["penalties"]["water"] += pen.get("water", 0)
+                    stats["penalties"]["ob"] += pen.get("ob", 0)
+                    stats["penalties"]["unplayable"] += pen.get("unplayable", 0)
+                    stats["penalties"]["total"] += pen.get("total", 0)
+
         thp = stats["total_holes_with_putts"]
         sco = stats["scramble_opportunities"]
+        dr = stats["detailed_rounds"]
+        hws = stats["holes_with_stg"]
         result = {
             "gir_overall": self._calc_percentage(stats["gir"]["overall"]),
             "gir_par3": self._calc_percentage(stats["gir"]["par3"]),
@@ -611,9 +634,17 @@ class GolfBackend:
 
             "scramble_rate": round(stats["scramble_successes"] / sco * 100, 1) if sco > 0 else None,
             "club_usage": stats["club_usage"],
-            "total_holes_tracked": thp,
+            # "tracked" = any hole with detailed approach data (GIR/STG), incl sim.
+            # Putting-rate denominators still use total_holes_with_putts (real only).
+            "total_holes_tracked": hws,
+            "total_holes_with_putts": thp,
             "scramble_opportunities": sco,
             "scramble_successes": stats["scramble_successes"],
+            "penalties_total": stats["penalties"]["total"],
+            "penalties_water": stats["penalties"]["water"],
+            "penalties_ob": stats["penalties"]["ob"],
+            "penalties_unplayable": stats["penalties"]["unplayable"],
+            "penalties_per_round": round(stats["penalties"]["total"] / dr, 2) if dr > 0 else None,
         }
 
         if not cache_row:
@@ -697,7 +728,7 @@ class GolfBackend:
             insights.append({
                 "area": "putting",
                 "severity": "high" if three_putt_rate > 20 else "medium",
-                "message": f"3-putt rate is {three_putt_rate:.1f}% ({adv_stats.get('total_holes_tracked', 0)} holes tracked)",
+                "message": f"3-putt rate is {three_putt_rate:.1f}% ({adv_stats.get('total_holes_with_putts', 0)} holes tracked)",
                 "stat": three_putt_rate,
             })
         avg_putts = adv_stats.get("avg_putts_overall")
