@@ -1,38 +1,44 @@
 """
-Scorecard OCR — local, no internet required.
-Uses Tesseract + OpenCV only.
+Scorecard OCR — classic cell-crop pipeline.
 
-Strategy
+Pure OpenCV + Tesseract. No ML models, no external APIs.
+
+Pipeline
 --------
-1. Detect PAR row by its green background (#dff0d8) using RGB colour analysis.
-2. Detect tee-colour rows by their known background colours.
-3. For each detected row strip:
-     - Clip to a 50:1 max aspect ratio (removes back panels / extra page area).
-     - Downscale to TARGET_STRIP_W pixels wide.
-     - Run Tesseract PSM 11 (sparse text) — works reliably on wide, thin strips.
-4. Parse tokens left-to-right:
-     - PAR strip  → values in {3, 4, 5}
-     - Tee strips → label + values in 80–650 (totals >650 excluded automatically)
-5. Fallback: if colour detection yields no PAR, run a strip-based scan on the
-   binarised image using horizontal line detection.
+1. Preprocess: grayscale, resize long-side=2000, deskew, CLAHE, Otsu.
+2. Find table: detect horizontal + vertical lines, get grid bbox.
+3. Find rows from horizontal lines (cluster Y positions).
+4. Find columns from vertical lines (cluster X positions).
+5. Remove grid lines from binary -> clean text image.
+6. OCR each cell with Tesseract (PSM 8 digits, PSM 7 labels).
+7. Classify rows: HEADER / PAR / HCP / TEE / SKIP.
+8. Sample background colour behind tee-row label cell.
+9. Course/club name from top 15% via PSM 6.
+10. Rating/slope regex over tee-row text.
 
-Produces the JSON schema expected by the +Add Course editor in index.html.
+Public interface
+----------------
+ScorecardOCR.process_image(image_bytes: bytes, debug: bool = False) -> dict
 """
 
 import io
-import math
+import json
+import os
 import re
+import sys
+import time
 
 import cv2
 import numpy as np
 import pytesseract
 from PIL import Image
 
-# ── Colour normalisation ───────────────────────────────────────────────────────
+
+# ── Colour normalisation ──────────────────────────────────────────────────────
 
 _COLOR_ALIASES: dict[str, str] = {
     "black":          "Black",  "blk":      "Black",  "championship": "Black",
-    "tips":           "Black",  "knight":   "Black",
+    "tips":           "Black",  "knight":   "Black",  "tournament":   "Black",
     "blue":           "Blue",   "blu":      "Blue",   "back":         "Blue",
     "white":          "White",  "wht":      "White",  "regular":      "White",
     "middle":         "White",
@@ -42,30 +48,30 @@ _COLOR_ALIASES: dict[str, str] = {
     "gold":           "Gold",   "gld":      "Gold",   "super":        "Gold",
     "green":          "Green",  "grn":      "Green",
     "silver":         "Silver", "slv":      "Silver", "platinum":     "Silver",
-    "tournament":     "Black",
 }
 
 _NUM_FIX = str.maketrans({
     'O': '0', 'o': '0',
     'l': '1', 'I': '1', '|': '1',
     'S': '5', 's': '5',
-    'B': '8', 'b': '6',
-    'G': '6', 'g': '0',
+    'B': '8',
+    'G': '6', 'g': '9',
     'q': '4',
-    'D': '0', 'd': '0',
+    'D': '0',
     'Z': '2', 'z': '2',
+    'T': '7',
 })
 
-# Known tee background colours (RGB) with tolerance used for row detection.
-# Each entry: (label_hint, R_center, G_center, B_center, tolerance)
+# Known tee background colours (RGB) with tolerance.
 _TEE_COLORS = [
-    ("Black",  17,  17,  17, 40),
-    ("Blue",   21,  95, 192, 50),
-    ("Red",   198,  40,  40, 50),
-    ("Gold",  200, 150,  12, 55),
-    ("Green",  46, 125,  50, 50),
-    ("Silver", 158, 158, 158, 40),
-    # White/Championship tees have near-white bg — detected via label text only
+    ("Black",   17,  17,  17, 45),
+    ("Blue",    21,  95, 192, 60),
+    ("Red",    198,  40,  40, 60),
+    ("Gold",   200, 150,  12, 60),
+    ("Green",   46, 125,  50, 60),
+    ("Silver", 158, 158, 158, 45),
+    ("White",  245, 245, 245, 20),
+    ("Yellow", 240, 210,  40, 60),
 ]
 
 
@@ -75,19 +81,41 @@ def normalize_tee_color(label: str) -> str | None:
     low = label.lower().strip()
     if low in _COLOR_ALIASES:
         return _COLOR_ALIASES[low]
-    first = low.split()[0] if low.split() else ""
-    if first in _COLOR_ALIASES:
-        return _COLOR_ALIASES[first]
+    parts = low.split()
+    if parts and parts[0] in _COLOR_ALIASES:
+        return _COLOR_ALIASES[parts[0]]
     for alias, color in _COLOR_ALIASES.items():
         if alias in low:
             return color
+    # Fuzzy match against canonical colour names (handles OCR mangling
+    # like "Blac" -> "Black", "Slive" -> "Silver", "Gok" -> "Gold")
+    first = parts[0] if parts else ""
+    if len(first) >= 3:
+        canonical = ["black", "blue", "white", "red", "gold", "green",
+                     "silver", "yellow"]
+        best, best_score = None, 0.0
+        for c in canonical:
+            # Letter-set overlap on the first 4 chars
+            a = set(first[:5])
+            b = set(c[:5])
+            if not a or not b:
+                continue
+            overlap = len(a & b) / len(a | b)
+            # Bonus if same starting letter
+            if first[0] == c[0]:
+                overlap += 0.25
+            if overlap > best_score:
+                best_score = overlap
+                best = c
+        if best and best_score >= 0.55:
+            return best.capitalize()
     return None
 
 
-def _to_int(s: str) -> int | None:
-    if not s:
+def _to_int(s) -> int | None:
+    if s is None:
         return None
-    cleaned = re.sub(r"[^0-9OolISsBbGgqDdZz|]", "", str(s))
+    cleaned = re.sub(r"[^0-9OolISsBbGgqDdZzT|]", "", str(s))
     if not cleaned:
         return None
     try:
@@ -96,1025 +124,989 @@ def _to_int(s: str) -> int | None:
         return None
 
 
-# ── Main class ─────────────────────────────────────────────────────────────────
+# ── Main class ────────────────────────────────────────────────────────────────
 
 class ScorecardOCR:
 
-    # Width (px) to downscale each row strip to before Tesseract.
-    # Keeps strips wide enough to preserve text while capping aspect ratio.
-    TARGET_STRIP_W = 1500
+    LONG_SIDE   = 2000
+    YARD_MIN    = 80
+    YARD_MAX    = 650
+    MIN_COLS    = 10
+    MIN_ROW_PX  = 8
 
-    # Max aspect ratio for a strip.  Wide scorecards (front+back 9 side-by-side)
-    # span >100× the row height; 200 covers any realistic scorecard layout.
-    MAX_STRIP_AR = 200
-
-    _CFG_PSM11 = "--psm 11 --oem 3"
-    _CFG_PSM7  = "--psm 7  --oem 3"
-    _CFG_PSM6  = "--psm 6  --oem 3"
-
-    _PAR_RE  = re.compile(r"\bpar\b",   re.IGNORECASE)
-    _HCP_RE  = re.compile(r"\b(hdcp|hcp|handicap|m\s*hcp|w\s*hcp|stroke)\b", re.IGNORECASE)
-    _SKIP_RE = re.compile(r"\b(scorer|attest|date|net|gross|local|rules|rating|slope)\b",
-                          re.IGNORECASE)
-    _RATE_RE = re.compile(r"(6\d\.\d|7\d\.\d|8[0-2]\.\d)\s*/\s*(1[0-5]\d|[5-9]\d)")
+    _PAR_RE  = re.compile(r"\bpar\b", re.IGNORECASE)
+    _HCP_RE  = re.compile(
+        r"\b(hdcp|hcp|handicap|stroke|index|m\s*hcp|w\s*hcp)\b", re.IGNORECASE
+    )
+    _HOLE_RE = re.compile(r"\bhole\b", re.IGNORECASE)
+    _SKIP_RE = re.compile(
+        r"\b(scorer|attest|date|net|gross|signature|local|rules|"
+        r"out|in|total|tot)\b",
+        re.IGNORECASE,
+    )
+    _RATE_LINE_RE = re.compile(
+        r"(6\d\.\d|7\d\.\d|8[0-2]\.\d)\s*[/\\\-]\s*(1[0-5]\d|[5-9]\d)"
+    )
 
     # ── Public ────────────────────────────────────────────────────────────────
 
-    def process_image(self, image_bytes: bytes) -> dict:
+    def process_image(self, image_bytes: bytes, debug: bool = False) -> dict:
         result = self._empty()
 
         try:
             pil = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-            img = np.array(pil)
+            color_orig = np.array(pil)  # RGB
         except Exception as e:
             raise ValueError(f"Could not decode image: {e}")
 
-        # Deskew the full RGB image so all colour-based row detection sees
-        # horizontal bands (even on photos rotated up to ~5°).
-        gray  = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-        angle = self._detect_skew(gray)
-        if abs(angle) >= 0.3:
-            img  = self._rotate_rgb(img, angle)
-            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+        color = self._resize_long_side(color_orig, self.LONG_SIDE)
+        gray  = cv2.cvtColor(color, cv2.COLOR_RGB2GRAY)
 
-        h, w = img.shape[:2]
-        gray = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
+        # Deskew
+        angle = self._estimate_skew(gray)
+        if abs(angle) > 0.3:
+            color = self._rotate(color, angle)
+            gray  = self._rotate(gray,  angle)
 
-        # Course name from top portion of image
-        top_h    = max(1, h // 7)
-        top_text = pytesseract.image_to_string(gray[:top_h, :], config=self._CFG_PSM6)
-        self._extract_course_name(top_text, result)
+        # CLAHE
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        gray_eq = clahe.apply(gray)
 
-        # ── PAR row via green colour detection ────────────────────────────────
-        par_found = self._process_par_row(img, result)
+        # Otsu binarise (text = white on black for morphology)
+        _, binv = cv2.threshold(
+            gray_eq, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+        )
 
-        # ── Tee rows via background colour detection ──────────────────────────
-        self._process_tee_rows(img, result)
+        t0 = time.perf_counter()
 
-        # ── Fallback: binarise + strip scan ──────────────────────────────────
-        # Always run so tees without a distinctive background colour (e.g. white
-        # tees on a white card) are still captured via text detection.
-        # Deduplication inside _parse_fallback_row ensures colour-detected data
-        # is never overwritten by worse binary-OCR data.
-        binary = self._binarize(gray)
-        strips = self._find_row_strips(gray, binary)
-        clean  = self._remove_grid_lines(binary)
-        for y1, y2 in strips:
-            self._process_strip_fallback(img, clean, binary, y1, y2, result, par_found=par_found)
+        # Find grid
+        h, w = binv.shape
+        h_kern = cv2.getStructuringElement(cv2.MORPH_RECT, (max(10, w // 8), 1))
+        v_kern = cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(10, h // 15)))
+        h_lines = cv2.morphologyEx(binv, cv2.MORPH_OPEN, h_kern)
+        v_lines = cv2.morphologyEx(binv, cv2.MORPH_OPEN, v_kern)
+        grid    = cv2.bitwise_or(h_lines, v_lines)
 
-        # 9-hole flag
-        if 0 < len(result["pars"]) <= 10:
+        # Find all sizeable grid contours (handles front/back split cards)
+        contours, _ = cv2.findContours(
+            grid, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        bboxes: list[tuple[int, int, int, int]] = []
+        if contours:
+            min_area = h * w * 0.008
+            for c in contours:
+                if cv2.contourArea(c) >= min_area:
+                    x_, y_, w_, h_ = cv2.boundingRect(c)
+                    if w_ < 80 or h_ < 20:
+                        continue
+                    bboxes.append((x_, y_, w_, h_))
+        # Sort top-to-bottom, left-to-right
+        bboxes.sort(key=lambda b: (b[1] // 50, b[0]))
+
+        if not bboxes:
+            print("[scorecard_ocr] No grid detected — using projection fallback",
+                  file=sys.stderr)
+            self._projection_fallback(gray_eq, binv, color, result)
+            self._course_name(color_orig, result)
+            self._validate(result)
+            self._score_confidence(result)
+            return result
+
+        # Track per-tee accumulation across tables (front + back nine)
+        per_tee_yards: dict[str, list[int]] = {}
+        debug_payload = []
+        table_min_y = min(b[1] for b in bboxes)
+        # Save per-table column intervals so the PAR/HDCP scan can reuse them
+        self._last_table_cols: list[tuple[tuple, list[tuple[int, int]]]] = []
+
+        for tbl_idx, (x, y, ww, hh) in enumerate(bboxes):
+            # Extend table downward by 60% to capture HDCP/PAR rows whose
+            # separator lines are too light for contour detection
+            ext_h = min(h - y, int(hh * 1.6))
+            gray_t  = gray_eq[y:y + ext_h, x:x + ww]
+            color_t = color[y:y + ext_h, x:x + ww]
+            binv_t  = binv[y:y + ext_h, x:x + ww]
+
+            hk_t = cv2.getStructuringElement(
+                cv2.MORPH_RECT, (max(15, ww // 4), 1)
+            )
+            h_lines_t = cv2.morphologyEx(binv_t, cv2.MORPH_OPEN, hk_t)
+            hh = ext_h
+
+            rows_y = self._cluster_lines(h_lines_t, axis="h")
+            if len(rows_y) < 3:
+                continue
+            rows_y = self._extend_rows_by_text(binv_t, rows_y)
+            row_ints = [(rows_y[i], rows_y[i + 1])
+                        for i in range(len(rows_y) - 1)
+                        if rows_y[i + 1] - rows_y[i] >= self.MIN_ROW_PX]
+            if not row_ints:
+                continue
+
+            # Derive columns from the HEADER row text positions
+            col_ints = self._cols_from_header(gray_t, row_ints[0], ww)
+            if len(col_ints) < 6:
+                # Fallback: morphological vertical lines
+                vk_t = cv2.getStructuringElement(
+                    cv2.MORPH_RECT, (1, max(8, ext_h // 4))
+                )
+                v_lines_t = cv2.morphologyEx(binv_t, cv2.MORPH_OPEN, vk_t)
+                cols_x = self._cluster_lines(v_lines_t, axis="v")
+                min_col_w = max(self.MIN_ROW_PX, ww // 30)
+                col_ints = [(cols_x[i], cols_x[i + 1])
+                            for i in range(len(cols_x) - 1)
+                            if cols_x[i + 1] - cols_x[i] >= min_col_w]
+            if len(col_ints) < 4:
+                continue
+            self._last_table_cols.append(((x, y, ww, hh), col_ints))
+
+            grid_text: list[list[str | None]] = []
+            for (ry1, ry2) in row_ints:
+                row_cells: list[str | None] = []
+                for ci, (cx1, cx2) in enumerate(col_ints):
+                    cell = gray_t[ry1:ry2, cx1:cx2]
+                    txt = self._ocr_cell(cell, is_label=(ci == 0))
+                    row_cells.append(txt)
+                grid_text.append(row_cells)
+
+            debug_labels: list[str] = []
+            for ri, cells in enumerate(grid_text):
+                kind = self._classify_row(cells)
+                debug_labels.append(kind)
+                if kind == "PAR":
+                    self._merge_pars(cells, result)
+                elif kind == "HCP":
+                    self._merge_hcps(cells, result)
+                elif kind == "TEE":
+                    self._extract_tee(
+                        cells, color_t, row_ints[ri], col_ints,
+                        result, per_tee_yards,
+                    )
+
+            if debug:
+                debug_payload.append(
+                    (color_t.copy(), row_ints, col_ints, grid_text, debug_labels,
+                     f"table{tbl_idx}")
+                )
+
+        # Sweep all tables for a rating/slope summary (e.g. right-side table
+        # with "Black 77.2/124 6465 yds" per row).
+        self._extract_ratings_summary(color, gray_eq, bboxes, result)
+
+        # PAR / HDCP scan: PSM 6 over each main table region (extended) and
+        # look for lines starting with "PAR" / "HDCP".
+        self._extract_par_hcp_lines(gray_eq, bboxes, result)
+        # Cell-by-cell PAR fallback when line OCR garbles the row
+        if len(result["pars"]) < 18:
+            self._extract_par_hcp_from_grid(gray_eq, bboxes, binv, result)
+
+        # Course/club from above the top-most table
+        self._course_name(color, result, table_top=table_min_y)
+
+        elapsed = time.perf_counter() - t0
+        print(f"[scorecard_ocr] {len(bboxes)} tables OCR'd in {elapsed:.2f}s",
+              file=sys.stderr)
+
+        # 9 vs 18 hole: use the longest yardage list as ground truth
+        max_yards = max(
+            (len(t.get("yardages") or []) for t in result["tee_boxes"]),
+            default=0,
+        )
+        if 0 < max_yards <= 10 and 0 < len(result["pars"]) <= 10:
             result["nine_hole_card"] = True
+
+        if debug:
+            for payload in debug_payload:
+                self._save_debug_image(*payload[:5],
+                                        path=f"/tmp/scorecard_debug_{payload[5]}.jpg")
 
         self._validate(result)
         self._score_confidence(result)
         return result
 
-    # ── PAR row detection ────────────────────────────────────────────────────
+    # ── Preprocessing ─────────────────────────────────────────────────────────
 
-    def _process_par_row(self, img: np.ndarray, result: dict) -> bool:
-        """
-        Find rows whose pixels match the standard PAR-row green (#dff0d8).
-        Tight colour gate: G-R≥8, G-B≥15, R<235 — excludes near-white card
-        backgrounds (including the slightly greenish #eef2f0 variant).
-        Image must already be deskewed before calling this.
-        """
+    @staticmethod
+    def _resize_long_side(img: np.ndarray, max_side: int) -> np.ndarray:
         h, w = img.shape[:2]
-        R = img[:, :, 0].astype(np.int16)
-        G = img[:, :, 1].astype(np.int16)
-        B = img[:, :, 2].astype(np.int16)
+        long_side = max(h, w)
+        if long_side == max_side:
+            return img
+        scale = max_side / long_side
+        new_w = max(1, int(w * scale))
+        new_h = max(1, int(h * scale))
+        interp = cv2.INTER_AREA if scale < 1 else cv2.INTER_CUBIC
+        return cv2.resize(img, (new_w, new_h), interpolation=interp)
 
-        mask = (
-            (G >= 210) & (G <= 255) &
-            (R >= 180) & (R <= 234) &
-            (B >= 175) & (B <= 246) &
-            (G - R >= 8) &
-            (G - B >= 15)
+    @staticmethod
+    def _estimate_skew(gray: np.ndarray) -> float:
+        edges = cv2.Canny(gray, 50, 150, apertureSize=3)
+        lines = cv2.HoughLines(edges, 1, np.pi / 360, threshold=200)
+        if lines is None:
+            return 0.0
+        angles: list[float] = []
+        for rho_theta in lines[:200]:
+            _, theta = rho_theta[0]
+            deg = (theta * 180.0 / np.pi) - 90.0
+            if -15 < deg < 15:
+                angles.append(deg)
+        if len(angles) < 5:
+            return 0.0
+        return float(np.median(angles))
+
+    @staticmethod
+    def _rotate(img: np.ndarray, angle: float) -> np.ndarray:
+        h, w = img.shape[:2]
+        M = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1.0)
+        return cv2.warpAffine(
+            img, M, (w, h),
+            flags=cv2.INTER_CUBIC,
+            borderMode=cv2.BORDER_REPLICATE,
         )
-        cov = mask.sum(axis=1) / w
-
-        par_ys = np.where(cov > 0.15)[0]
-        if not len(par_ys):
-            return False
-
-        groups = self._cluster_rows(par_ys, gap=15)
-        found  = False
-
-        for y1, y2 in groups:
-            strip_rgb = img[y1:y2 + 1, :]
-
-            # Cell-based OCR: split strip at vertical separators, OCR each cell.
-            # Preserves hole positions — None means OCR failed for that cell.
-            pars_cell = self._ocr_par_cells(strip_rgb)  # list[int|None]
-
-            # Token-based OCR: PSM 11 / PSM 7 full-strip fallback.
-            # Better on 9-hole or thin strips where separator detection fails.
-            pars_token = self._parse_par_tokens(
-                self._ocr_strip_tokens(strip_rgb, invert=False)
-            )
-
-            # Count valid (non-None) values for comparison
-            cell_valid  = sum(1 for v in pars_cell if v is not None)
-            token_valid = len(pars_token)
-
-            if cell_valid >= token_valid and cell_valid >= 7:
-                # Use positional list; trailing Nones already stripped
-                pars: list[int | None] = pars_cell[:18]
-            elif token_valid >= 7:
-                pars = pars_token[:18]  # type: ignore[assignment]
-            else:
-                continue
-
-            n_valid = sum(1 for v in pars if v is not None)
-            best    = sum(1 for v in result["pars"] if v is not None) if result["pars"] else 0
-            if n_valid > best:
-                result["pars"] = pars
-                found = True
-                # Stop after first green band that yields ≥9 valid values.
-                # On layouts with separate men's/women's PAR rows (full_womens),
-                # the men's row always appears first; accepting it prevents the
-                # women's row from overwriting with a higher-coverage but wrong read.
-                if n_valid >= 9:
-                    break
-
-        return found
-
-    def _ocr_par_cells(self, strip_rgb: np.ndarray) -> list[int | None]:
-        """
-        Locate vertical column separators in the PAR strip, then OCR each
-        hole cell individually with PSM 8 + whitelist '345'.
-
-        Returns a positional list (int or None per detected hole cell).
-        None means OCR failed for that cell — the position is preserved so
-        callers can decide how to handle gaps.
-        Returns [] if fewer than 9 separators are found (fall through to
-        token-based OCR).
-        """
-        h, w = strip_rgb.shape[:2]
-        gray = cv2.cvtColor(strip_rgb, cv2.COLOR_RGB2GRAY)
-        _, bin_s = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-        # Column dark-pixel fraction — separators are near-solid dark vertical lines
-        col_dark = (255 - bin_s).astype(np.float32).sum(axis=0) / (255.0 * h)
-
-        groups: list[int] = []
-        for thresh in (0.5, 0.35, 0.2):
-            sep_xs = np.where(col_dark > thresh)[0]
-            if not len(sep_xs):
-                continue
-            grp = [int(sep_xs[0])]
-            groups = []
-            for x in sep_xs[1:]:
-                x = int(x)
-                if x - grp[-1] <= 8:
-                    grp.append(x)
-                else:
-                    groups.append(int(sum(grp) / len(grp)))
-                    grp = [x]
-            groups.append(int(sum(grp) / len(grp)))
-            if len(groups) >= 9:
-                break
-
-        if len(groups) < 9:
-            return []
-
-        boundaries = [0] + groups + [w]
-        cells      = [(boundaries[i], boundaries[i + 1])
-                      for i in range(len(boundaries) - 1)]
-        spacings   = [x2 - x1 for x1, x2 in cells]
-        median_w   = sorted(spacings)[len(spacings) // 2]
-        lo, hi     = 0.5 * median_w, 1.5 * median_w
-        hole_cells = [(x1, x2) for x1, x2 in cells if lo <= (x2 - x1) <= hi]
-
-        if len(hole_cells) < 9:
-            return []
-
-        # Standard scorecard column layout (after label column filtered by width):
-        #   9-hole:  [h1..h9, OUT]             = 10 cells
-        #   18-hole: [h1..h9, OUT, h10..h18]   = 19 cells  (no IN detected)
-        #   18-hole: [h1..h9, OUT, h10..h18, IN] = 20 cells (both totals present)
-        # The OUT column sits between h9 and h10 (position 9, 0-based).
-        # Whitelist "345" caused OUT total "37" to read as "3"; whitelist is now
-        # "0123456789" so totals read as multi-digit and are rejected by the caller.
-        # Structural fix: skip OUT at position 9 (and IN at 19) explicitly.
-        if len(hole_cells) == 10:
-            hole_cells = hole_cells[:9]          # 9-hole + OUT → keep 9
-        elif len(hole_cells) == 19:
-            hole_cells = hole_cells[:9] + hole_cells[10:]      # 18-hole + OUT
-        elif len(hole_cells) == 20:
-            hole_cells = hole_cells[:9] + hole_cells[10:19]    # 18-hole + OUT + IN
-        elif len(hole_cells) == 21:
-            # Label column passed width filter: [label, h1..h9, OUT, h10..h18, IN]
-            hole_cells = hole_cells[1:10] + hole_cells[11:20]
-        elif len(hole_cells) > 21:
-            # Unexpected extra columns — best effort
-            hole_cells = hole_cells[:9] + hole_cells[10:19]
-
-        scale  = max(1.0, 80.0 / h)
-        result: list[int | None] = []
-        for x1, x2 in hole_cells:
-            cell   = bin_s[:, x1:x2]
-            cw     = max(1, int((x2 - x1) * scale))
-            ch     = max(1, int(h * scale))
-            cell_r = cv2.resize(cell, (cw, ch), interpolation=cv2.INTER_LANCZOS4)
-            padded = cv2.copyMakeBorder(cell_r, 10, 10, 10, 10,
-                                        cv2.BORDER_CONSTANT, value=255)
-            result.append(self._ocr_single_par_cell(padded))
-
-        # Drop trailing Nones from OUT/IN total columns that slipped through
-        while result and result[-1] is None:
-            result.pop()
-
-        return result
 
     @staticmethod
-    def _ocr_single_par_cell(padded: np.ndarray) -> int | None:
-        """
-        OCR a single pre-padded binary cell image, returning 3, 4, 5, or None.
-        Tries three passes: PSM 8, PSM 10, then PSM 8 on a mildly dilated image.
-
-        Uses full digit whitelist so OUT/IN totals (e.g. "37") read as multi-digit
-        numbers and are rejected by the `if txt in ("3","4","5")` check, rather than
-        reading as "3" under the old narrow whitelist.
-        """
-        _WL = "-c tessedit_char_whitelist=0123456789"
-        tries = [
-            ("--psm 8 --oem 3 " + _WL,  padded),
-            ("--psm 10 --oem 3 " + _WL, padded),
-            ("--psm 8 --oem 3 " + _WL,  cv2.dilate(padded, np.ones((2, 2), np.uint8))),
-        ]
-        for cfg, img in tries:
-            txt = pytesseract.image_to_string(img, config=cfg).strip()
-            if txt in ("3", "4", "5"):
-                return int(txt)
-        return None
-
-    # ── Yardage cell OCR ──────────────────────────────────────────────────────
-
-    def _ocr_yardage_cells(self, strip_rgb: np.ndarray,
-                            invert: bool = False) -> list[int | None]:
-        """
-        Cell-based OCR for a tee-row yardage strip.
-
-        Light strips (invert=False): column separators are dark vertical lines →
-          find HIGH col_dark positions, treat as separator positions, cells are
-          the spaces between consecutive separators.
-
-        Dark strips (invert=True): after inversion, number characters are dark
-          while background is white. Separator lines are also white (not dark).
-          Strategy: find number-column CENTERS (high col_dark after inversion),
-          then derive cell boundaries as midpoints between consecutive centers.
-          This correctly handles dark tee rows where separators are not detectable.
-
-        Blurry images are handled by smoothing col_dark before thresholding and
-        using a larger group-merge gap (15 px instead of 8 px).
-        """
-        h, w = strip_rgb.shape[:2]
-        gray = cv2.cvtColor(strip_rgb, cv2.COLOR_RGB2GRAY)
-        _, bin_s = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        if invert:
-            bin_s = cv2.bitwise_not(bin_s)
-
-        col_dark = (255 - bin_s).astype(np.float32).sum(axis=0) / (255.0 * h)
-
-        # Smooth to merge blurred/wide separator pixels into a single peak.
-        # Kernel ≈ 3% of strip height, capped so it doesn't swallow narrow cells.
-        k = min(max(3, h // 15), 21)
-        if k % 2 == 0:
-            k += 1
-        col_dark_sm = np.convolve(col_dark, np.ones(k) / k, mode='same')
-
-        # Larger merge gap handles separators blurred wider than 8 px.
-        MERGE_GAP = 15
-
-        if not invert:
-            # ── Light strip: find dark separator lines (high col_dark) ──────────
-            groups: list[int] = []
-            for thresh in (0.5, 0.35, 0.2):
-                sep_xs = np.where(col_dark_sm > thresh)[0]
-                if not len(sep_xs):
-                    continue
-                grp = [int(sep_xs[0])]
-                groups = []
-                for x in sep_xs[1:]:
-                    x = int(x)
-                    if x - grp[-1] <= MERGE_GAP:
-                        grp.append(x)
-                    else:
-                        groups.append(int(sum(grp) / len(grp)))
-                        grp = [x]
-                groups.append(int(sum(grp) / len(grp)))
-                if len(groups) >= 9:
-                    break
-
-            if len(groups) < 9:
-                return []
-
-            # Cells = spaces between consecutive separators
-            boundaries = [0] + groups + [w]
-            cells = [(boundaries[i], boundaries[i + 1])
-                     for i in range(len(boundaries) - 1)]
-            spacings  = [x2 - x1 for x1, x2 in cells]
-            median_w  = sorted(spacings)[len(spacings) // 2]
-            lo, hi    = 0.5 * median_w, 1.8 * median_w
-            hole_cells = [(x1, x2) for x1, x2 in cells if lo <= (x2 - x1) <= hi]
-
+    def _cluster_lines(mask: np.ndarray, axis: str, gap: int = 4) -> list[int]:
+        """Return sorted line positions (Y for axis='h', X for axis='v')."""
+        if axis == "h":
+            proj = mask.sum(axis=1)
         else:
-            # ── Dark strip (inverted): find number-column centers ────────────────
-            # After inversion: digit pixels are dark → high col_dark.
-            # Background and separator gaps → low col_dark (~0).
-            # We find the clusters of dark pixels (= number columns) and put
-            # cell boundaries at the midpoints between consecutive clusters.
-            num_xs = np.where(col_dark_sm > 0.03)[0]
-            if not len(num_xs):
-                return []
-
-            # Cluster number pixels; merge gap = 2.5% of total width (handles
-            # wide numbers and the space within a multi-digit group like "420").
-            merge_num = max(MERGE_GAP, w // 40)
-            grp_n = [int(num_xs[0])]
-            num_cols: list[int] = []          # center of each number column
-            for x in num_xs[1:]:
-                x = int(x)
-                if x - grp_n[-1] <= merge_num:
-                    grp_n.append(x)
-                else:
-                    num_cols.append(int(sum(grp_n) / len(grp_n)))
-                    grp_n = [x]
-            num_cols.append(int(sum(grp_n) / len(grp_n)))
-
-            if len(num_cols) < 9:
-                return []
-
-            # Build cells centered on each number column.
-            # Boundary = midpoint between consecutive column centers.
-            boundaries = [0]
-            for i in range(len(num_cols) - 1):
-                boundaries.append((num_cols[i] + num_cols[i + 1]) // 2)
-            boundaries.append(w)
-            cells = [(boundaries[i], boundaries[i + 1])
-                     for i in range(len(boundaries) - 1)]
-
-            # Filter to keep only cells whose width matches the typical hole column.
-            # The label column (leftmost, wider) and total columns are removed here.
-            spacings  = [x2 - x1 for x1, x2 in cells]
-            median_w  = sorted(spacings)[len(spacings) // 2]
-            lo, hi    = 0.4 * median_w, 2.2 * median_w
-            hole_cells = [(x1, x2) for x1, x2 in cells if lo <= (x2 - x1) <= hi]
-
-        if len(hole_cells) < 9:
+            proj = mask.sum(axis=0)
+        if proj.max() == 0:
             return []
-
-        if len(hole_cells) == 10:
-            hole_cells = hole_cells[:9]
-        elif len(hole_cells) >= 19:
-            hole_cells = hole_cells[:18]
-
-        scale = min(max(1.0, 80.0 / h), 8.0)  # cap: avoid absurd upscale for thin strips
-        result: list[int | None] = []
-        for x1, x2 in hole_cells:
-            padded = self._prep_yardage_cell(bin_s, x1, x2, h, scale)
-            val = self._ocr_single_yardage_cell(padded)
-            if val is None:
-                margin = max(2, (x2 - x1) // 10)
-                x1e = max(0, x1 - margin)
-                x2e = min(w, x2 + margin)
-                padded2 = self._prep_yardage_cell(bin_s, x1e, x2e, h, scale)
-                val = self._ocr_single_yardage_cell(padded2)
-            result.append(val)
-
-        while result and result[-1] is None:
-            result.pop()
-        return result
+        thresh = proj.max() * 0.35
+        hits = np.where(proj >= thresh)[0]
+        if hits.size == 0:
+            return []
+        clusters: list[list[int]] = [[int(hits[0])]]
+        for p in hits[1:]:
+            if p - clusters[-1][-1] <= gap:
+                clusters[-1].append(int(p))
+            else:
+                clusters.append([int(p)])
+        return [int(np.mean(c)) for c in clusters]
 
     @staticmethod
-    def _prep_yardage_cell(bin_s: np.ndarray, x1: int, x2: int,
-                            h: int, scale: float) -> np.ndarray:
-        cell = bin_s[:, x1:x2]
-        cw = max(1, int((x2 - x1) * scale))
-        ch = max(1, int(h * scale))
-        cell_r = cv2.resize(cell, (cw, ch), interpolation=cv2.INTER_LANCZOS4)
-        return cv2.copyMakeBorder(cell_r, 10, 10, 10, 10,
-                                  cv2.BORDER_CONSTANT, value=255)
-
-    @staticmethod
-    def _ocr_single_yardage_cell(padded: np.ndarray) -> int | None:
-        """
-        OCR one yardage cell; returns int in 80–650 or None.
-        Digit-only whitelist prevents noise chars from corrupting 3-digit reads.
-        Three passes: PSM 8, PSM 10, PSM 8 on dilated image.
-        """
-        _WL = "-c tessedit_char_whitelist=0123456789"
-        tries = [
-            ("--psm 8 --oem 3 " + _WL,  padded),
-            ("--psm 10 --oem 3 " + _WL, padded),
-            ("--psm 8 --oem 3 " + _WL,
-             cv2.dilate(padded, np.ones((2, 2), np.uint8))),
-        ]
-        for cfg, img in tries:
-            txt = pytesseract.image_to_string(img, config=cfg).strip()
-            try:
-                n = int(txt)
-                if 80 <= n <= 650:
-                    return n
-            except (ValueError, TypeError):
-                pass
-        return None
-
-    @staticmethod
-    def _validate_yardage_sum(yards: list[int], n_holes: int) -> bool:
-        """True if the total is a plausible yardage for the given hole count."""
-        if len(yards) < n_holes:
-            return True  # incomplete — can't rule it out
-        total = sum(yards[:n_holes])
-        if n_holes == 9:
-            return 1200 <= total <= 4500
-        if n_holes == 18:
-            return 4500 <= total <= 8500
-        return True
-
-    # ── Tee label extraction ──────────────────────────────────────────────────
-
-    # Width of the label column to read (pixels in original image).
-    # The tee color name (e.g. "Gold", "Blue") always appears in the leftmost
-    # column of the row.  Reading only this portion at higher magnification
-    # avoids the resolution loss from downscaling the full wide strip.
-    _LABEL_COL_PX = 700
-
-    def _ocr_tee_label(self, strip_rgb: np.ndarray, invert: bool) -> str | None:
-        """
-        Read just the leftmost _LABEL_COL_PX pixels of a tee row to extract
-        the tee colour name at a higher effective resolution than the full-strip
-        scan provides.  Returns the normalised colour string or None.
-        """
-        h, w = strip_rgb.shape[:2]
-        label_w = min(w, self._LABEL_COL_PX)
-        label_strip = strip_rgb[:, :label_w]
-
-        gray = cv2.cvtColor(label_strip, cv2.COLOR_RGB2GRAY)
-        _, bin_l = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        if invert:
-            bin_l = cv2.bitwise_not(bin_l)
-
-        # Scale so the label strip is at least 300 px wide (guarantees ≥40 px chars)
-        target_w = max(300, min(label_w * 3, 900))
-        target_h = max(1, int(h * target_w / label_w))
-        scaled = cv2.resize(bin_l, (target_w, target_h), interpolation=cv2.INTER_LANCZOS4)
-        padded = cv2.copyMakeBorder(scaled, 12, 12, 12, 12,
-                                    cv2.BORDER_CONSTANT, value=255)
-
-        for cfg in (self._CFG_PSM7, self._CFG_PSM11):
-            raw = pytesseract.image_to_string(padded, config=cfg).strip()
-            for word in raw.replace("|", " ").split():
-                if re.match(r"^[1-9]$", word):
-                    return word  # numeric tee label ("1", "2", "3")
-                # Handle merged "1" + rating, e.g. "177.3/123" → label "1"
-                m = re.match(r"^([1-9])\d{2}\.\d/\d{2,3}$", word)
-                if m:
-                    return m.group(1)
-                if len(word) >= 3 and re.match(r"^[A-Za-z]+$", word):
-                    color = normalize_tee_color(word)
-                    if color:
-                        return word
-        return None
-
-    # ── Tee row detection ────────────────────────────────────────────────────
-
-    def _process_tee_rows(self, img: np.ndarray, result: dict):
-        """
-        Scan for rows whose background matches known tee colours.
-        Each detected colour band → extract strip → OCR for label + yardages.
-        """
-        h, w = img.shape[:2]
-        R = img[:, :, 0].astype(np.int16)
-        G = img[:, :, 1].astype(np.int16)
-        B = img[:, :, 2].astype(np.int16)
-
-        for hint, rc, gc, bc, tol in _TEE_COLORS:
-            mask = (
-                (np.abs(R - rc) <= tol) &
-                (np.abs(G - gc) <= tol) &
-                (np.abs(B - bc) <= tol)
-            )
-            cov    = mask.sum(axis=1) / w
-            tee_ys = np.where(cov > 0.12)[0]
-            if not len(tee_ys):
-                continue
-
-            is_dark = (rc * 0.299 + gc * 0.587 + bc * 0.114) < 100
-
-            for y1, y2 in self._cluster_rows(tee_ys, gap=20):
-                strip_rgb  = img[y1:y2 + 1, :]
-                # Cell-based path: highest yardage accuracy
-                yards_cell = self._ocr_yardage_cells(strip_rgb, invert=is_dark)
-                # Token path: provides label + inline rating/slope
-                tokens     = self._ocr_strip_tokens(strip_rgb, invert=is_dark)
-                cell_valid = sum(1 for v in yards_cell if v is not None)
-
-                # If the token scan didn't find a label as the first word, try
-                # a dedicated high-res label scan on just the left portion.
-                label_from_tokens = self._first_label_token(tokens)
-                if not label_from_tokens:
-                    recovered = self._ocr_tee_label(strip_rgb, is_dark)
-                    if recovered:
-                        tokens = [recovered] + tokens
-
-                self._parse_tee_tokens(
-                    tokens, result,
-                    yards_override=yards_cell if cell_valid >= 7 else None,
-                    hint_color=hint,
-                )
-
-    # ── Strip OCR ─────────────────────────────────────────────────────────────
-
-    # Maximum pixels per OCR section. Keeps character resolution high enough
-    # that Tesseract reads 3-digit numbers reliably regardless of strip height.
-    _SECTION_W = 3000
-
-    def _ocr_strip_tokens(self, strip_rgb: np.ndarray, invert: bool = False) -> list[str]:
-        """
-        OCR a row strip and return tokens left-to-right by x position.
-
-        Wide strips are scanned in _SECTION_W-px sections so that each section
-        is rendered at a resolution where individual characters are ≥20 px tall,
-        rather than being squashed to unreadable size in one global downscale.
-
-        The first section always covers the label column (tee color name).
-        Subsequent sections cover the yardage columns.
-        """
-        h, w = strip_rgb.shape[:2]
-        max_x = min(w, max(1, h * self.MAX_STRIP_AR))
-
-        gray   = cv2.cvtColor(strip_rgb[:, :max_x], cv2.COLOR_RGB2GRAY)
-        _, binimg = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        if invert:
-            binimg = cv2.bitwise_not(binimg)
-
-        def _tokens_from_section(section: np.ndarray, x_offset: int,
-                                  scale: float) -> list[tuple[int, str]]:
-            """OCR one horizontal section; return (global_x, token) pairs."""
-            sw = max(1, int(section.shape[1] * scale))
-            sh = max(1, int(section.shape[0] * scale))
-            scaled = cv2.resize(section, (sw, sh), interpolation=cv2.INTER_LANCZOS4)
-            pad = 10
-            img_p = cv2.copyMakeBorder(scaled, pad, pad, pad, pad,
-                                       cv2.BORDER_CONSTANT, value=255)
-
-            d = pytesseract.image_to_data(
-                img_p, config=self._CFG_PSM11,
+    def _cols_from_header(gray_t: np.ndarray, header_row: tuple[int, int],
+                           ww: int) -> list[tuple[int, int]]:
+        """Use OCR word-box positions in the header row to define columns.
+        Header shows '1 2 3 4 5 6 7 8 9 OUT' — each word's centre is a
+        column anchor."""
+        ry1, ry2 = header_row
+        strip = gray_t[ry1:ry2, :]
+        if strip.size == 0 or (ry2 - ry1) < 6:
+            return []
+        # Upscale for stable OCR
+        h, w = strip.shape
+        scale = 3
+        big = cv2.resize(strip, (w * scale, h * scale),
+                         interpolation=cv2.INTER_CUBIC)
+        try:
+            data = pytesseract.image_to_data(
+                big, config="--psm 6 --oem 3",
                 output_type=pytesseract.Output.DICT,
             )
-            results = []
-            for i in range(len(d["text"])):
-                tok = d["text"][i].strip()
-                if not tok or int(d["conf"][i]) <= 10:
-                    continue
-                if not any(c.isalnum() for c in tok):
-                    continue
-                local_x = max(0, d["left"][i] - pad)
-                global_x = x_offset + int(local_x / scale)
-                results.append((global_x, tok))
-            return results
-
-        all_pairs: list[tuple[int, str]] = []
-
-        if max_x <= self._SECTION_W:
-            # Single section: scale to TARGET_STRIP_W (existing behaviour).
-            scale = min(1.0, self.TARGET_STRIP_W / max_x)
-            all_pairs = _tokens_from_section(binimg[:, :max_x], 0, scale)
-
-            # PSM 7 fallback for narrow / 9-hole strips
-            if not all_pairs:
-                sw2 = max(1, int(max_x * scale))
-                sh2 = max(1, int(h * scale))
-                sc2 = cv2.resize(binimg, (sw2, sh2), interpolation=cv2.INTER_LANCZOS4)
-                p2 = cv2.copyMakeBorder(sc2, 10, 10, 10, 10,
-                                        cv2.BORDER_CONSTANT, value=255)
-                raw = pytesseract.image_to_string(p2, config=self._CFG_PSM7).strip()
-                toks = [t for t in raw.replace("|", " ").split()
-                        if any(c.isalnum() for c in t)]
-                all_pairs = list(enumerate(toks))
-        else:
-            # Multi-section scan.  Each section is _SECTION_W px wide in the
-            # original image.  We scale each section to the same _SECTION_W
-            # output pixels so the effective resolution stays constant.
-            scale = self._SECTION_W / self._SECTION_W  # always 1.0 per section
-            x = 0
-            while x < max_x:
-                x_end = min(x + self._SECTION_W, max_x)
-                section = binimg[:, x:x_end]
-                # Scale so the section is rendered at TARGET_STRIP_W if it's
-                # narrower (e.g. the final partial section).
-                sec_w = x_end - x
-                sec_scale = min(1.0, self.TARGET_STRIP_W / sec_w)
-                all_pairs.extend(_tokens_from_section(section, x, sec_scale))
-                x = x_end
-
-        all_pairs.sort(key=lambda p: p[0])
-
-        def _num_count(pairs):
-            return sum(1 for _, t in pairs if re.match(r"^\d+$", t))
-
-        # If the positional scan found very few numbers, try a single-line PSM 7
-        # fallback on the full (downscaled) strip — better for thin strips.
-        if _num_count(all_pairs) < 5 and max_x <= self._SECTION_W:
-            scale_fb = min(1.0, self.TARGET_STRIP_W / max_x)
-            sw_fb = max(1, int(max_x * scale_fb))
-            sh_fb = max(1, int(h * scale_fb))
-            sc_fb = cv2.resize(binimg[:, :max_x], (sw_fb, sh_fb),
-                               interpolation=cv2.INTER_LANCZOS4)
-            p_fb = cv2.copyMakeBorder(sc_fb, 10, 10, 10, 10,
-                                      cv2.BORDER_CONSTANT, value=255)
-            raw = pytesseract.image_to_string(p_fb, config=self._CFG_PSM7).strip()
-            toks7 = [t for t in raw.replace("|", " ").split()
-                     if any(c.isalnum() for c in t)]
-            if _num_count(enumerate(toks7)) > _num_count(all_pairs):
-                return toks7
-
-        return [t for _, t in all_pairs]
-
-    # ── Token parsers ─────────────────────────────────────────────────────────
+        except Exception:
+            return []
+        centres: list[int] = []
+        for i, txt in enumerate(data["text"]):
+            t = (txt or "").strip()
+            if not t:
+                continue
+            # Only accept hole-number / OUT / IN tokens
+            if not (t.isdigit() or t.upper() in ("OUT", "IN", "TOT", "TOTAL")):
+                continue
+            cx = (data["left"][i] + data["width"][i] // 2) // scale
+            centres.append(cx)
+        centres = sorted(set(centres))
+        if len(centres) < 6:
+            return []
+        # Build column intervals: midpoints between centres
+        bounds: list[int] = [0]
+        for i in range(len(centres) - 1):
+            bounds.append((centres[i] + centres[i + 1]) // 2)
+        bounds.append(ww)
+        # Insert a leading "label" column before the first centre
+        first_centre = centres[0]
+        label_right = max(8, first_centre - (centres[1] - first_centre) // 2)
+        # Bounds: [0, label_right, mid01, mid12, ..., ww]
+        bounds = [0, label_right] + bounds[1:]
+        ints = [(bounds[i], bounds[i + 1])
+                 for i in range(len(bounds) - 1)
+                 if bounds[i + 1] - bounds[i] >= 8]
+        return ints
 
     @staticmethod
-    def _first_label_token(tokens: list[str]) -> str | None:
-        """Return the first purely-alpha token, or None if tokens start with a number."""
-        for tok in tokens[:4]:
-            if re.match(r"^[A-Za-z]+$", tok) and len(tok) >= 3:
-                return tok
-        return None
+    def _extend_rows_by_text(binv_t: np.ndarray, rows_y: list[int]) -> list[int]:
+        """Below last detected line, find text bands as additional row borders."""
+        h, w = binv_t.shape
+        if not rows_y:
+            return rows_y
+        bottom = rows_y[-1] + 2
+        if bottom >= h - 10:
+            return rows_y
+        region = binv_t[bottom:]
+        row_density = region.sum(axis=1).astype(np.float32)
+        if row_density.max() == 0:
+            return rows_y
+        # Smooth
+        k = np.ones(3, dtype=np.float32) / 3
+        sm = np.convolve(row_density, k, mode="same")
+        thresh = sm.max() * 0.2
+        in_text = sm >= thresh
+        extras: list[int] = []
+        i = 0
+        while i < len(in_text):
+            if in_text[i]:
+                start = i
+                while i < len(in_text) and in_text[i]:
+                    i += 1
+                end = i
+                if end - start >= 6:
+                    extras.append(bottom + start - 2)
+                    extras.append(bottom + end + 2)
+            else:
+                i += 1
+        merged = list(rows_y)
+        for e in extras:
+            if 0 <= e < h and all(abs(e - r) > 4 for r in merged):
+                merged.append(e)
+        merged.sort()
+        return merged
 
-    def _parse_par_tokens(self, tokens: list[str]) -> list[int]:
-        """Extract par values {3,4,5} from a PAR-row token list."""
-        values = []
-        for tok in tokens:
-            n = _to_int(tok)
+    # ── Tesseract ─────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _ocr_cell(cell: np.ndarray, is_label: bool) -> str | None:
+        """OCR a single grayscale cell crop. Handles dark/light backgrounds."""
+        if cell is None or cell.size == 0:
+            return None
+        h, w = cell.shape[:2]
+        if h < 10 or w < 10:
+            return None
+        # Inset to drop grid lines (lighter on narrow cells)
+        inset_y = max(1, h // 12)
+        inset_x = 2 if w < 50 else max(2, w // 12)
+        if h - 2 * inset_y < 6 or w - 2 * inset_x < 6:
+            return None
+        inner = cell[inset_y:h - inset_y, inset_x:w - inset_x]
+
+        # Decide polarity from border pixels (sampled away from text centre)
+        bord_pad = max(1, min(inner.shape) // 6)
+        border_pixels = np.concatenate([
+            inner[:bord_pad].ravel(),
+            inner[-bord_pad:].ravel(),
+            inner[:, :bord_pad].ravel(),
+            inner[:, -bord_pad:].ravel(),
+        ])
+        bg_mean = float(np.median(border_pixels))
+        if bg_mean < 130:
+            inner = 255 - inner
+
+        # Local contrast boost
+        try:
+            inner = cv2.normalize(inner, None, 0, 255, cv2.NORM_MINMAX)
+        except cv2.error:
+            return None
+
+        # Pad with white
+        padded = cv2.copyMakeBorder(
+            inner, 8, 8, 8, 8, cv2.BORDER_CONSTANT, value=255
+        )
+        # Upscale to ~64px tall for Tesseract
+        ph, pw = padded.shape[:2]
+        scale = max(1.0, 64.0 / ph)
+        resized = cv2.resize(
+            padded, (max(16, int(pw * scale)), max(32, int(ph * scale))),
+            interpolation=cv2.INTER_CUBIC,
+        )
+        # Otsu threshold to clean binary
+        _, bw = cv2.threshold(
+            resized, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+        )
+
+        try:
+            if is_label:
+                # Multi-line label (e.g. "Black\n77.2/124") — PSM 6
+                raw = pytesseract.image_to_string(bw, config="--psm 6 --oem 3")
+                lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+                # Prefer first line containing alphas
+                txt = next(
+                    (ln for ln in lines if any(c.isalpha() for c in ln)),
+                    raw,
+                )
+            else:
+                # PSM 7 handles multi-digit numbers better than PSM 8 on small cells
+                cfg = ("--psm 7 --oem 3 "
+                       "-c tessedit_char_whitelist=0123456789")
+                txt = pytesseract.image_to_string(bw, config=cfg).strip()
+                if not txt:
+                    cfg = ("--psm 8 --oem 3 "
+                           "-c tessedit_char_whitelist=0123456789")
+                    txt = pytesseract.image_to_string(bw, config=cfg)
+        except Exception:
+            return None
+        txt = txt.strip()
+        if not txt:
+            return None
+        if not is_label:
+            txt = txt.translate(_NUM_FIX)
+            txt = re.sub(r"[^0-9]", "", txt)
+            return txt or None
+        return txt
+
+    @staticmethod
+    def _split_merged_yards(s: str) -> list[int]:
+        """OCR sometimes glues two adjacent yardage cells: '215365' -> [215, 365].
+        Returns split values if they're plausible yardages, else single value."""
+        if not s:
+            return []
+        digits = re.sub(r"[^0-9]", "", s)
+        n = len(digits)
+        if 5 <= n <= 7 and n % 2 == 0:
+            half = n // 2
+            a, b = int(digits[:half]), int(digits[half:])
+            if 80 <= a <= 650 and 80 <= b <= 650:
+                return [a, b]
+        if n == 6:
+            a, b = int(digits[:3]), int(digits[3:])
+            if 80 <= a <= 650 and 80 <= b <= 650:
+                return [a, b]
+        try:
+            return [int(digits)]
+        except ValueError:
+            return []
+
+    # Backwards-compat merge helpers
+    def _merge_pars(self, cells: list[str | None], result: dict):
+        """Append pars from this row to existing pars (front+back nine)."""
+        vals = []
+        for c in cells[1:]:
+            n = _to_int(c)
             if n in (3, 4, 5):
-                values.append(n)
-        return values
+                vals.append(n)
+        if not vals:
+            return
+        # Append (front-nine table first, back-nine second)
+        existing = result["pars"]
+        merged = existing + vals
+        # Cap and prefer the longest unique stream
+        if len(merged) <= 18 and len(merged) > len(existing):
+            result["pars"] = merged[:18]
+        elif len(vals) >= 9 and len(existing) == 0:
+            result["pars"] = vals[:18]
 
-    def _parse_tee_tokens(self, tokens: list[str], result: dict,
-                          yards_override: list[int | None] | None = None,
-                          hint_color: str | None = None):
-        """
-        From a tee-row token list, identify the label and yardage values.
-        Label = first alpha cluster; yardages = values 80–650.
-        yards_override: pre-computed cell-based yardages (higher accuracy).
-          If supplied and passes sum validation, token-derived yardages are skipped.
-          Falls back to token yardages if override fails validation.
-        hint_color: canonical colour name from the colour-mask detection pass.
-          Used as label fallback when the token stream has no alpha prefix.
-        """
-        if not tokens and hint_color is None:
+    def _merge_hcps(self, cells: list[str | None], result: dict):
+        vals = []
+        for c in cells[1:]:
+            n = _to_int(c)
+            if n is not None and 1 <= n <= 18:
+                vals.append(n)
+        if not vals:
+            return
+        existing = result["handicaps"]
+        merged = existing + vals
+        if len(merged) <= 18 and len(merged) > len(existing):
+            result["handicaps"] = merged[:18]
+        elif len(vals) >= 9 and len(existing) == 0:
+            result["handicaps"] = vals[:18]
+
+    # ── Row classification ───────────────────────────────────────────────────
+
+    def _classify_row(self, cells: list[str | None]) -> str:
+        if not cells:
+            return "SKIP"
+        label = (cells[0] or "").strip()
+        rest  = cells[1:]
+        rest_nonempty = [c for c in rest if c]
+
+        # Numeric values across the row; expand merged 2-cell hits
+        nums: list[int] = []
+        for c in rest_nonempty:
+            for n in self._split_merged_yards(c):
+                nums.append(n)
+
+        low = label.lower()
+        if self._SKIP_RE.search(low):
+            return "SKIP"
+        if self._HOLE_RE.search(low):
+            return "HEADER"
+        if self._HCP_RE.search(low):
+            return "HCP"
+        if self._PAR_RE.search(low):
+            return "PAR"
+
+        # Heuristic: header = monotonic 1..9 or 10..18 with OCR slack
+        seq = [_to_int(c) for c in rest_nonempty]
+        seq_clean = [n for n in seq if n is not None]
+        if len(seq_clean) >= 7:
+            mono = all(seq_clean[i] <= seq_clean[i + 1] + 1
+                       for i in range(len(seq_clean) - 1))
+            small_range = (min(seq_clean) >= 1 and max(seq_clean) <= 18
+                            and (max(seq_clean) - min(seq_clean)) <= 9)
+            if mono and small_range:
+                return "HEADER"
+
+        # Unlabelled par: most values in {3,4,5}
+        if nums:
+            par_like = sum(1 for n in nums if n in (3, 4, 5))
+            if par_like >= 7 and par_like / max(1, len(nums)) >= 0.7:
+                return "PAR"
+
+        # HCP: most values 1..18, no value > 18
+        if nums and len(nums) >= 7:
+            hcp_like = sum(1 for n in nums if 1 <= n <= 18)
+            if hcp_like / len(nums) >= 0.8 and max(nums) <= 18:
+                return "HCP"
+
+        # Tee: yardage range dominates the row
+        yards = [n for n in nums if self.YARD_MIN <= n <= self.YARD_MAX]
+        # Label may include rating/slope appended ("Black 77.2/124")
+        has_alpha_label = bool(label) and any(c.isalpha() for c in label)
+        if has_alpha_label and len(yards) >= 3:
+            return "TEE"
+        if len(yards) >= 5:
+            return "TEE"
+
+        return "SKIP"
+
+    # ── Extractors ───────────────────────────────────────────────────────────
+
+    def _extract_pars(self, cells: list[str | None], result: dict):
+        vals = []
+        for c in cells[1:]:
+            n = _to_int(c)
+            if n in (3, 4, 5):
+                vals.append(n)
+            if len(vals) >= 18:
+                break
+        if len(vals) >= 7 and len(vals) > sum(1 for p in result["pars"]
+                                              if p in (3, 4, 5)):
+            result["pars"] = vals[:18]
+
+    def _extract_hcps(self, cells: list[str | None], result: dict):
+        vals = []
+        for c in cells[1:]:
+            n = _to_int(c)
+            if n is not None and 1 <= n <= 18:
+                vals.append(n)
+            if len(vals) >= 18:
+                break
+        if len(vals) >= 7 and len(vals) > len(result["handicaps"]):
+            result["handicaps"] = vals[:18]
+
+    def _extract_tee(self, cells: list[str | None], color_t: np.ndarray,
+                     row_int: tuple[int, int], col_ints: list[tuple[int, int]],
+                     result: dict,
+                     per_tee_yards: dict | None = None):
+        label = (cells[0] or "").strip()
+        # Expand merged-cell numbers ("215365" -> 215, 365) before filtering
+        yards: list[int] = []
+        for c in cells[1:]:
+            if not c:
+                continue
+            for n in self._split_merged_yards(c):
+                if self.YARD_MIN <= n <= self.YARD_MAX:
+                    yards.append(n)
+        if len(yards) < 3:
             return
 
-        label_parts: list[str] = []
-        nums:        list[int]  = []
-        hit_num = False
-        for tok in (tokens or []):
-            if not hit_num and re.match(r"^[A-Za-z'/\- ]+$", tok):
-                label_parts.append(tok)
-            elif not hit_num and self._RATE_RE.search(tok):
-                # Rating/slope token before the label — skip without locking label scan
-                continue
-            else:
-                hit_num = True
-                n = _to_int(tok)
-                if n is not None:
-                    nums.append(n)
-
-        label = " ".join(label_parts).strip()
-
-        # If no alpha label found in tokens, fall back to the colour-mask hint.
-        if not label and hint_color:
-            label = hint_color
-
+        # Colour: prefer label normalisation (more reliable than bg sample)
+        label_color = normalize_tee_color(label)
+        bg_color    = self._sample_bg_color(color_t, row_int, col_ints[0])
+        color = label_color or bg_color
+        if not label and bg_color:
+            label = bg_color
         if not label:
             return
 
-        if yards_override is not None:
-            yards = [v for v in yards_override if v is not None]
-        else:
-            yards = [v for v in nums if 80 <= v <= 650]
+        # Rating/slope from row text
+        rating, slope = None, None
+        full_text = " ".join(c for c in cells if c)
+        m = self._RATE_LINE_RE.search(full_text)
+        if m:
+            rating = float(m.group(1))
+            slope  = int(m.group(2))
 
-        if len(yards) < 7:
-            return
+        # Identify tee by colour (preferred) or normalised label
+        key = (color or normalize_tee_color(label) or label).lower()
 
-        n_holes = 18 if len(yards) >= 15 else 9
-        if not self._validate_yardage_sum(yards, n_holes):
-            if yards_override is not None:
-                # Cell OCR sum invalid — fall back to token yardages
-                yards = [v for v in nums if 80 <= v <= 650]
-                n_holes = 18 if len(yards) >= 15 else 9
-                if len(yards) < 7 or not self._validate_yardage_sum(yards, n_holes):
-                    return
-            else:
-                return
+        # Track per-tee yardage accumulation across tables
+        if per_tee_yards is not None:
+            per_tee_yards.setdefault(key, [])
+            per_tee_yards[key].extend(yards[:9])
 
-        color = normalize_tee_color(label) or hint_color
-        # Match against existing tee by label OR colour (handles OCR label noise)
-        existing = next(
-            (t for t in result["tee_boxes"]
-             if t["label"].lower() == label.lower()
-             or (color and (t.get("color") or "").lower() == color.lower())),
-            None,
-        )
+        existing = None
+        for t in result["tee_boxes"]:
+            tk = (t.get("color") or normalize_tee_color(t["label"])
+                  or t["label"]).lower()
+            if tk == key:
+                existing = t
+                break
 
         if existing:
-            if len(yards) > len(existing.get("yardages") or []):
+            if per_tee_yards is not None:
+                existing["yardages"] = per_tee_yards[key][:18]
+            elif len(yards) > len(existing.get("yardages") or []):
                 existing["yardages"] = yards[:18]
+            if rating and not existing.get("rating"):
+                existing["rating"] = rating
+                existing["slope"]  = slope
+            if color and not existing.get("color"):
+                existing["color"] = color
         else:
-            tee = {"label": label, "color": color,
-                   "rating": None, "slope": None, "yardages": yards[:18]}
-            result["tee_boxes"].append(tee)
+            result["tee_boxes"].append({
+                "label":    label or (color or "Unknown"),
+                "color":    color,
+                "rating":   rating,
+                "slope":    slope,
+                "yardages": (per_tee_yards[key][:18] if per_tee_yards is not None
+                             else yards[:18]),
+            })
 
-        # Inline rating/slope (e.g. "73.4/129" on the label row)
-        tee_entry = existing or result["tee_boxes"][-1]
-        full_text = " ".join(tokens or [])
-        m = self._RATE_RE.search(full_text)
-        if m and tee_entry["rating"] is None:
-            tee_entry["rating"] = float(m.group(1))
-            tee_entry["slope"]  = int(m.group(2))
+    @staticmethod
+    def _sample_bg_color(color_t: np.ndarray,
+                          row_int: tuple[int, int],
+                          col_int: tuple[int, int]) -> str | None:
+        ry1, ry2 = row_int
+        cx1, cx2 = col_int
+        h, w = color_t.shape[:2]
+        ry1 = max(0, ry1); ry2 = min(h, ry2)
+        cx1 = max(0, cx1); cx2 = min(w, cx2)
+        if ry2 <= ry1 or cx2 <= cx1:
+            return None
+        crop = color_t[ry1:ry2, cx1:cx2]
+        if crop.size == 0:
+            return None
+        # Use border pixels — text occupies the centre
+        border_pad = max(1, (ry2 - ry1) // 5)
+        top    = crop[:border_pad].reshape(-1, 3)
+        bottom = crop[-border_pad:].reshape(-1, 3)
+        sample = np.concatenate([top, bottom], axis=0)
+        med = np.median(sample, axis=0)
+        r, g, b = int(med[0]), int(med[1]), int(med[2])
+        best = None
+        best_d = 1e9
+        for name, rc, gc, bc, tol in _TEE_COLORS:
+            d = abs(r - rc) + abs(g - gc) + abs(b - bc)
+            if d < best_d and abs(r - rc) <= tol and abs(g - gc) <= tol and abs(b - bc) <= tol:
+                best_d = d
+                best = name
+        return best
 
-    # ── Fallback: strip-based scan ────────────────────────────────────────────
+    # ── Ratings summary table (sidebar with "Black 77.2/124 6465 yds") ───────
 
-    def _inject_label_if_missing(
-        self,
-        tokens: list[str],
-        strip_rgb: np.ndarray,
-        invert: bool,
-    ) -> list[str]:
-        """
-        If the token stream contains a rating token and yardage numbers but no
-        recognisable label, OCR the label column at higher resolution to recover
-        a numeric ("1"/"2"/"3") or colour-name label.
-        """
-        if not tokens:
-            return tokens
-        # Already has an alpha or digit label in the first few tokens?
-        # Require ≥3 chars to avoid short OCR noise like "ra", "lo", etc.
-        has_alpha = any(
-            re.match(r"^[A-Za-z]{3,}$", t) for t in tokens[:5]
-        )
-        has_digit = any(re.match(r"^[1-9]$", t) for t in tokens[:4])
-        if has_alpha or has_digit:
-            return tokens
-        # Needs enough yardage-range numbers to look like a tee row.
-        # Also accepts a rating token (e.g. "78.4/103") as confirmation.
-        yard_count = sum(
-            1 for t in tokens
-            if (n := _to_int(t)) is not None and 80 <= n <= 650
-        )
-        has_rate = any(self._RATE_RE.search(t) for t in tokens[:8])
-        if yard_count < 7 and not has_rate:
-            return tokens
-        if yard_count < 5:
-            return tokens
-        label = self._ocr_tee_label(strip_rgb, invert)
-        if label:
-            return [label] + tokens
-        return tokens
-
-    def _process_strip_fallback(
-        self,
-        img_rgb: np.ndarray,
-        clean: np.ndarray,
-        binary: np.ndarray,
-        y1: int,
-        y2: int,
-        result: dict,
-        par_found: bool = False,
-    ):
-        """
-        OCR a detected binary row strip in both polarities.
-        par_found: if True, par row already extracted via colour detection —
-          skip re-extracting pars unless the fallback finds more valid values.
-        """
-        strip_rgb = img_rgb[y1:y2 + 1, :]
-        tokens_n  = self._ocr_strip_tokens(strip_rgb, invert=False)
-        tokens_i  = self._ocr_strip_tokens(strip_rgb, invert=True)
-
-        for tokens, invert_flag, supplement in [
-            (tokens_n, False, False),
-            (tokens_i, True,  True),
-        ]:
-            tokens = self._inject_label_if_missing(tokens, strip_rgb, invert_flag)
-            self._parse_fallback_row(tokens, result, supplement, par_found=par_found)
-
-    def _parse_fallback_row(self, tokens: list[str], result: dict, supplement: bool,
-                            par_found: bool = False):
-        if not tokens:
-            return
-        # Only apply the skip filter to the label (first few alpha tokens).
-        # Applying it to the full token string blocks tee rows that happen to
-        # contain inline "rating" or "slope" text after the yardages.
-        label_preview = " ".join(
-            t for t in tokens[:6] if re.match(r"^[A-Za-z'/\- ]+$", t)
-        )
-        if self._SKIP_RE.search(label_preview):
-            return
-
-        label_parts: list[str] = []
-        nums: list[int] = []
-        hit_num = False
-        for tok in tokens:
-            if not hit_num and re.match(r"^[A-Za-z'/\- ]+$", tok):
-                label_parts.append(tok)
-            elif not hit_num and self._RATE_RE.search(tok):
-                # Rating/slope token (e.g. "75.6/107") printed before the label
-                # in some layouts — skip it without locking out the label.
+    def _extract_ratings_summary(self, color: np.ndarray, gray_eq: np.ndarray,
+                                  bboxes: list[tuple[int, int, int, int]],
+                                  result: dict):
+        """Scan every detected table region with PSM 6, regex out tee+rating."""
+        for (x, y, ww, hh) in bboxes:
+            region = gray_eq[y:y + hh, x:x + ww]
+            try:
+                text = pytesseract.image_to_string(region, config="--psm 6 --oem 3")
+            except Exception:
                 continue
-            elif not hit_num and not label_parts and re.match(r"^[1-9]$", tok):
-                # Single-digit numeric tee label ("1", "2", "3") injected by
-                # _inject_label_if_missing or appearing naturally at token start.
-                label_parts.append(tok)
-            else:
-                hit_num = True
-                n = _to_int(tok)
-                if n is not None:
-                    nums.append(n)
+            for line in text.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                m = self._RATE_LINE_RE.search(line)
+                if not m:
+                    continue
+                rating = float(m.group(1))
+                slope  = int(m.group(2))
+                # Find the tee label on this line
+                low = line.lower()
+                color_match = None
+                for alias, name in _COLOR_ALIASES.items():
+                    if re.search(rf"\b{alias}\b", low):
+                        color_match = name
+                        break
+                if not color_match:
+                    continue
+                # Apply to matching tee_box (or create one)
+                found = False
+                for t in result["tee_boxes"]:
+                    tk = (t.get("color") or normalize_tee_color(t["label"])
+                          or t["label"]).lower()
+                    if tk == color_match.lower():
+                        if not t.get("rating"):
+                            t["rating"] = rating
+                            t["slope"]  = slope
+                        if not t.get("color"):
+                            t["color"] = color_match
+                        found = True
+                        break
+                if not found:
+                    result["tee_boxes"].append({
+                        "label":    color_match,
+                        "color":    color_match,
+                        "rating":   rating,
+                        "slope":    slope,
+                        "yardages": [],
+                    })
 
-        label = " ".join(label_parts).strip()
+    def _extract_par_hcp_from_grid(self, gray_eq: np.ndarray,
+                                     bboxes: list[tuple[int, int, int, int]],
+                                     binv: np.ndarray, result: dict):
+        """For each wide table, build column positions and OCR the strip
+        below the grid cell-by-cell to recover PAR row."""
+        h_img, w_img = gray_eq.shape
+        wide = [b for b in bboxes if b[2] > w_img * 0.15]
+        wide.sort(key=lambda b: b[0])
+        front_pars: list[int] = []
+        back_pars:  list[int] = []
+        # Prefer header-derived cols that were captured during main pass
+        saved_cols = getattr(self, "_last_table_cols", [])
+        for idx, (x, y, ww, hh) in enumerate(wide[:2]):
+            below_y = y + hh
+            ext_bot = min(h_img, below_y + int(hh * 0.8))
+            if ext_bot - below_y < 12:
+                continue
+            # Find matching saved col_ints
+            col_ints = None
+            for (bx, by, bw, bh), ints in saved_cols:
+                if abs(bx - x) < 5 and abs(by - y) < 5:
+                    col_ints = ints
+                    break
+            if not col_ints:
+                binv_grid = binv[y:y + hh, x:x + ww]
+                vk = cv2.getStructuringElement(
+                    cv2.MORPH_RECT, (1, max(8, hh // 4))
+                )
+                v_lines = cv2.morphologyEx(binv_grid, cv2.MORPH_OPEN, vk)
+                cols_x = self._cluster_lines(v_lines, axis="v")
+                if len(cols_x) < 6:
+                    continue
+                min_col_w = max(self.MIN_ROW_PX, ww // 30)
+                col_ints = [(cols_x[i], cols_x[i + 1])
+                             for i in range(len(cols_x) - 1)
+                             if cols_x[i + 1] - cols_x[i] >= min_col_w]
+            if not col_ints:
+                continue
 
-        is_par = bool(self._PAR_RE.search(label)) or bool(self._PAR_RE.search(" ".join(tokens[:3])))
-        is_hcp = bool(self._HCP_RE.search(label))
+            # Find text bands within the strip below the grid
+            strip = gray_eq[below_y:ext_bot, x:x + ww]
+            binv_strip = binv[below_y:ext_bot, x:x + ww]
+            row_density = binv_strip.sum(axis=1).astype(np.float32)
+            if row_density.max() == 0:
+                continue
+            sm = np.convolve(row_density,
+                             np.ones(3, dtype=np.float32) / 3, mode="same")
+            thresh = sm.max() * 0.12
+            bands: list[tuple[int, int]] = []
+            i = 0
+            while i < len(sm):
+                if sm[i] >= thresh:
+                    start = i
+                    while i < len(sm) and sm[i] >= thresh:
+                        i += 1
+                    if i - start >= 4:
+                        bands.append((max(0, start - 1),
+                                      min(len(sm), i + 1)))
+                else:
+                    i += 1
+            if not bands:
+                continue
+            # For each band, OCR each cell using col_ints
+            for ry1, ry2 in bands[:6]:
+                cells: list[str | None] = []
+                for cx1, cx2 in col_ints:
+                    cell = strip[ry1:ry2, cx1:cx2]
+                    txt = self._ocr_cell(cell, is_label=False)
+                    cells.append(txt)
+                label_cell = strip[ry1:ry2, col_ints[0][0]:col_ints[0][1]]
+                lbl = self._ocr_cell(label_cell, is_label=True) or ""
 
-        if is_par:
-            # When colour detection already found the PAR row (par_found=True),
-            # don't let the fallback overwrite it.  Wide strips (MAX_STRIP_AR=200)
-            # can pick up split OUT/IN totals (e.g. "37"→"3"+"7") which corrupt
-            # the par sequence by inserting spurious {3,4,5} values.
-            if par_found:
-                return
-            valid = [v for v in nums if v in (3, 4, 5)]
-            if len(valid) >= 7:
-                result["pars"] = valid[:18]
+                # Extract every individual digit in each cell; any 3/4/5
+                # digit is a candidate par
+                par_vals: list[int] = []
+                for c in cells[1:]:
+                    if not c:
+                        continue
+                    for d in c:
+                        if d in "345":
+                            par_vals.append(int(d))
+
+                low = lbl.lower()
+                par_label = bool(re.search(r"\bpar\b|^pa[a-z]?$|^p4r$", low))
+                # Or: most digits in non-empty cells are 3/4/5
+                all_digits = "".join(c for c in cells[1:] if c)
+                par_like = (len(all_digits) >= 5
+                            and sum(1 for d in all_digits if d in "345")
+                                >= len(all_digits) * 0.6)
+                if (par_label or par_like) and par_vals:
+                    if idx == 0 and len(par_vals) > len(front_pars):
+                        front_pars = par_vals[:9]
+                    elif idx == 1 and len(par_vals) > len(back_pars):
+                        back_pars = par_vals[:9]
+
+        merged = front_pars + back_pars
+        if merged and len(merged) > len(result["pars"]):
+            result["pars"] = merged[:18]
+
+    def _extract_par_hcp_lines(self, gray_eq: np.ndarray,
+                                 bboxes: list[tuple[int, int, int, int]],
+                                 result: dict):
+        h_img, w_img = gray_eq.shape
+        front_pars: list[int] = []
+        back_pars:  list[int] = []
+        front_hcps: list[int] = []
+        back_hcps:  list[int] = []
+
+        # Take the two largest "wide" tables (front + back nine main tables)
+        wide = [b for b in bboxes if b[2] > w_img * 0.15]
+        wide.sort(key=lambda b: b[0])  # left-to-right
+
+        for idx, (x, y, ww, hh) in enumerate(wide[:2]):
+            # Focus on the strip *below* the main grid where PAR/HDCP live
+            below_y = y + hh
+            ext_bottom = min(h_img, below_y + int(hh * 0.7))
+            if ext_bottom - below_y < 10:
+                continue
+            strip = gray_eq[below_y:ext_bottom, x:x + ww]
+            # Upscale strip 2x for tighter OCR on small print
+            strip = cv2.resize(strip, (strip.shape[1] * 2, strip.shape[0] * 2),
+                                interpolation=cv2.INTER_CUBIC)
+            try:
+                text = pytesseract.image_to_string(
+                    strip, config="--psm 6 --oem 3"
+                )
+            except Exception:
+                continue
+            for line in text.splitlines():
+                low = line.strip().lower()
+                if not low:
+                    continue
+                nums = [int(n) for n in re.findall(r"\d+", line)]
+                # PAR row: explicit label or row with mostly {3,4,5}
+                par_label = bool(re.search(r"\bpar\b|^par\b|^pa[a-z]?\b", low))
+                par_vals  = [n for n in nums if n in (3, 4, 5)]
+                par_like  = (len(par_vals) >= 7
+                              and len(par_vals) >= len(nums) - 2)
+                if par_label or par_like:
+                    vals = par_vals[:9]
+                    if vals:
+                        if idx == 0 and len(vals) > len(front_pars):
+                            front_pars = vals
+                        elif idx == 1 and len(vals) > len(back_pars):
+                            back_pars = vals
+                        continue
+
+                hcp_label = bool(re.search(r"\b(hdcp|hcp|handicap|hoce|hoop)\b",
+                                            low))
+                if hcp_label:
+                    vals = [n for n in nums if 1 <= n <= 18][:9]
+                    if idx == 0:
+                        front_hcps = vals
+                    else:
+                        back_hcps = vals
+
+        pars = front_pars + back_pars
+        if pars and len(pars) > len(result["pars"]):
+            result["pars"] = pars[:18]
+        hcps = front_hcps + back_hcps
+        if hcps and len(hcps) > len(result["handicaps"]):
+            result["handicaps"] = hcps[:18]
+
+    # ── Course/club name from above-table band ───────────────────────────────
+
+    def _course_name(self, color: np.ndarray, result: dict,
+                      table_top: int | None = None):
+        h, w = color.shape[:2]
+        if table_top and table_top > 30:
+            band = color[:table_top]
+        else:
+            band = color[: max(30, int(h * 0.15))]
+        if band.size == 0:
             return
-
-        # Unlabelled heuristic: ≥8 values, >75 % are {3,4,5}
-        valid_p = [v for v in nums if v in (3, 4, 5)]
-        if (not result["pars"] and not is_hcp
-                and len(valid_p) >= 8
-                and len(valid_p) / max(len(nums), 1) > 0.75):
-            result["pars"] = valid_p[:18]
-            return
-
-        if is_hcp:
-            valid = [v for v in nums if 1 <= v <= 18]
-            if len(valid) >= 7 and not supplement:
-                result["handicaps"] = valid[:18]
-            return
-
-        yards = [v for v in nums if 80 <= v <= 650]
-        if len(yards) < 7 or not label:
-            return
-
-        color    = normalize_tee_color(label)
-        existing = next(
-            (t for t in result["tee_boxes"]
-             if t["label"].lower() == label.lower()
-             or (color
-                 and (t.get("color") or "").lower() == color.lower()
-                 # Only colour-deduplicate when the matched tee's label is a
-                 # known colour alias (not a custom name like "Championship").
-                 # This prevents merging two tees that share a mapped colour
-                 # (e.g. Championship+Tournament both map to Black).
-                 and (t.get("label") or "").lower() in
-                     {"black","blue","white","red","gold","green",
-                      "silver","yellow"})),
-            None,
-        )
-
-        if existing:
-            # Tee already found — only update yardages if this read has more holes.
-            if len(yards) > len(existing.get("yardages") or []):
-                existing["yardages"] = yards[:18]
-            return
-
-        # New tee not found by colour detection (e.g. white-background tee)
-        if supplement:
-            return  # only add new tees on the non-inverted pass to avoid duplicates
-        tee = {"label": label, "color": color, "rating": None, "slope": None,
-               "yardages": yards[:18]}
-        result["tee_boxes"].append(tee)
-
-        full_text = " ".join(tokens)
-        m = self._RATE_RE.search(full_text)
-        if m and tee["rating"] is None:
-            tee["rating"] = float(m.group(1))
-            tee["slope"]  = int(m.group(2))
-
-    # ── Row strip detection (fallback) ────────────────────────────────────────
-
-    def _find_row_strips(self, gray: np.ndarray, binary: np.ndarray) -> list[tuple[int, int]]:
-        h, w = gray.shape
-        _, gray_inv = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)
-        bin_inv     = cv2.bitwise_not(binary)
-        combined    = cv2.add(gray_inv, bin_inv)
-        hk = cv2.getStructuringElement(cv2.MORPH_RECT, (max(50, w // 10), 1))
-        hl = cv2.morphologyEx(combined, cv2.MORPH_OPEN, hk)
-        proj   = np.sum(hl, axis=1) / 255
-        min_px = w * 0.12
-        raw_ys = [y for y in range(h) if proj[y] > min_px]
-        if len(raw_ys) < 4:
-            return []
-        bounds = self._cluster(raw_ys, gap=5)
-        return [
-            (bounds[i] + 1, bounds[i + 1] - 1)
-            for i in range(len(bounds) - 1)
-            if bounds[i + 1] - bounds[i] >= 8
-        ]
-
-    # ── Image helpers ─────────────────────────────────────────────────────────
-
-    @staticmethod
-    def _detect_skew(gray: np.ndarray) -> float:
-        """Return the skew angle (degrees) via Hough line analysis."""
+        gray = cv2.cvtColor(band, cv2.COLOR_RGB2GRAY)
         try:
-            edges = cv2.Canny(gray, 50, 150, apertureSize=3)
-            lines = cv2.HoughLines(edges, 1, math.pi / 180, threshold=150)
-            if lines is None:
-                return 0.0
-            angles = []
-            for line in lines[:30]:
-                rho, theta = line[0]
-                angle = math.degrees(theta) - 90
-                if abs(angle) < 20:
-                    angles.append(angle)
-            if not angles:
-                return 0.0
-            return float(sorted(angles)[len(angles) // 2])
+            text = pytesseract.image_to_string(gray, config="--psm 6 --oem 3")
         except Exception:
-            return 0.0
-
-    @staticmethod
-    def _rotate_rgb(img_rgb: np.ndarray, angle: float) -> np.ndarray:
-        h, w = img_rgb.shape[:2]
-        M = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1.0)
-        return cv2.warpAffine(img_rgb, M, (w, h),
-                              flags=cv2.INTER_LINEAR,
-                              borderMode=cv2.BORDER_REPLICATE)
-
-    @staticmethod
-    def _binarize(gray: np.ndarray) -> np.ndarray:
-        _, b = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        return b
-
-    @staticmethod
-    def _remove_grid_lines(binary: np.ndarray) -> np.ndarray:
-        h, w  = binary.shape
-        inv   = cv2.bitwise_not(binary)
-        hk    = cv2.getStructuringElement(cv2.MORPH_RECT, (max(60, w // 12), 1))
-        vk    = cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(25, h // 15)))
-        grid  = cv2.dilate(
-            cv2.add(cv2.morphologyEx(inv, cv2.MORPH_OPEN, hk),
-                    cv2.morphologyEx(inv, cv2.MORPH_OPEN, vk)),
-            np.ones((1, 2), np.uint8),
-        )
-        return cv2.bitwise_not(cv2.subtract(inv, grid))
-
-    # ── Utility ───────────────────────────────────────────────────────────────
-
-    @staticmethod
-    def _cluster_rows(ys: np.ndarray, gap: int = 15) -> list[tuple[int, int]]:
-        groups: list[tuple[int, int]] = []
-        grp = [int(ys[0])]
-        for y in ys[1:]:
-            y = int(y)
-            if y - grp[-1] <= gap:
-                grp.append(y)
-            else:
-                groups.append((grp[0], grp[-1]))
-                grp = [y]
-        groups.append((grp[0], grp[-1]))
-        return groups
-
-    @staticmethod
-    def _cluster(positions: list[int], gap: int = 5) -> list[int]:
-        if not positions:
-            return []
-        clusters, group = [], [positions[0]]
-        for p in positions[1:]:
-            if p - group[-1] <= gap:
-                group.append(p)
-            else:
-                clusters.append(int(sum(group) / len(group)))
-                group = [p]
-        clusters.append(int(sum(group) / len(group)))
-        return clusters
-
-    def _extract_course_name(self, text: str, result: dict):
-        lines = [l.strip() for l in text.splitlines() if len(l.strip()) > 3]
-        name_lines = [
-            l for l in lines
-            if not re.match(r"^\d", l)
-            and sum(c.isalpha() for c in l) > len(l) * 0.4
+            return
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        long_lines = [
+            ln for ln in lines
+            if sum(c.isalpha() for c in ln) >= 4
+            and not self._SKIP_RE.search(ln.lower())
+            and not self._PAR_RE.search(ln.lower())
         ]
-        if name_lines and not result["course_name"]:
-            result["course_name"] = name_lines[0]
-        if len(name_lines) >= 2 and not result["club_name"]:
-            result["club_name"] = name_lines[1]
+        if long_lines and not result["course_name"]:
+            result["course_name"] = long_lines[0]
+        if len(long_lines) >= 2 and not result["club_name"]:
+            result["club_name"] = long_lines[1]
 
-    # ── Output schema ─────────────────────────────────────────────────────────
+    # ── Projection fallback (no grid lines detected) ─────────────────────────
+
+    def _projection_fallback(self, gray_eq: np.ndarray, binv: np.ndarray,
+                              color: np.ndarray, result: dict):
+        # Row strips from horizontal projection
+        proj = binv.sum(axis=1).astype(np.float32)
+        if proj.max() == 0:
+            return
+        # Smooth
+        kernel = np.ones(5, dtype=np.float32) / 5.0
+        smooth = np.convolve(proj, kernel, mode="same")
+        # Peaks: above 0.4 * max with min spacing
+        thresh = smooth.max() * 0.3
+        peaks: list[int] = []
+        min_gap = max(8, gray_eq.shape[0] // 80)
+        for i in range(1, len(smooth) - 1):
+            if smooth[i] >= thresh and smooth[i] >= smooth[i - 1] and smooth[i] >= smooth[i + 1]:
+                if not peaks or i - peaks[-1] >= min_gap:
+                    peaks.append(i)
+        if len(peaks) < 3:
+            return
+        half = min_gap
+        white = cv2.bitwise_not(binv)
+        for p in peaks:
+            y1 = max(0, p - half); y2 = min(white.shape[0], p + half)
+            strip = white[y1:y2]
+            try:
+                text = pytesseract.image_to_string(strip, config="--psm 11 --oem 3")
+            except Exception:
+                continue
+            toks = re.findall(r"[A-Za-z][A-Za-z'/\-]+|\d+", text)
+            if not toks:
+                continue
+            # Treat first alpha as label, parse rest
+            cells = [toks[0]] + toks[1:]
+            kind = self._classify_row(cells)
+            if kind == "PAR":
+                self._extract_pars(cells, result)
+            elif kind == "HCP":
+                self._extract_hcps(cells, result)
+            elif kind == "TEE":
+                # Approx row interval; first col = first 5% of width
+                row_int = (y1, y2)
+                col_ints = [(0, color.shape[1] // 12)]
+                self._extract_tee(cells, color, row_int, col_ints, result)
+
+    # ── Debug overlay ────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _save_debug_image(color_t: np.ndarray,
+                           row_ints: list[tuple[int, int]],
+                           col_ints: list[tuple[int, int]],
+                           grid_text: list[list[str | None]],
+                           row_kinds: list[str],
+                           path: str = "/tmp/scorecard_debug.jpg"):
+        out = cv2.cvtColor(color_t, cv2.COLOR_RGB2BGR).copy()
+        font  = cv2.FONT_HERSHEY_SIMPLEX
+        scale = 0.4
+        for ri, (ry1, ry2) in enumerate(row_ints):
+            cv2.putText(out, row_kinds[ri], (2, ry1 + 14),
+                        font, scale, (0, 0, 255), 1, cv2.LINE_AA)
+            for ci, (cx1, cx2) in enumerate(col_ints):
+                cv2.rectangle(out, (cx1, ry1), (cx2, ry2), (0, 200, 0), 1)
+                txt = grid_text[ri][ci] if ri < len(grid_text) and ci < len(grid_text[ri]) else None
+                if txt:
+                    cv2.putText(out, str(txt)[:6], (cx1 + 2, ry1 + 14),
+                                font, scale, (255, 0, 0), 1, cv2.LINE_AA)
+        cv2.imwrite(path, out)
+        print(f"[scorecard_ocr] Debug image: {path}", file=sys.stderr)
+
+    # ── Output schema ────────────────────────────────────────────────────────
 
     @staticmethod
     def _empty() -> dict:
@@ -1136,9 +1128,10 @@ class ScorecardOCR:
         n    = 9 if result.get("nine_hole_card") else 18
         pars = result.get("pars", [])
         if not pars or all(v is None for v in pars):
-            w.append("No par values extracted — try better lighting or a flatter angle")
+            w.append("No par values extracted")
         else:
-            bad = [i + 1 for i, p in enumerate(pars) if p is not None and p not in (3, 4, 5)]
+            bad = [i + 1 for i, p in enumerate(pars)
+                   if p is not None and p not in (3, 4, 5)]
             if bad:
                 w.append(f"Unexpected par values at holes: {bad}")
             missing = [i + 1 for i, p in enumerate(pars) if p is None]
@@ -1168,10 +1161,26 @@ class ScorecardOCR:
         rc   = (sum(1 for t in tees if t.get("rating") and t.get("slope")) /
                 len(tees)) if tees else 0.0
 
-        # Weights reflect priority: yardages > pars > ratings
         result["confidence"] = {
             "overall":  round(0.40 * yc + 0.35 * pc + 0.25 * rc, 2),
             "pars":     round(pc, 2),
             "ratings":  round(rc, 2),
             "yardages": round(yc, 2),
         }
+
+
+# ── CLI ──────────────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: python scorecard_ocr.py <image_path>", file=sys.stderr)
+        sys.exit(1)
+    path = sys.argv[1]
+    if not os.path.exists(path):
+        print(f"Not found: {path}", file=sys.stderr)
+        sys.exit(1)
+    with open(path, "rb") as f:
+        data = f.read()
+    ocr = ScorecardOCR()
+    out = ocr.process_image(data, debug=True)
+    print(json.dumps(out, indent=2))
