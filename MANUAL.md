@@ -2,6 +2,10 @@
 
 The Home screen is your dashboard. It's the **center tab** in the tab bar.
 
+### Manual Button
+
+A small **Manual** button sits in the top corner of the handicap hero card. Tap it to open this reference inside the app, without leaving Galf. A bottom sheet slides up listing every section; tap a section to read it, and tap **Done** to close. The manual content is served live from the app's `MANUAL.md`, so it always matches the version you are running.
+
 ### Handicap Index
 
 The large number at the top is your **WHS Handicap Index**, calculated from your serious solo rounds following USGA rules.

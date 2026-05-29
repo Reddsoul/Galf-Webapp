@@ -15,6 +15,7 @@ A self-hosted mobile golf companion that lives on your iPhone. Log rounds, track
 - **Simulator rounds** — Tracked separately, excluded from real handicap.
 - **Personal bests** — Home screen shows best IRL and simulator scorecards on a single toggle card.
 - **Activity heatmap** — 18-week calendar on the home screen showing days you played a round, practiced, or both.
+- **Built-in manual** — Full screen-by-screen reference, opened in-app from the **Manual** button on the home screen (renders this project's `MANUAL.md`).
 
 ---
 
@@ -22,7 +23,7 @@ A self-hosted mobile golf companion that lives on your iPhone. Log rounds, track
 
 - Docker (recommended), **or** Python 3.10+
 
-No external services, no internet connection required after install.
+No accounts, no external services, no telemetry. The app runs fully on your own hardware. The only thing fetched from the internet is the `marked` markdown library (loaded from a CDN to render the in-app manual); the browser caches it, and the rest of the app works offline.
 
 ---
 
