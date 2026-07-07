@@ -21,6 +21,7 @@ _STATS_CACHE_VERSION = 4
 
 def _round_to_dict(r):
     return {
+        "id": r.id,
         "course_name": r.course_name,
         "tee_color": r.tee_color,
         "date": r.date,
@@ -56,7 +57,7 @@ def _course_to_dict(c):
 
 
 def _club_to_dict(c):
-    d = {"name": c.name, "distance": c.distance, "notes": c.notes or ""}
+    d = {"name": c.name, "distance": c.distance, "notes": c.notes or "", "in_bag": c.in_bag if c.in_bag is not None else True}
     if c.partials:
         d["partials"] = c.partials
     return d
@@ -134,6 +135,14 @@ class GolfBackend:
             course_data["yardages"] = {}
 
     def add_course(self, course_data):
+        name = (course_data.get("name") or "").strip()
+        if not name:
+            raise ValueError("Course name is required")
+        if not course_data.get("pars"):
+            raise ValueError("Course pars are required")
+        course_data["name"] = name
+        if Course.query.filter_by(user_id=self.user_id, name=name).first():
+            raise ValueError(f"Course already exists: {name}")
         self._prepare_course_data(course_data)
         course = Course(
             user_id=self.user_id,
@@ -161,8 +170,14 @@ class GolfBackend:
         c = Course.query.filter_by(user_id=self.user_id, name=original_name).first()
         if not c:
             return
+        new_name = course_data["name"]
+        if new_name != original_name:
+            # Rounds reference courses by name string — cascade the rename
+            Round.query.filter_by(
+                user_id=self.user_id, course_name=original_name
+            ).update({"course_name": new_name})
         c.club = course_data.get("club", "")
-        c.name = course_data["name"]
+        c.name = new_name
         c.pars = course_data["pars"]
 
         # Replace tee boxes
@@ -216,6 +231,11 @@ class GolfBackend:
             par = sum(pars)
         if "date" not in round_data:
             round_data["date"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+        # Course handicap (rating - 18-hole par) is an 18-hole quantity;
+        # halve it for 9-hole targets
+        hcp = box["handicap"] or 0
+        if holes_choice in ("front_9", "back_9"):
+            hcp = hcp / 2
         row = Round(
             user_id=self.user_id,
             course_name=round_data["course_name"],
@@ -225,7 +245,7 @@ class GolfBackend:
             par=par,
             tee_rating=box["rating"],
             tee_slope=box["slope"],
-            target_score=par + round(box["handicap"] or 0),
+            target_score=par + round(hcp),
             holes_played=round_data.get("holes_played", 18),
             holes_choice=holes_choice,
             round_type=round_data.get("round_type", "solo"),
@@ -239,34 +259,32 @@ class GolfBackend:
         db.session.commit()
         self.invalidate_stats_cache()
 
-    def delete_round(self, index):
-        row = Round.query.filter_by(user_id=self.user_id).order_by(Round.id).offset(index).limit(1).first()
+    def delete_round(self, round_id):
+        row = Round.query.filter_by(user_id=self.user_id, id=round_id).first()
         if row:
             db.session.delete(row)
             db.session.commit()
             self.invalidate_stats_cache()
 
     def get_filtered_rounds(self, round_type="all", sort_by="recent"):
-        rounds_with_idx = list(enumerate(self.get_rounds()))
+        rounds = self.get_rounds()
 
         if round_type == "solo":
-            rounds_with_idx = [(i, r) for i, r in rounds_with_idx
-                               if r.get("round_type", "solo") == "solo" and not r.get("is_sim")]
+            rounds = [r for r in rounds
+                      if r.get("round_type", "solo") == "solo" and not r.get("is_sim")]
         elif round_type == "scramble":
-            rounds_with_idx = [(i, r) for i, r in rounds_with_idx
-                               if r.get("round_type") == "scramble"]
+            rounds = [r for r in rounds if r.get("round_type") == "scramble"]
         elif round_type == "sim":
-            rounds_with_idx = [(i, r) for i, r in rounds_with_idx
-                               if r.get("is_sim")]
+            rounds = [r for r in rounds if r.get("is_sim")]
 
         if sort_by == "recent":
-            rounds_with_idx.sort(key=lambda x: x[1].get("date", ""), reverse=True)
+            rounds.sort(key=lambda r: r.get("date", ""), reverse=True)
         elif sort_by == "best":
-            rounds_with_idx.sort(key=lambda x: self._get_score_relative_to_par(x[1]))
+            rounds.sort(key=self._get_score_relative_to_par)
         elif sort_by == "worst":
-            rounds_with_idx.sort(key=lambda x: self._get_score_relative_to_par(x[1]), reverse=True)
+            rounds.sort(key=self._get_score_relative_to_par, reverse=True)
 
-        return rounds_with_idx
+        return rounds
 
     def _get_score_relative_to_par(self, round_data):
         total_score = round_data.get("total_score", 999)
@@ -319,19 +337,27 @@ class GolfBackend:
                 })
         return paired
 
-    def calculate_handicap_index(self, _rounds=None):
-        all_rounds = _rounds if _rounds is not None else self.get_rounds()
+    def _handicap_eligible_18s(self, all_rounds):
+        """Solo, serious, real (non-sim) rounds as 18-hole entries.
+        9-hole halves are paired into virtual 18s BEFORE any windowing so a
+        front-9 never loses its back-9 partner to the 20-round cut."""
         eligible = [
             r for r in all_rounds
             if r.get("round_type", "solo") == "solo" and r.get("is_serious")
+            and not r.get("is_sim")
             and r.get("holes_played", 18) in (9, 18)
-        ][-20:]
-
+        ]
         rounds_18 = [r for r in eligible if r.get("holes_played", 18) == 18]
         rounds_9  = [r for r in eligible if r.get("holes_played", 18) == 9]
         all_18 = rounds_18 + self._pair_nine_holes(rounds_9)
+        all_18.sort(key=lambda r: r.get("date", ""))
+        return all_18
 
-        diffs = [d for d in (self.calculate_score_differential(r) for r in all_18) if d is not None]
+    def calculate_handicap_index(self, _rounds=None):
+        all_rounds = _rounds if _rounds is not None else self.get_rounds()
+        # WHS: last 20 differentials (a paired 9+9 counts as one)
+        recent = self._handicap_eligible_18s(all_rounds)[-20:]
+        diffs = [d for d in (self.calculate_score_differential(r) for r in recent) if d is not None]
         if len(diffs) < 3:
             return None
         return self._apply_handicap_table(sorted(diffs))
@@ -362,7 +388,8 @@ class GolfBackend:
             idx = mean(sorted_diffs[:7])
         else:
             idx = mean(sorted_diffs[:8])
-        return round(idx * 0.96, 1)
+        # WHS (2020+): no 0.96 "bonus for excellence" multiplier
+        return round(idx, 1)
 
     # --- aggregates ---
 
@@ -403,35 +430,25 @@ class GolfBackend:
         return counts
 
     def get_best_round(self, is_sim=False):
-        all_rounds = list(enumerate(self.get_rounds()))
+        all_rounds = self.get_rounds()
         if is_sim:
-            candidates = [(i, r) for i, r in all_rounds if r.get("is_sim")]
+            candidates = [r for r in all_rounds if r.get("is_sim")]
         else:
-            candidates = [(i, r) for i, r in all_rounds
+            candidates = [r for r in all_rounds
                           if r.get("is_serious")
                           and r.get("round_type", "solo") == "solo"
                           and not r.get("is_sim")]
         if not candidates:
             return None, None
 
-        def score_vs_par(ir):
-            r = ir[1]
+        def score_vs_par(r):
             return r["total_score"] - r.get("par", 36 if r.get("holes_played") == 9 else 72)
 
-        idx, best = min(candidates, key=score_vs_par)
-        return best, idx
+        best = min(candidates, key=score_vs_par)
+        return best, best["id"]
 
     def get_score_differentials(self):
-        all_rounds = self.get_rounds()
-        eligible = [
-            r for r in all_rounds
-            if r.get("round_type", "solo") == "solo" and r.get("is_serious")
-            and r.get("holes_played", 18) in (9, 18)
-        ]
-        rounds_18 = [r for r in eligible if r.get("holes_played", 18) == 18]
-        rounds_9  = [r for r in eligible if r.get("holes_played", 18) == 9]
-        all_18 = rounds_18 + self._pair_nine_holes(rounds_9)
-
+        all_18 = self._handicap_eligible_18s(self.get_rounds())
         diffs = []
         for r in all_18:
             diff = self.calculate_score_differential(r)
@@ -481,6 +498,8 @@ class GolfBackend:
         club.distance = club_data.get("distance")
         club.notes = club_data.get("notes", "")
         club.partials = club_data.get("partials")
+        if "in_bag" in club_data:
+            club.in_bag = bool(club_data["in_bag"])
         db.session.commit()
         return True
 

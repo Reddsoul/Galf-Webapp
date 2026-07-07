@@ -1,2 +1,10 @@
 flask
 flask-sqlalchemy
+pillow
+
+# Optional — classic Tesseract scan fallback (heavy; skip on low-power hosts).
+# The primary scan engine is a local vision LLM (see OCR_LLM_URL in README)
+# and needs none of these.
+# opencv-python-headless
+# pytesseract
+# numpy

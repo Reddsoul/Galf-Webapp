@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import cv2, pytesseract; print\\('cv2', cv2.__version__\\); print\\(pytesseract.get_tesseract_version\\(\\)\\)\")",
+      "Bash(python3 -c ' *)",
+      "Bash(timeout 120 python3 scorecard_ocr.py \"NOT OUTPUT/Scorecard Gen/training_data/images/card_00007_18hole_clean.jpg\")",
+      "Bash(python3 scorecard_ocr.py \"NOT OUTPUT/Scorecard Gen/training_data/images/card_00007_18hole_clean.jpg\")",
+      "Bash(curl -s --max-time 3 http://localhost:11434/api/tags)",
+      "Bash(curl -s --max-time 3 http://192.168.1.1:11434/api/tags)",
+      "Bash(echo \"clean: $?\")",
+      "Bash(python3 -m py_compile app.py Backend.py ocr_llm.py scorecard_ocr.py models.py)",
+      "Bash(python3 \"/private/tmp/claude-501/-Volumes-General-Coding-Python-Galf-dev/e670a2fb-cb54-4d35-928c-92121a7bc101/scratchpad/test_fixes.py\")",
+      "Bash(OCR_LLM_URL=\"http://127.0.0.1:59999/v1/chat/completions\" python3 \"/private/tmp/claude-501/-Volumes-General-Coding-Python-Galf-dev/e670a2fb-cb54-4d35-928c-92121a7bc101/scratchpad/test_ocr.py\")",
+      "Bash(python3 -m py_compile ocr_llm.py)",
+      "Bash(python3 \"/private/tmp/claude-501/-Volumes-General-Coding-Python-Galf-dev/e670a2fb-cb54-4d35-928c-92121a7bc101/scratchpad/test_ollama_native.py\")"
+    ]
+  }
+}

@@ -6,12 +6,13 @@ A self-hosted mobile golf companion that lives on your iPhone. Log rounds, track
 
 ## What It Does
 
-- **Handicap tracking** — Calculates a real WHS/USGA Handicap Index per 2024 rules (18-hole and 9-hole rounds both handled correctly). Requires 54 logged holes to establish.
+- **Handicap tracking** — Calculates a real WHS/USGA Handicap Index per 2024 rules. 18-hole and 9-hole rounds are both handled: a front 9 + back 9 from the same course/tee are paired into a virtual 18-hole differential automatically. Requires 54 logged holes to establish.
 - **Round logging** — Quick score entry (just total score) or detailed hole-by-hole entry with GIR, putts, club, and penalty tracking. A searchable course picker with a Recent list speeds setup. 9-hole rounds can be extended to 18 mid-round, and 18-hole rounds can be finished early as a 9.
 - **Practice sessions** — Adaptive drill templates built from your bag. Covers warm-up, putting, chipping, Wedge Matrix (calibrates partial carry distances per wedge), irons, and woods. Saving a session writes updated wedge distances back to your club bag automatically. Sessions saved to history.
 - **Stats** — GIR %, scrambling, putts per round, penalty strokes (water / OB / unplayable, plus per-round average), and stroke leak analysis by hole position.
 - **Course library** — Store hole pars, per-tee yardages, slope rating, and course rating. Multiple tee colors per course.
-- **Club bag** — Track carry distances (and partial-wedge distances) per club; during detailed entry the app suggests the fewest-shots club sequence to reach the pin.
+- **Scorecard scanning** — Photograph a scorecard and the app extracts course name, pars, handicaps, tees, ratings, and yardages using a **local vision LLM** (Ollama / llama.cpp / LM Studio — nothing leaves your network). Falls back to a Tesseract pipeline if no LLM endpoint is configured.
+- **Club bag** — Track carry distances (and partial-wedge distances) per club. Mark clubs **Out of Bag** without deleting them — they're hidden from entry, suggestions, and the wedge matrix but kept for history. During detailed entry the app suggests the fewest-shots club sequence to reach the pin, preferring full swings over partial swings when both reach in the same number of shots.
 - **Simulator rounds** — Tracked separately, excluded from real handicap.
 - **Personal bests** — Home screen shows best IRL and simulator scorecards on a single toggle card.
 - **Activity heatmap** — 18-week calendar on the home screen showing days you played a round, practiced, or both.
@@ -60,7 +61,7 @@ To find your Mac's local IP: **System Settings → Wi-Fi → Details**.
 ### 1. Install dependencies
 
 ```bash
-pip install flask flask-sqlalchemy
+pip install flask flask-sqlalchemy pillow
 ```
 
 ### 2. Configure (optional)
@@ -120,16 +121,36 @@ All config via environment variables (or `.env` file):
 
 | Variable | Default | Description |
 |---|---|---|
-| `PORT` | `5003` | Port the app listens on |
+| `PORT` | `5003` | Port the app listens on (set `PORT=5003` in `.env`) |
 | `SECRET_KEY` | `change-me-in-production` | Flask session secret — change this |
 | `DATA_PATH` | `./data` | Directory for `galf.db` |
 | `APP_NAME` | `Galf` | Name shown in startup banner |
+| `OCR_LLM_URL` | `http://127.0.0.1:11434/api/chat` | Vision-LLM endpoint. Ollama native API (`/api/chat`, recommended) or any OpenAI-compatible `/v1/chat/completions` (llama.cpp, LM Studio). Use a LAN IP when the app runs on a NAS |
+| `OCR_LLM_MODEL` | `qwen2.5vl:3b` | Vision model name on that server (`moondream` is a lighter option) |
+| `OCR_LLM_KEEP_ALIVE` | `0` | Ollama only: how long the model stays in RAM after a scan. `0` = unload immediately (recommended for helper boxes you also use for other things) |
+| `OCR_LLM_TIMEOUT` | `180` | Scan request timeout in seconds. Includes cold model load when `KEEP_ALIVE=0` |
+
+### Setting up scorecard scanning
+
+The scan engine does **not** run on the box hosting Galf — the app just sends the photo to a vision LLM elsewhere on your LAN. This is deliberate: Galf itself runs happily on a 1 GB ARM NAS (e.g. Synology DS124), which cannot fit any vision model worth using. Any Mac or PC with ~4 GB free RAM can be the scan helper:
+
+```bash
+# on the helper box (e.g. a Mac Mini)
+brew install ollama && brew services start ollama
+ollama pull qwen2.5vl:3b
+```
+
+Then set on the Galf side (e.g. in DSM Container Manager env):
+
+```
+OCR_LLM_URL=http://<helper-box-ip>:11434/api/chat
+```
+
+With `OCR_LLM_KEEP_ALIVE=0` (the default) the model is loaded from disk when a scan arrives and unloaded seconds after — the helper box's RAM is only occupied during the scan itself, and nothing needs to run "always on". A scan takes roughly 15–60 s including the cold load. If the helper box is asleep or off, Scan Card reports it's unavailable (or falls back to the optional Tesseract pipeline if installed); every other feature keeps working.
+
+To make Ollama reachable from the NAS, ensure it listens on the LAN: `launchctl setenv OLLAMA_HOST 0.0.0.0` (or `OLLAMA_HOST=0.0.0.0` in the service env), then restart Ollama.
 
 ---
-
-## Known Limitations / TODO
-
-- **Genuine 9-hole courses.** `calculate_score_differential` (Backend.py) assumes every stored `tee_rating` is an **18-hole** rating and halves it for 9-hole rounds. Correct for playing the front/back 9 of an 18-hole course (the only case today). A *true* 9-hole course — 9 pars, a 9-hole rating (~34) entered directly — would be wrongly halved to ~17. Fix when needed: detect 9-hole courses (e.g. `len(pars) == 9`) at round save and skip the `/2`, or store both the 9- and 18-hole ratings on the tee box.
 
 ---
 

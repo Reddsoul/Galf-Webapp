@@ -216,8 +216,9 @@ class ScorecardOCR:
         per_tee_yards: dict[str, list[int]] = {}
         debug_payload = []
         table_min_y = min(b[1] for b in bboxes)
-        # Save per-table column intervals so the PAR/HDCP scan can reuse them
-        self._last_table_cols: list[tuple[tuple, list[tuple[int, int]]]] = []
+        # Per-table column intervals so the PAR/HDCP scan can reuse them
+        # (local — the shared instance serves concurrent Flask requests)
+        table_cols: list[tuple[tuple, list[tuple[int, int]]]] = []
 
         for tbl_idx, (x, y, ww, hh) in enumerate(bboxes):
             # Extend table downward by 60% to capture HDCP/PAR rows whose
@@ -258,7 +259,7 @@ class ScorecardOCR:
                             if cols_x[i + 1] - cols_x[i] >= min_col_w]
             if len(col_ints) < 4:
                 continue
-            self._last_table_cols.append(((x, y, ww, hh), col_ints))
+            table_cols.append(((x, y, ww, hh), col_ints))
 
             grid_text: list[list[str | None]] = []
             for (ry1, ry2) in row_ints:
@@ -298,7 +299,8 @@ class ScorecardOCR:
         self._extract_par_hcp_lines(gray_eq, bboxes, result)
         # Cell-by-cell PAR fallback when line OCR garbles the row
         if len(result["pars"]) < 18:
-            self._extract_par_hcp_from_grid(gray_eq, bboxes, binv, result)
+            self._extract_par_hcp_from_grid(gray_eq, bboxes, binv, result,
+                                            table_cols)
 
         # Course/club from above the top-most table
         self._course_name(color, result, table_top=table_min_y)
@@ -847,7 +849,8 @@ class ScorecardOCR:
 
     def _extract_par_hcp_from_grid(self, gray_eq: np.ndarray,
                                      bboxes: list[tuple[int, int, int, int]],
-                                     binv: np.ndarray, result: dict):
+                                     binv: np.ndarray, result: dict,
+                                     saved_cols: list | None = None):
         """For each wide table, build column positions and OCR the strip
         below the grid cell-by-cell to recover PAR row."""
         h_img, w_img = gray_eq.shape
@@ -856,7 +859,7 @@ class ScorecardOCR:
         front_pars: list[int] = []
         back_pars:  list[int] = []
         # Prefer header-derived cols that were captured during main pass
-        saved_cols = getattr(self, "_last_table_cols", [])
+        saved_cols = saved_cols or []
         for idx, (x, y, ww, hh) in enumerate(wide[:2]):
             below_y = y + hh
             ext_bot = min(h_img, below_y + int(hh * 0.8))

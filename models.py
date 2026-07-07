@@ -67,6 +67,7 @@ class Club(db.Model):
     distance = db.Column(db.Integer)
     notes = db.Column(db.Text)
     partials = db.Column(JSON)
+    in_bag = db.Column(db.Boolean, default=True)
 
 
 class TrainingSession(db.Model):

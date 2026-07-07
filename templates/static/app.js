@@ -48,6 +48,7 @@ const S = {
   holeSimPutts:null,
   clubOptions:[], clubFullNames:{}, distByAbbr:{},
   clubUsage:{}, wedgeMatrix:[],
+  logOptionsOpen:false,
   logClubMap:{},
   // Scorecard
   viewRound:null, viewRoundIdx:null,
@@ -103,8 +104,14 @@ function showAlert(title, body, btnLabel='OK') {
    API
    ================================================================ */
 async function api(path, opts={}) {
-  const res = await fetch(path, {headers:{'Content-Type':'application/json',...opts.headers},...opts});
-  return res.json();
+  try {
+    const res = await fetch(path, {headers:{'Content-Type':'application/json',...opts.headers},...opts});
+    const data = await res.json();
+    if (!res.ok && data && typeof data === 'object' && !('ok' in data)) data.ok = false;
+    return data;
+  } catch(e) {
+    return {ok: false, error: 'Network error — check your connection'};
+  }
 }
 const GET=p=>api(p);
 const POST=(p,d)=>api(p,{method:'POST',body:JSON.stringify(d)});
@@ -246,7 +253,7 @@ let _contentEl, _tabbarEl;
 // Currently visible page name — lets show() swap only two elements instead of all views.
 let _currentPage = null;
 
-function show(name) {
+function show(name, {noPush=false}={}) {
   if(_currentPage){const prev=document.getElementById('v-'+_currentPage);if(prev)prev.classList.remove('active');}
   const el=document.getElementById('v-'+name);
   if(el) el.classList.add('active');
@@ -258,8 +265,13 @@ function show(name) {
   const isLogging = name==='log-setup'||name==='log-entry'||name==='log-notes'||name==='training-setup'||name==='training'||name==='course-editor';
   _tabbarEl.style.display = isLogging ? 'none' : '';
   _currentPage=name;
+  if(!noPush) history.pushState({page:name},'','');
   if(RENDERERS[name]) RENDERERS[name]();
 }
+window.addEventListener('popstate', e => {
+  const page = (e.state && e.state.page) || 'home';
+  show(page, {noPush:true});
+});
 
 function esc(t){return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
@@ -278,8 +290,8 @@ function scoreClass(score, par) {
    ================================================================ */
 // Build inner content for a best-round card. Returns {innerHtml, diff, hasData, idx}.
 async function buildBestCard(bestData) {
-  if(!bestData||!bestData.total_score||bestData._index==null) return {innerHtml:'',diff:Infinity,hasData:false,idx:null};
-  const sc=await GET(`/api/rounds/${bestData._index}/scorecard`);
+  if(!bestData||!bestData.total_score||bestData.id==null) return {innerHtml:'',diff:Infinity,hasData:false,idx:null};
+  const sc=await GET(`/api/rounds/${bestData.id}/scorecard`);
   const d=bestData.total_score-(bestData.par||72);
   const ds=d>0?`+${d}`:d===0?'E':`${d}`;
   const dsColor=d>0?'var(--red)':d<0?'var(--green)':'var(--text)';
@@ -312,7 +324,7 @@ async function buildBestCard(bestData) {
         </div>
       </div>
       <div class="home-best-holes">${holeHtml}</div>`;
-  return {innerHtml, diff:d, hasData:true, idx:bestData._index};
+  return {innerHtml, diff:d, hasData:true, idx:bestData.id};
 }
 
 function switchBestTab(tab, evt) {
@@ -594,7 +606,7 @@ async function renderRounds() {
         const dc=diff>0?'badge-red':diff<0?'badge-green':'badge-even';
         const hc=rd.holes_choice;
         const hs=hc==='front_9'?'F9':hc==='back_9'?'B9':String(rd.holes_played||18);
-        rows+=`<tr onclick="viewRound(${rd._index})"><td style="text-align:left">${rd._date}</td><td>${esc(rd.course_name).substring(0,18)}</td><td>${rd.total_score}</td><td class="${dc}">${ds}</td><td>${hs}</td></tr>`;
+        rows+=`<tr onclick="viewRound(${rd.id})"><td style="text-align:left">${rd._date}</td><td>${esc(rd.course_name).substring(0,18)}</td><td>${rd.total_score}</td><td class="${dc}">${ds}</td><td>${hs}</td></tr>`;
       }
     }
     rows+='</table></div>';
@@ -1535,7 +1547,8 @@ function renderLogSetup() {
     return;
   }
 
-  const today=new Date().toISOString().substring(0,10);
+  const _td=new Date(); const _p=n=>String(n).padStart(2,'0');
+  const today=`${_td.getFullYear()}-${_p(_td.getMonth()+1)}-${_p(_td.getDate())}`;
 
   // Auto-select scramble disables serious
   const seriousDisabled=S.logType==='scramble';
@@ -1556,7 +1569,7 @@ function renderLogSetup() {
       </div>
       <div class="draft-banner-actions">
         <button class="draft-btn-resume" onclick="resumeDraft(getDraft())">Resume</button>
-        <button class="draft-btn-discard" onclick="clearDraft();renderLogSetup()">Discard</button>
+        <button class="draft-btn-discard" onclick="showConfirm('Discard Round?','This cannot be undone.','Discard',()=>{clearDraft();renderLogSetup();})">Discard</button>
       </div>
     </div>`;
     }
@@ -1596,28 +1609,38 @@ function renderLogSetup() {
     </div>
 
     <div class="card">
-      <div class="section-head" style="margin-bottom:8px">Round Type</div>
-      <div class="radio-row" id="ls-type">
-        <button class="radio-opt${S.logType==='solo'?' active':''}" onclick="setR(this,'ls-type');S.logType='solo';lsTypeChanged()">Solo</button>
-        <button class="radio-opt${S.logType==='scramble'?' active':''}" onclick="setR(this,'ls-type');S.logType='scramble';lsTypeChanged()">Scramble</button>
+      <button class="ls-options-toggle" onclick="S.logOptionsOpen=!S.logOptionsOpen;renderLogSetup()">
+        <span class="ls-options-label">Options</span>
+        <span class="ls-options-summary">${[
+          S.logType==='scramble'?'Scramble':'Solo',
+          S.logSerious&&S.logType!=='scramble'?'Handicap':'Casual',
+          S.logIsSim?'Sim':'IRL',
+          S.logMode==='detailed'?'Detailed':'Quick'
+        ].join(' · ')}</span>
+        <span class="ls-options-chevron">${S.logOptionsOpen?'▲':'▼'}</span>
+      </button>
+      ${S.logOptionsOpen?`
+      <div style="padding-top:8px;border-top:0.5px solid var(--sep);margin-top:8px">
+        <div class="form-label" style="font-weight:600;margin-bottom:6px">Round Type</div>
+        <div class="radio-row" id="ls-type">
+          <button class="radio-opt${S.logType==='solo'?' active':''}" onclick="setR(this,'ls-type');S.logType='solo';lsTypeChanged()">Solo</button>
+          <button class="radio-opt${S.logType==='scramble'?' active':''}" onclick="setR(this,'ls-type');S.logType='scramble';lsTypeChanged()">Scramble</button>
+        </div>
+        <div class="check-row" id="ls-serious-row">
+          <input type="checkbox" id="ls-serious" ${seriousChecked?'checked':''} ${seriousDisabled?'disabled':''} onchange="S.logSerious=this.checked">
+          <label for="ls-serious" style="${seriousDisabled?'opacity:0.4':''}">Serious round (counts toward handicap)</label>
+        </div>
+        <div class="check-row" id="ls-sim-row">
+          <input type="checkbox" id="ls-sim" ${S.logIsSim?'checked':''} onchange="S.logIsSim=this.checked">
+          <label for="ls-sim">Simulator Round</label>
+        </div>
+        <div class="form-label" style="font-weight:600;margin:10px 0 6px">Entry Mode</div>
+        <div class="radio-row" id="ls-mode">
+          <button class="radio-opt${S.logMode==='quick'?' active':''}" onclick="setR(this,'ls-mode');S.logMode='quick'">Quick (scores only)</button>
+          <button class="radio-opt${S.logMode==='detailed'?' active':''}" onclick="setR(this,'ls-mode');S.logMode='detailed'">Detailed (scores + clubs)</button>
+        </div>
       </div>
-      <div class="check-row" style="padding-top:8px" id="ls-serious-row">
-        <input type="checkbox" id="ls-serious" ${seriousChecked?'checked':''} ${seriousDisabled?'disabled':''} onchange="S.logSerious=this.checked">
-        <label for="ls-serious" style="${seriousDisabled?'opacity:0.4':''}">Serious round (counts toward handicap)</label>
-      </div>
-      <div class="check-row" id="ls-sim-row">
-        <input type="checkbox" id="ls-sim" ${S.logIsSim?'checked':''} onchange="S.logIsSim=this.checked">
-        <label for="ls-sim">Simulator Round</label>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="section-head" style="margin-bottom:8px">Entry Mode</div>
-      <div class="radio-row" id="ls-mode">
-        <button class="radio-opt${S.logMode==='quick'?' active':''}" onclick="setR(this,'ls-mode');S.logMode='quick'">Quick (scores only)</button>
-        <button class="radio-opt${S.logMode==='detailed'?' active':''}" onclick="setR(this,'ls-mode');S.logMode='detailed'">Detailed (scores + clubs)</button>
-      </div>
-    </div>
+      `:''}</div>
 
     <div class="card">
       <button class="btn btn-primary" onclick="beginEntry()">▶ Start Entering Scores</button>
@@ -1779,7 +1802,8 @@ function lsRefreshTees(){
 // using clubUsage as a distance tiebreaker so the most-used club is preferred.
 function buildClubLookups(clubUsage) {
   const usage = clubUsage || {};
-  const byDist = [...S.clubs].sort((a,b) => (b.distance||0)-(a.distance||0));
+  const inBagClubs = S.clubs.filter(c => c.in_bag !== false);
+  const byDist = [...inBagClubs].sort((a,b) => (b.distance||0)-(a.distance||0));
   S.clubOptions = []; S.clubFullNames = {}; S.distByAbbr = {};
   for (const c of byDist) {
     const ab = abbrClub(c.name);
@@ -1796,8 +1820,8 @@ function buildClubLookups(clubUsage) {
       return (usage[b.name]||0) - (usage[a.name]||0);
     });
   S.sortedClubsNoDriver = S.sortedClubs.filter(c => !c.name.toLowerCase().includes('driver'));
-  // Build wedge matrix: partial swing distances for clubs that have them
-  S.wedgeMatrix = S.clubs
+  // Build wedge matrix: partial swing distances for in-bag clubs that have them
+  S.wedgeMatrix = inBagClubs
     .filter(c => c.partials && Object.keys(c.partials).length > 0)
     .flatMap(c => Object.entries(c.partials).map(([swing, dist]) => ({name: c.name, swing, dist})))
     .sort((a, b) => b.dist - a.dist);
@@ -2015,6 +2039,7 @@ function renderLogEntry(){
     bottomHtml=`<div class="numpad"><div class="numpad-grid">${btns}</div></div>`;
   }
 
+  const _progPct = Math.round((hi / S.holesToScore.length) * 100);
   v.innerHTML=`
     <div class="entry-topbar">
       <div class="entry-hole-num">
@@ -2024,9 +2049,10 @@ function renderLogEntry(){
       <div class="entry-course-info">
         <div class="entry-course-name">${esc(S.logCourse.name)}</div>
         <div class="entry-hole-info">Par ${par} · ${yard} yds</div>
-        <div class="entry-tee-info">${S.logTee} Tees</div>
+        <div class="entry-tee-info">${S.logTee} Tees · <span style="color:var(--accent);font-weight:700">${hi+1}</span><span style="color:var(--text3)">/${S.holesToScore.length}</span></div>
       </div>
     </div>
+    <div class="entry-progress-bar"><div class="entry-progress-fill" style="width:${_progPct}%"></div></div>
     <div class="entry-middle">
       <button class="entry-nav-btn" onclick="prevH()">◀</button>
       <div class="entry-center">
@@ -2043,7 +2069,7 @@ function renderLogEntry(){
   `;
 }
 
-function inputScore(n){let c=S.holeScores[S.currentHoleIdx];if(c===null){if(n===0)return;c=n;}else{c=c*10+n;if(c>20)c=n;}if(c===0)return;S.holeScores[S.currentHoleIdx]=c;saveDraft();renderLogEntry();const el=document.querySelector('.entry-stroke');if(el){el.classList.remove('entry-stroke-pop');void el.offsetWidth;el.classList.add('entry-stroke-pop');}}
+function inputScore(n){let c=S.holeScores[S.currentHoleIdx];if(c===null){if(n===0)return;c=n;}else{c=c*10+n;if(c>20)c=n;}if(c===0)return;S.holeScores[S.currentHoleIdx]=c;if(navigator.vibrate)navigator.vibrate(8);saveDraft();renderLogEntry();const el=document.querySelector('.entry-stroke');if(el){el.classList.remove('entry-stroke-pop');void el.offsetWidth;el.classList.add('entry-stroke-pop');}}
 
 /* ================================================================
    NOKIA MULTI-TAP KEYPAD
@@ -2092,7 +2118,7 @@ function buildKeypadCells() {
     return -1; // putter and other wedges handled separately
   }
 
-  for (const c of S.clubs) {
+  for (const c of S.clubs.filter(c => c.in_bag !== false)) {
     const ab = abbrClub(c.name);
     const n  = c.name.toLowerCase();
     if (ab === 'P' || n.includes('putter')) { CELLS[PUTTER].clubs.push({ name: c.name, abbr: 'P' }); continue; }
@@ -2194,6 +2220,7 @@ function keypadPress(cellKey) {
   if (cell.clubs.length === 1) {
     _flushPending();
     S.holeClubs[S.currentHoleIdx].push(cell.clubs[0].abbr);
+    if(navigator.vibrate) navigator.vibrate(8);
     saveDraft();
     renderLogEntry();
     return;
@@ -2231,6 +2258,7 @@ function commitKeypad() {
   const club = _kpPending.clubs[_kpPending.idx];
   _kpPending = null;
   S.holeClubs[S.currentHoleIdx].push(club.abbr);
+  if(navigator.vibrate) navigator.vibrate(8);
   saveDraft();
   renderLogEntry();
 }
@@ -3491,11 +3519,15 @@ async function renderStats(){
       const pa=a.name.toLowerCase()==='putter', pb=b.name.toLowerCase()==='putter';
       if(pa) return 1; if(pb) return -1; return 0;
     };
+    const outOfBagLast=(a,b)=>{
+      const oa=a.in_bag===false, ob=b.in_bag===false;
+      if(oa&&!ob) return 1; if(!oa&&ob) return -1; return 0;
+    };
     let sorted=[...S.clubs];
     if(totalShots>0){
-      sorted.sort((a,b)=>putterLast(a,b)||((usageMap[b.name]?.count||0)-(usageMap[a.name]?.count||0)));
+      sorted.sort((a,b)=>putterLast(a,b)||outOfBagLast(a,b)||((usageMap[b.name]?.count||0)-(usageMap[a.name]?.count||0)));
     } else {
-      sorted.sort((a,b)=>putterLast(a,b)||((b.distance||0)-(a.distance||0)));
+      sorted.sort((a,b)=>putterLast(a,b)||outOfBagLast(a,b)||((b.distance||0)-(a.distance||0)));
     }
 
     const maxUsage=totalShots>0?Math.max(...sorted.map(c=>usageMap[c.name]?.count||0),1):0;
@@ -3509,12 +3541,13 @@ async function renderStats(){
       const barPct=totalShots>0&&maxUsage>0?Math.round((usage?.count||0)/maxUsage*100):Math.round((c.distance||0)/maxDist*100);
       const usageLbl=usage?`${usage.percentage}% of shots`:'';
       const posClass=sorted.length===1?'is-solo':i===0?'is-first':i===sorted.length-1?'is-last':'';
-      itemsHtml+=`<div class="club-item${isExp?' expanded':''}${posClass?' '+posClass:''}">
+      const isOutOfBag = c.in_bag === false;
+      itemsHtml+=`<div class="club-item${isExp?' expanded':''}${posClass?' '+posClass:''}${isOutOfBag?' club-out-of-bag':''}">
         <div class="club-item-main" onclick="clubToggle('${esc(c.name)}')">
-          <div class="club-item-name">${esc(c.name)}</div>
-          <div class="club-item-bar-wrap"><div class="club-item-bar" style="width:${barPct}%"></div></div>
+          <div class="club-item-name">${esc(c.name)}${isOutOfBag?` <span style="font-size:10px;font-weight:600;color:var(--text2);background:var(--sep);border-radius:4px;padding:1px 5px;vertical-align:middle">out</span>`:''}</div>
+          <div class="club-item-bar-wrap"><div class="club-item-bar" style="width:${barPct}%;opacity:${isOutOfBag?'0.3':'1'}"></div></div>
           <div class="club-item-right">
-            <div class="club-item-dist">${c.distance} <span style="font-size:11px;font-weight:400;color:var(--text2)">yd</span></div>
+            <div class="club-item-dist" style="opacity:${isOutOfBag?'0.4':'1'}">${c.distance} <span style="font-size:11px;font-weight:400;color:var(--text2)">yd</span></div>
             ${usageLbl?`<div class="club-item-usage">${usageLbl}</div>`:''}
           </div>
           <div class="club-item-chevron">›</div>
@@ -3545,7 +3578,10 @@ async function renderStats(){
             <span class="muted-sm">yd</span>
           </div>`:''}
           <div class="club-edit-actions">
-            <button class="club-edit-save" onclick="clubSave('${esc(c.name)}')"><img src="/static/save-96.png" style="width:15px;height:15px;object-fit:contain"> Save</button>
+            <button class="club-edit-save club-edit-save-icon" onclick="clubSave('${esc(c.name)}')"><img src="/static/save-96.png" style="width:18px;height:18px;object-fit:contain"></button>
+            <button class="club-edit-bag-toggle${isOutOfBag?' is-out':''}" onclick="clubToggleInBag('${esc(c.name)}')">${isOutOfBag?'Back in Bag':'Out of Bag'}</button>
+          </div>
+          <div class="club-edit-actions club-edit-actions-secondary">
             <button class="club-edit-delete" onclick="clubDelete('${esc(c.name)}')">Remove</button>
             <button class="club-edit-cancel" onclick="clubToggle(null)">Cancel</button>
           </div>
@@ -3770,6 +3806,14 @@ async function clubAdd(){
   const partials=autoFillPartials(name, dist);
   await POST('/api/clubs',{name,distance:dist,notes:'',partials});
   S.editingClub=null;
+  S.clubs=await GET('/api/clubs');
+  renderStats();
+}
+async function clubToggleInBag(name){
+  const club=S.clubs.find(c=>c.name===name);
+  if(!club) return;
+  const newInBag=club.in_bag===false;
+  await PUT(`/api/clubs/${encodeURIComponent(name)}`,{name,distance:club.distance,notes:club.notes||'',partials:club.partials,in_bag:newInBag});
   S.clubs=await GET('/api/clubs');
   renderStats();
 }
@@ -4558,6 +4602,7 @@ async function init(){
   _tabbarEl=document.getElementById('tabbar');
   S.clubs=await GET('/api/clubs');
   updateTabIcons();
+  history.replaceState({page:'home'},'','');
   nav('home');
 }
 init();

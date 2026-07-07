@@ -6,17 +6,26 @@ Flask wrapper around Backend.py. Run with: python app.py
 
 import os
 import socket
+import sys
+import traceback
 
 from flask import Flask, request, jsonify, render_template, send_from_directory
 
 from models import db, Round
 from Backend import GolfBackend, generate_scorecard_data, _round_to_dict
 
+# Primary scan backend: local vision LLM (llama.cpp / Ollama), stdlib client
+from ocr_llm import LLMScorecardOCR
+_ocr_llm = LLMScorecardOCR()
+
+# Fallback scan backend: classic OpenCV + Tesseract pipeline
 try:
     from scorecard_ocr import ScorecardOCR
     _ocr = ScorecardOCR()
     OCR_AVAILABLE = True
 except Exception:
+    print("[galf] Tesseract OCR pipeline unavailable:", file=sys.stderr)
+    traceback.print_exc()
     OCR_AVAILABLE = False
     _ocr = None
 
@@ -43,6 +52,14 @@ db.init_app(app)
 
 with app.app_context():
     db.create_all()
+    # Migrate: add in_bag column to clubs table if missing
+    from sqlalchemy import text, inspect
+    _insp = inspect(db.engine)
+    _cols = [c["name"] for c in _insp.get_columns("clubs")]
+    if "in_bag" not in _cols:
+        with db.engine.connect() as _conn:
+            _conn.execute(text("ALTER TABLE clubs ADD COLUMN in_bag INTEGER DEFAULT 1"))
+            _conn.commit()
 
 backend = GolfBackend()
 
@@ -83,7 +100,10 @@ def api_courses():
 @app.route("/api/courses", methods=["POST"])
 def api_add_course():
     data = request.get_json()
-    backend.add_course(data)
+    try:
+        backend.add_course(data)
+    except (ValueError, KeyError) as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
     return jsonify({"ok": True})
 
 
@@ -102,10 +122,6 @@ def api_delete_course(name):
 
 @app.route("/api/courses/scan", methods=["POST"])
 def api_scan_scorecard():
-    if not OCR_AVAILABLE or _ocr is None:
-        return jsonify({"error": "OCR not available",
-                        "tip": "Install opencv-python-headless and tesseract"}), 503
-
     if "image" not in request.files:
         return jsonify({"error": "No image uploaded"}), 400
 
@@ -114,8 +130,30 @@ def api_scan_scorecard():
     if not image_bytes:
         return jsonify({"error": "Empty image file"}), 400
 
+    # 1) Local vision LLM (best accuracy)
+    try:
+        result = _ocr_llm.process_image(image_bytes)
+        result["engine"] = "llm"
+        return jsonify(result)
+    except ValueError as e:
+        return jsonify({"error": "Could not read image",
+                        "tip": "Try better lighting or a flatter angle",
+                        "detail": str(e)}), 400
+    except RuntimeError as e:
+        print(f"[galf] LLM scan failed, falling back to Tesseract: {e}",
+              file=sys.stderr)
+
+    # 2) Tesseract fallback
+    if not OCR_AVAILABLE or _ocr is None:
+        return jsonify({
+            "error": "No scan engine available",
+            "tip": ("Start a local vision LLM (e.g. `ollama pull qwen2.5vl:3b`) "
+                    "or set OCR_LLM_URL. Alternatively install "
+                    "opencv-python-headless, pytesseract and tesseract."),
+        }), 503
     try:
         result = _ocr.process_image(image_bytes)
+        result["engine"] = "tesseract"
     except ValueError as e:
         return jsonify({"error": "Could not read image",
                         "tip": "Try better lighting or a flatter angle",
@@ -147,12 +185,7 @@ def api_scan_confirm():
 def api_rounds():
     rt = request.args.get("round_type", "all")
     sort = request.args.get("sort", "recent")
-    result = []
-    for idx, rd in backend.get_filtered_rounds(round_type=rt, sort_by=sort):
-        rd_copy = dict(rd)
-        rd_copy["_index"] = idx
-        result.append(rd_copy)
-    return jsonify(result)
+    return jsonify(backend.get_filtered_rounds(round_type=rt, sort_by=sort))
 
 
 @app.route("/api/rounds", methods=["POST"])
@@ -165,15 +198,15 @@ def api_add_round():
     return jsonify({"ok": True})
 
 
-@app.route("/api/rounds/<int:idx>", methods=["DELETE"])
-def api_delete_round(idx):
-    backend.delete_round(idx)
+@app.route("/api/rounds/<int:round_id>", methods=["DELETE"])
+def api_delete_round(round_id):
+    backend.delete_round(round_id)
     return jsonify({"ok": True})
 
 
-@app.route("/api/rounds/<int:idx>/scorecard")
-def api_scorecard(idx):
-    row = Round.query.filter_by(user_id=backend.user_id).order_by(Round.id).offset(idx).limit(1).first()
+@app.route("/api/rounds/<int:round_id>/scorecard")
+def api_scorecard(round_id):
+    row = Round.query.filter_by(user_id=backend.user_id, id=round_id).first()
     if row:
         return jsonify(generate_scorecard_data(backend, _round_to_dict(row)))
     return jsonify({"error": "Not found"}), 404
@@ -244,12 +277,8 @@ def api_stroke_leaks():
 @app.route("/api/stats/best-round")
 def api_best_round():
     is_sim = request.args.get("sim", "false").lower() == "true"
-    best, idx = backend.get_best_round(is_sim=is_sim)
-    if best:
-        result = dict(best)
-        result["_index"] = idx
-        return jsonify(result)
-    return jsonify({})
+    best, _ = backend.get_best_round(is_sim=is_sim)
+    return jsonify(best if best else {})
 
 
 # ---------------------------------------------------------------------------
@@ -289,7 +318,13 @@ def api_prefs():
 
 @app.route("/api/prefs", methods=["PUT"])
 def api_update_prefs():
-    data = request.get_json()
+    data = request.get_json() or {}
+    # Only these keys persist (UserPrefs columns) — reject the rest loudly
+    allowed = {"entry_mode", "preferred_tee"}
+    unknown = set(data) - allowed
+    if unknown:
+        return jsonify({"ok": False,
+                        "error": f"Unknown pref keys: {sorted(unknown)}"}), 400
     backend.user_prefs.update(data)
     backend.save_user_prefs()
     return jsonify({"ok": True})
@@ -317,7 +352,7 @@ def get_local_ip():
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8443))
+    port = int(os.environ.get("PORT", 5003))
     ip = get_local_ip()
     print(f"\n{'='*50}")
     print(f"  {_APP_NAME} is running!")

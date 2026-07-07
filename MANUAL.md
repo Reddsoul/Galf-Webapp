@@ -15,6 +15,7 @@ The large number at the top is your **WHS Handicap Index**, calculated from your
 - Once established, the number updates automatically every time you save a new round
 - Shown to one decimal place (e.g. `12.3`)
 - Tap the handicap number to jump straight to the [Statistics](#6-statistics) Overview
+- 9-hole rounds (Front 9 / Back 9) are paired automatically: a front-9 and back-9 from the same course and tee are combined into a virtual 18-hole differential when calculating your index
 
 ### Best Round Card
 
@@ -101,25 +102,22 @@ Choose how many holes you played:
 
 Defaults to today. Tap to change. Useful when logging a round you played yesterday.
 
-#### Round Type
+#### Options (collapsible)
+
+Round Type, Serious, Simulator, and Entry Mode are grouped under a collapsible **Options** row. Tap it to expand or collapse. A one-line summary — e.g. _Solo · Handicap · IRL · Quick_ — shows the current settings at a glance without expanding.
+
+**Round Type**
 
 | Option | Effect |
 |---|---|
 | **Solo** | Your own ball, normal stroke play |
 | **Scramble** | Team format — automatically marks the round as Casual and excludes it from handicap |
 
-#### Serious Round checkbox
+**Serious Round checkbox** — when checked, the round counts toward your Handicap Index. Scramble rounds disable this automatically.
 
-When checked, the round counts toward your Handicap Index. Unchecked rounds are logged and visible in history but excluded from handicap calculation.
+**Simulator Round checkbox** — marks the round as a simulator round, tracked separately.
 
-- Scramble rounds disable this checkbox automatically — scrambles never count
-- Use **Casual** for practice rounds or rounds you don't want affecting your index
-
-#### Simulator Round checkbox
-
-Marks the round as a simulator round. Simulator rounds are tracked separately — they show a "Sim" pill on the scorecard and feed the **Best Sim** card on the Home screen. They do not affect the handicap of real rounds.
-
-#### Entry Mode
+**Entry Mode**
 
 | Mode | What you enter per hole |
 |---|---|
@@ -142,7 +140,9 @@ The Quick entry screen shows one hole at a time.
 
 #### Top Bar
 
-Shows the current **Hole number**, **Course name**, **Par**, **Yardage** (if entered for this course and tee), and **Tee color**.
+Shows the current **Hole number**, **Course name**, **Par**, **Yardage** (if entered for this course and tee), **Tee color**, and a **hole counter** (e.g. `2/9`) so you always know how far through the round you are.
+
+A thin **progress bar** runs below the top bar and fills as you advance through holes.
 
 #### Score Display
 
@@ -184,7 +184,7 @@ If yardages are entered for this course and tee, and you have clubs in your bag,
 
 > _Suggested: D ▶ 9i_
 
-The hole yardage is measured tee-to-center-of-green, so the goal is to land the final shot at the pin in the **fewest shots**. Galf solves this exactly (a shortest-path search, not the old greedy guess): it finds the sequence with the smallest number of shots that lands within ~6 yards of the pin, breaking ties by whichever ends closest. Clubs may repeat (e.g. `250yd = 2 × 125`). The **Driver** is only ever used as the very first shot. Partial-wedge distances you entered in the Clubs tab are included as extra options, so a suggestion may end in a partial swing such as `SW ¾`.
+The hole yardage is measured tee-to-center-of-green, so the goal is to land the final shot at the pin in the **fewest shots**. Galf solves this exactly (a shortest-path search): it finds the sequence with the fewest shots that lands within ~6 yards of the pin, then breaks ties by preferring **full swings over partial swings**, then by which option ends closest. Clubs may repeat (e.g. `250yd = 2 × 125`). The **Driver** is only ever used as the very first shot. Partial-wedge distances you entered in the Clubs tab are included as extra options, so a suggestion may end in a partial swing such as `SW ¾` — but only when a full club can't do better.
 
 The sequence is shown longest shot first, since the ball advances down the hole. This is a starting point — not a prescription. You still tap whatever you actually hit.
 
@@ -524,7 +524,9 @@ If the back of the card contains the second 9 holes, tap **Scan another photo (b
 
 Tap **Save Course** when the data looks correct. The course is added to your library just as if you had entered it by hand.
 
-> Scan Card requires optional server-side dependencies (Tesseract + OpenCV). If these are not installed, the feature is unavailable on that server.
+> Scan Card uses a **local vision LLM** as its primary engine. The model does not run on the box hosting Galf — the photo is sent to an [Ollama](https://ollama.com) (or llama.cpp / LM Studio) server elsewhere on your LAN, set via `OCR_LLM_URL`. With the default `OCR_LLM_KEEP_ALIVE=0`, the model is loaded only for the duration of a scan and unloaded immediately after, so the helper machine's RAM is free between scans. Nothing leaves your network. A scan takes ~15–60 s including the cold model load.
+>
+> If the helper machine is off or asleep, the server falls back to a classic Tesseract + OpenCV pipeline when those optional dependencies (`opencv-python-headless`, `pytesseract`, `numpy`, plus the `tesseract` binary) are installed. With neither engine available, Scan Card is disabled and manual entry still works. See the README for setup.
 
 ---
 
@@ -549,7 +551,7 @@ Below the handicap, four quick-stat cells:
 | **Avg Score (9h)** | Average total score across serious 9-hole rounds only |
 | **Avg Score (18h)** | Average total score across serious 18-hole rounds only |
 
-Below the quick numbers, a list of your **top 8 score differentials** sorted best to worst. Each row shows the course, date, hole count, raw score, and the computed differential. The top 3 are highlighted green — these are the rounds carrying the most weight in your handicap.
+Below the quick numbers, a list of your **top 8 score differentials** sorted best to worst. Each row shows the course, date, raw score, and the computed differential. The top 3 are highlighted green — these are the rounds carrying the most weight in your handicap. Paired 9-hole rounds appear with a combined label: e.g. _Pebble Beach (F9 41 + B9 43)_.
 
 ---
 
@@ -579,7 +581,7 @@ Also shows 1-putt, 2-putt, and 3-putt rates. Tour average is ~1.8. A high 3-putt
 
 #### Scramble Rate
 
-Percentage of holes where you missed the green in regulation but still made bogey or better. Shown as a smaller ring.
+Percentage of holes where you missed the green in regulation but still made **par or better**. Shown as a smaller ring.
 
 - Green — 30% or above
 - Orange — 15–29%
@@ -622,10 +624,13 @@ The bag sorts by **usage frequency** once you have detailed rounds, so your most
 
 Tap any club row to expand it. You can:
 
-- Change the **carry distance** (labeled **Full**) and tap **Save**
+- Change the **carry distance** (labeled **Full**) and tap the save icon to write the new distance
 - For wedge clubs (PW, GW, SW, LW), set optional partial swing distances — **¾ swing**, **½ swing**, and **¼ swing** — in yards. Leave any blank if you don't use that partial. These values feed the partial-swing fallback in Detailed mode club suggestions.
-- Tap **Remove** to delete the club from your bag (confirmation required)
+- Tap **Out of Bag** to mark the club as not currently in your bag. Out-of-bag clubs are hidden from the entry keypad, club suggestions, and the wedge matrix — but are **not** deleted. Their usage history is preserved. The button becomes **Back in Bag** to reverse the change.
+- Tap **Remove** to permanently delete the club from your bag (confirmation required)
 - Tap **Cancel** to collapse without changes
+
+Out-of-bag clubs appear dimmed at the bottom of the Clubs list with an **out** badge.
 
 #### Adding a Club
 

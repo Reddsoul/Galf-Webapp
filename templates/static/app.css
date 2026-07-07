@@ -824,11 +824,24 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 }
 .club-edit-lbl { font-size: 13px; color: var(--text2); width: 64px; flex-shrink: 0; }
 .club-edit-actions { display: flex; gap: 8px; margin-top: 4px; }
+.club-edit-actions-secondary { margin-top: 0; }
 .club-edit-save {
   flex: 1; padding: 13px; background: var(--accent); color: #fff;
   border: none; border-radius: 10px; font-size: 15px; font-weight: 600;
   cursor: pointer; font-family: inherit;
   display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.club-edit-save.club-edit-save-icon {
+  flex: none; width: 44px; height: 44px; padding: 0; border-radius: 10px;
+}
+.club-edit-bag-toggle {
+  flex: 1; padding: 0 12px; height: 44px;
+  background: none; border: 1.5px solid var(--sep); border-radius: 10px;
+  font-size: 13px; font-weight: 600; color: var(--text2);
+  cursor: pointer; font-family: inherit;
+}
+.club-edit-bag-toggle.is-out {
+  border-color: var(--accent); color: var(--accent);
 }
 .club-edit-save:active { opacity: 0.8; }
 .club-edit-cancel {
@@ -1080,7 +1093,8 @@ textarea.form-input { min-height: 100px; resize: vertical; }
   padding: 12px 16px; cursor: pointer; border-bottom: 0.5px solid var(--sep);
 }
 .cs-row:active { background: var(--active-overlay); }
-.cs-row.sel { background: rgba(0,122,255,0.06); }
+.cs-row.sel { background: rgba(27,107,58,0.07); }
+@media (prefers-color-scheme: dark) { .cs-row.sel { background: rgba(52,199,89,0.1); } }
 .cs-row-main { flex: 1; min-width: 0; }
 .cs-row-name { font-size: 15px; font-weight: 500; }
 .cs-row-sub  { font-size: 12px; color: var(--text2); margin-top: 2px; }
@@ -1109,6 +1123,13 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 /* Entry topbar: subtle bottom shadow separates it from content */
 .entry-topbar {
   box-shadow: 0 1px 6px rgba(0,0,0,0.07);
+}
+.entry-progress-bar {
+  height: 3px; background: var(--sep); flex-shrink: 0;
+}
+.entry-progress-fill {
+  height: 100%; background: var(--accent); border-radius: 0 2px 2px 0;
+  transition: width 0.3s cubic-bezier(0.34,1.56,0.64,1);
 }
 
 /* Keypad pending spring pop — adds a subtle "bounce" feeling */
@@ -1196,6 +1217,16 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 
 /* Log setup: tighten card spacing for visual rhythm */
 .form-group { padding: 5px 0; }
+
+/* Log setup: collapsible options toggle */
+.ls-options-toggle {
+  width: 100%; display: flex; align-items: center; gap: 8px;
+  background: none; border: none; cursor: pointer; font-family: inherit;
+  padding: 0; text-align: left;
+}
+.ls-options-label { font-size: 15px; font-weight: 700; flex-shrink: 0; }
+.ls-options-summary { flex: 1; font-size: 12px; color: var(--text2); font-weight: 500; }
+.ls-options-chevron { font-size: 11px; color: var(--text3); flex-shrink: 0; }
 
 /* Scan upload zone: warmer interaction color */
 .scan-upload-zone:hover { border-color: var(--text3); }
