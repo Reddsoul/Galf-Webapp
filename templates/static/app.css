@@ -8,7 +8,7 @@
   --green: #34C759;
   --red: #FF3B30;
   --orange: #FF9500;
-  --hm1: #c8e6c9; --hm2: #6abf82; --hm3: #1B6B3A; --hm-sim: #90CAF9;
+  --hm1: #c8e6c9; --hm2: #6abf82; --hm3: #1B6B3A;
   --text: #1C1C1E;
   --text2: #636366;
   --text3: #AEAEB2;
@@ -17,9 +17,8 @@
   --hero-grad-end: #e8f2e8;
   --active-overlay: rgba(0,0,0,0.06);
   --safe-b: env(safe-area-inset-bottom, 0px);
-  --safe-t: env(safe-area-inset-top, 0px);
   /* Spacing scale — replaces ad-hoc px. 4px base step. */
-  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px;
   /* Corner radius tiers */
   --radius-sm: 8px; --radius: 10px; --radius-lg: 14px;
   /* Min interactive hit target (HIG 44pt). Nav bar opts out intentionally. */
@@ -42,11 +41,10 @@
     --bg: #1C1C1E;
     --card: #2C2C2E;
     --accent: #34C759;
-    --accent-tint: rgba(52,199,89,0.18);
     --green: #30D158;
     --red: #FF453A;
     --orange: #FF9F0A;
-    --hm1: #1a3822; --hm2: #1e6e3a; --hm3: #34C759; --hm-sim: #0A84FF;
+    --hm1: #1a3822; --hm2: #1e6e3a; --hm3: #34C759;
     --text: #FFFFFF;
     --text2: #8E8E93;
     --text3: #48484A;
@@ -154,17 +152,6 @@ body {
   border-radius: var(--radius-lg);
   box-shadow: 0 1px 4px rgba(0,0,0,0.05);
 }
-.card-sm { padding: var(--s3); }
-
-/* CardTitle.TLabel: Helvetica 12, text_secondary */
-.card-title {
-  font-size: 12px;
-  color: var(--text2);
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-  margin-bottom: 4px;
-}
-
 
 /* ================================================================
    BUTTONS — Primary.TButton: Helvetica 14 bold, padding (16,10)
@@ -292,8 +279,6 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 }
 .numpad-btn:active { background: var(--active-overlay); transform: scale(0.95); }
 .numpad-btn.zero { grid-column: 2; } /* center 0 in the middle column, same width as digits */
-.numpad-btn.forfeit { background: var(--red); color: #fff; font-size: 15px; border-radius: 10px; }
-.numpad-btn.next-hole { background: var(--green); color: #fff; font-size: 15px; border-radius: 10px; }
 
 /* ================================================================
    NOKIA KEYPAD — fixed 3×4 club selector (Phase 1 feature)
@@ -354,18 +339,8 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 .club-grid-btn.empty-cell { visibility: hidden; }
 
 /* Action row */
-.club-grid-btn.action-forfeit {
-  background: var(--red); color: #fff;
-  font-size: 14px; font-weight: 700; border-color: transparent;
-  flex-direction: row; gap: 4px;
-}
 .club-grid-btn.action-undo {
   background: var(--orange); color: #fff;
-  font-size: 14px; font-weight: 700; border-color: transparent;
-  flex-direction: row; gap: 4px;
-}
-.club-grid-btn.action-next {
-  background: var(--green); color: #fff;
   font-size: 14px; font-weight: 700; border-color: transparent;
   flex-direction: row; gap: 4px;
 }
@@ -381,7 +356,6 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 .club-grid-btn.action-penalty.is-pending {
   background: var(--accent); transform: scale(1.04);
 }
-
 
 /* Club suggestion (Feature 1) */
 .entry-suggest {
@@ -427,31 +401,10 @@ textarea.form-input { min-height: 100px; resize: vertical; }
   font-variant-numeric: tabular-nums; letter-spacing: -4px;
   text-align: right; white-space: nowrap;
 }
-.home-hc-value.hc-long { font-size: clamp(44px, 17vw, 82px); letter-spacing: -3px; }
 .home-hc-value.hc-pending { font-size: clamp(40px, 15vw, 72px); color: var(--text2); letter-spacing: -1px; }
 .home-hc-sub { font-size: 15px; color: var(--text2); line-height: 1.5; margin-top: 4px; }
 .home-hero-left { flex: 1; min-width: 0; overflow: hidden; }
 .home-hero-right { text-align: right; flex-shrink: 0; max-width: 55%; }
-
-#log-btn-bar {
-  display: none;
-  padding: 10px 16px 8px;
-  background: var(--bg);
-  flex-shrink: 0;
-}
-.home-log-btn {
-  display: flex; align-items: center; justify-content: center; gap: 8px;
-  width: 100%; padding: 18px 0; font-size: 17px; font-weight: 700;
-  background: var(--accent); color: #fff;
-  border: none; border-radius: 16px; cursor: pointer;
-  font-family: inherit; letter-spacing: -0.3px;
-  box-shadow: 0 4px 18px rgba(27,107,58,0.42), 0 1px 4px rgba(27,107,58,0.2);
-  transition: transform 0.12s cubic-bezier(0.34,1.56,0.64,1), opacity 0.12s ease;
-}
-@media (prefers-color-scheme: dark) {
-  .home-log-btn { box-shadow: 0 4px 14px rgba(52,199,89,0.35); }
-}
-.home-log-btn:active { opacity: 0.82; transform: scale(0.98); }
 
 .home-best {
   margin: 0 16px 10px;
@@ -518,13 +471,6 @@ textarea.form-input { min-height: 100px; resize: vertical; }
   box-shadow: 0 2px 8px rgba(0,0,0,0.06), 0 0 0 0.5px rgba(0,0,0,0.04);
   transition: transform 0.1s ease, opacity 0.1s ease;
 }
-.home-stat-cell.tappable {
-  cursor: pointer;
-  background: var(--accent);
-}
-.home-stat-cell.tappable .home-stat-val { color: #fff; }
-.home-stat-cell.tappable .home-stat-lbl { color: rgba(255,255,255,0.78); }
-.home-stat-cell.tappable:active { opacity: 0.8; transform: scale(0.96); }
 .home-gir-card {
   flex: 2;
   background: var(--card);
@@ -738,7 +684,6 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 .stat-trio-col + .stat-trio-col { border-left: 0.5px solid var(--sep); }
 .stat-trio-val { font-size: 20px; font-weight: 700; }
 .stat-trio-label { font-size: 11px; color: var(--text2); margin-top: 2px; }
-
 
 /* Insight cards — cleaner */
 .insight-card {
@@ -958,7 +903,6 @@ textarea.form-input { min-height: 100px; resize: vertical; }
   padding: 10px; min-width: 44px; min-height: 44px;
   display: flex; align-items: center; justify-content: center;
 }
-
 
 /* ================================================================
    MISC
@@ -1182,14 +1126,13 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 @media (prefers-color-scheme: dark) {
   .numpad-btn { box-shadow: 0 1px 3px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.06); }
 }
-.numpad-btn.forfeit, .numpad-btn.next-hole { box-shadow: none; }
 
 /* Club grid: same subtle key shadow */
-.club-grid-btn:not(.action-forfeit):not(.action-undo):not(.action-next):not(.empty-cell) {
+.club-grid-btn:not(.action-undo):not(.empty-cell) {
   box-shadow: 0 1px 3px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.5);
 }
 @media (prefers-color-scheme: dark) {
-  .club-grid-btn:not(.action-forfeit):not(.action-undo):not(.action-next):not(.empty-cell) {
+  .club-grid-btn:not(.action-undo):not(.empty-cell) {
     box-shadow: 0 1px 3px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.05);
   }
 }
@@ -1257,7 +1200,6 @@ input:disabled { cursor: not-allowed; }
   /* --- Primary action buttons (btn family) --- */
   /* Norman: affordance — solid button should look pressable on hover */
   .btn:hover { opacity: 0.86; }
-  .home-log-btn:hover { opacity: 0.9; transform: scale(0.99); }
 
   /* --- Navigation --- */
   /* HIG: every interactive element needs a distinct hover state */
@@ -1266,7 +1208,6 @@ input:disabled { cursor: not-allowed; }
 
   /* --- Tappable home cards --- */
   .home-best:hover { opacity: 0.9; transform: scale(0.99); }
-  .home-stat-cell.tappable:hover { opacity: 0.82; }
 
   /* --- Segmented/radio options --- */
   /* Norman: signifier — show reactivity before the user commits */
@@ -1289,20 +1230,15 @@ input:disabled { cursor: not-allowed; }
   .entry-nav-btn:not(:disabled):hover { color: var(--accent); }
 
   /* --- Numpad digit keys --- */
-  .numpad-btn:not(.forfeit):not(.next-hole):hover {
+  .numpad-btn:hover {
     background: var(--active-overlay);
   }
-  /* Colored action keys dim slightly so the color stays the signifier */
-  .numpad-btn.forfeit:hover,
-  .numpad-btn.next-hole:hover { opacity: 0.84; }
 
   /* --- Club keypad cells --- */
-  .club-grid-btn:not(.action-forfeit):not(.action-undo):not(.action-next):not(.empty-cell):not(.is-pending):hover {
+  .club-grid-btn:not(.action-undo):not(.empty-cell):not(.is-pending):hover {
     border-color: var(--text3);
   }
-  .club-grid-btn.action-forfeit:hover,
-  .club-grid-btn.action-undo:hover,
-  .club-grid-btn.action-next:hover { opacity: 0.84; }
+  .club-grid-btn.action-undo:hover { opacity: 0.84; }
 
   /* --- Club list items --- */
   .club-item:hover { background: var(--active-overlay); }
@@ -1375,7 +1311,6 @@ input:disabled { cursor: not-allowed; }
 .course-row:active { background: var(--active-overlay) !important; }
 
 /* Dynamically-built course picker rows in log setup (lsClubChanged) */
-.ls-course-row:active { opacity: 0.75; }
 
 /* ================================================================
    MISC — improved dark-mode tree-table header
@@ -1438,12 +1373,6 @@ input:disabled { cursor: not-allowed; }
   animation: spin 0.9s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
-.scan-warning-banner {
-  margin: 0 16px 8px; padding: 12px 14px; border-radius: 12px;
-  background: rgba(255,149,0,0.12); border: 1px solid var(--orange);
-}
-.scan-warning-title { font-size: 13px; font-weight: 700; color: var(--orange); margin-bottom: 4px; }
-.scan-warning-item { font-size: 12px; color: var(--text); margin-top: 2px; }
 .scan-nine-choice {
   display: flex; flex-direction: column; gap: 10px; padding: 0 16px; margin-top: 8px;
 }
@@ -1453,34 +1382,6 @@ input:disabled { cursor: not-allowed; }
   box-shadow: 0 1px 4px rgba(0,0,0,0.07);
 }
 .scan-nine-btn:active { opacity: 0.75; }
-/* Review form — scrollable hole table */
-.scan-hole-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; }
-.scan-hole-table { border-collapse: collapse; min-width: 600px; width: 100%; }
-.scan-hole-table th, .scan-hole-table td {
-  border: 1px solid var(--sep); padding: 6px 4px;
-  text-align: center; font-size: 12px; min-width: 38px;
-}
-.scan-hole-table th { background: var(--bg); font-weight: 600; color: var(--text2); position: sticky; top: 0; }
-.scan-hole-table td:first-child { font-weight: 600; color: var(--text2); min-width: 60px; position: sticky; left: 0; background: var(--card); z-index: 1; }
-.scan-hole-input {
-  width: 34px; padding: 4px 2px; text-align: center; border: none;
-  background: transparent; color: var(--text); font-size: 12px;
-  border-radius: 4px; min-height: 30px;
-}
-.scan-hole-input.missing { background: rgba(255,149,0,0.15); border-radius: 4px; }
-.scan-hole-input:focus { outline: 2px solid var(--accent); border-radius: 4px; }
-.form-input.missing { border-color: var(--orange); background: rgba(255,149,0,0.07); }
-.scan-tee-card {
-  background: var(--bg); border-radius: 10px; padding: 10px 12px;
-  margin-bottom: 8px; border: 1px solid var(--sep);
-}
-.scan-conf-badge {
-  display: inline-block; padding: 2px 8px; border-radius: 20px;
-  font-size: 11px; font-weight: 600;
-}
-.scan-conf-high { background: rgba(52,199,89,0.15); color: var(--green); }
-.scan-conf-med  { background: rgba(255,149,0,0.15); color: var(--orange); }
-.scan-conf-low  { background: rgba(255,59,48,0.15); color: var(--red); }
 
 /* Manual — backdrop + sheet */
 .manual-backdrop {
@@ -1590,7 +1491,6 @@ input:disabled { cursor: not-allowed; }
   font-size: 13px; font-weight: 700; color: var(--text2);
   text-transform: uppercase; letter-spacing: 0.6px;
 }
-.drill-section-clubs { font-size: 12px; color: var(--accent); font-weight: 600; }
 .drill-instructions { font-size: 15px; color: var(--text); line-height: 1.55; padding: 14px 16px; }
 .drill-card {
   background: var(--card); border-radius: 14px;
@@ -1602,8 +1502,6 @@ input:disabled { cursor: not-allowed; }
 }
 .drill-row:last-child { border-bottom: none; }
 .drill-row-check { display: flex; align-items: flex-start; gap: 12px; cursor: pointer; }
-.drill-row-data { display: flex; flex-direction: column; gap: 10px; }
-.drill-row-data-top { display: flex; align-items: flex-start; gap: 12px; }
 .drill-circle {
   width: 28px; height: 28px; border-radius: 50%;
   border: 2px solid var(--sep); background: var(--card);
@@ -1620,11 +1518,6 @@ input:disabled { cursor: not-allowed; }
 .drill-body { flex: 1; min-width: 0; }
 .drill-title { font-size: 15px; font-weight: 700; line-height: 1.3; }
 .drill-desc { font-size: 13px; color: var(--text2); margin-top: 4px; line-height: 1.45; }
-.drill-result-area { padding-left: 40px; }
-.drill-result-label {
-  font-size: 11px; font-weight: 700; color: var(--text2);
-  text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 6px;
-}
 .drill-stepper {
   display: inline-flex; align-items: stretch;
   height: 44px; border-radius: 10px;
@@ -1697,7 +1590,6 @@ input:disabled { cursor: not-allowed; }
 .hm-future { background: transparent; }
 .hm-irl   { background: var(--hm1); }
 .hm-prac  { background: var(--hm1); }
-.hm-sim   { background: var(--hm-sim); }
 .hm-both  { background: var(--hm3); }
 .hm-legend { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 11px; color: var(--text2); flex-wrap: wrap; }
 .hm-legend-cell { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
@@ -1736,7 +1628,6 @@ textarea.form-input:focus-visible, .hole-input-field:focus-visible,
    UTILITY CLASSES — de-inline the most-repeated style="" patterns
    (replaces inline styles in app.js; see item 4 of the audit)
    ================================================================ */
-.row-between { display: flex; justify-content: space-between; align-items: center; }
 .muted-sm { font-size: 13px; color: var(--text2); }
 .muted-xs { font-size: 11px; color: var(--text2); }
 .icon-16 { width: 16px; height: 16px; object-fit: contain; }
