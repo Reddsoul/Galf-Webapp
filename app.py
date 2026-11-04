@@ -10,7 +10,7 @@ import socket
 from flask import Flask, request, jsonify, render_template, send_from_directory
 
 from models import db, Round
-from Backend import GolfBackend, generate_scorecard_data, _round_to_dict
+from Backend import GolfBackend, generate_scorecard_data, _round_to_dict, normalize_existing_tee_colors, run_migrations
 
 try:
     from scorecard_ocr import ScorecardOCR
@@ -43,6 +43,8 @@ db.init_app(app)
 
 with app.app_context():
     db.create_all()
+    run_migrations()
+    normalize_existing_tee_colors()
 
 backend = GolfBackend()
 
@@ -50,9 +52,17 @@ backend = GolfBackend()
 # ---------------------------------------------------------------------------
 # Main page
 # ---------------------------------------------------------------------------
+def _asset_version():
+    """mtime-based cache buster so a deploy never serves stale app.js/app.css."""
+    try:
+        return str(int(max(os.path.getmtime(os.path.join(_STATIC_DIR, f)) for f in ("app.js", "app.css"))))
+    except OSError:
+        return "0"
+
+
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", v=_asset_version())
 
 
 @app.route("/favicon.ico")
@@ -83,7 +93,10 @@ def api_courses():
 @app.route("/api/courses", methods=["POST"])
 def api_add_course():
     data = request.get_json()
-    backend.add_course(data)
+    try:
+        backend.add_course(data)
+    except (ValueError, KeyError) as e:
+        return jsonify({"ok": False, "error": str(e)}), 409
     return jsonify({"ok": True})
 
 
@@ -102,6 +115,8 @@ def api_delete_course(name):
 
 @app.route("/api/courses/scan", methods=["POST"])
 def api_scan_scorecard():
+    if not backend.user_prefs.get("ocr_enabled", True):
+        return jsonify({"ok": False, "error": "Scorecard OCR is disabled in Settings"}), 403
     if not OCR_AVAILABLE or _ocr is None:
         return jsonify({"error": "OCR not available",
                         "tip": "Install opencv-python-headless and tesseract"}), 503
@@ -136,7 +151,7 @@ def api_scan_confirm():
     try:
         backend.add_course(data)
     except (ValueError, KeyError) as e:
-        return jsonify({"ok": False, "error": str(e)}), 400
+        return jsonify({"ok": False, "error": str(e)}), 409
     return jsonify({"ok": True})
 
 
@@ -284,15 +299,18 @@ def api_training_template():
 # ---------------------------------------------------------------------------
 @app.route("/api/prefs")
 def api_prefs():
-    return jsonify(backend.user_prefs)
+    # _ocr_available tells the client whether the OCR toggle can do anything
+    return jsonify({**backend.user_prefs, "_ocr_available": OCR_AVAILABLE and _ocr is not None})
 
 
 @app.route("/api/prefs", methods=["PUT"])
 def api_update_prefs():
-    data = request.get_json()
+    data = request.get_json() or {}
     backend.user_prefs.update(data)
     backend.save_user_prefs()
-    return jsonify({"ok": True})
+    # Handicap eligibility depends on sim_in_handicap; stats cache holds none
+    # of it, but the client re-fetches home/stats after a prefs change anyway.
+    return jsonify({"ok": True, "prefs": backend.user_prefs})
 
 
 @app.route("/api/manual")

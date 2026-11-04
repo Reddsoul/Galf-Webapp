@@ -2,16 +2,16 @@
 
 The Home screen is your dashboard. It's the **center tab** in the tab bar.
 
-### Manual Button
+### Settings Button
 
-A small **Manual** button sits in the top corner of the handicap hero card. Tap it to open this reference inside the app, without leaving Galf. A bottom sheet slides up listing every section; tap a section to read it, and tap **Done** to close. The manual content is served live from the app's `MANUAL.md`, so it always matches the version you are running.
+A small **⚙ Settings** button sits in the bottom corner of the handicap hero card. Tap it to open the [Settings](#9-settings) page — theme, handicap rules, scorecard scanning, and this manual all live there.
 
 ### Handicap Index
 
-The large number at the top is your **WHS Handicap Index**, calculated from your serious solo rounds following USGA rules.
+The large number at the top is your **WHS Handicap Index**, calculated from your serious solo **18-hole** rounds following USGA rules. 9-hole rounds are logged and shown in history and stats but never count toward the handicap. Simulator rounds count when marked serious — turn that off under [Settings](#9-settings) if you want real rounds only.
 
-- Shows `--` until you have logged **54 holes** of serious play
-- Beneath the dashes it tells you how many more holes you need: _"Play 38 more holes to establish"_
+- Shows `--` until you have logged **three serious 18-hole rounds**
+- Beneath the dashes it tells you how many more you need: _"Play 2 more 18-hole rounds to establish"_
 - Once established, the number updates automatically every time you save a new round
 - Shown to one decimal place (e.g. `12.3`)
 - Tap the handicap number to jump straight to the [Statistics](#6-statistics) Overview
@@ -20,12 +20,14 @@ The large number at the top is your **WHS Handicap Index**, calculated from your
 
 Below the handicap, Galf shows a single card for your best round. If you have both IRL and simulator rounds, **IRL** and **Sim** toggle buttons appear on the card so you can switch between the two bests.
 
+"Best" means lowest score vs. par. Full 18-hole rounds always take priority — a 9-hole round is only shown when you have no 18-hole rounds in that category (IRL or Sim).
+
 Each card shows:
 
 - Course name and date
 - Tee color stripe on the left edge
 - Total score and score vs. par (e.g. `+8` in red, `-1` in green, `E` in black)
-- A mini scorecard with every hole's score, color-coded (see [Score Color Coding](#7-score-color-coding))
+- A mini scorecard with every hole's score, color-coded (see [Score Color Coding](#8-score-color-coding))
 
 Tap the card to open the full scorecard.
 
@@ -36,7 +38,7 @@ Two elements sit below the best-round card:
 | Element | What it shows |
 |---|---|
 | **Logged** | Total number of rounds ever logged |
-| **GIR card** | Overall Greens in Regulation percentage plus bar charts for par 3, par 4, and par 5 (Detailed rounds only — shows `—` until you have at least one Detailed round) |
+| **GIR card** | Overall Greens in Regulation percentage plus bar charts for par 3, par 4, and par 5. Needs strokes-to-green data — Detailed rounds or quick-mode simulator rounds — and shows `—` until you have one. |
 
 If stroke leaks are detected in your game, a **Priority Practice** card appears below the stat row. It shows the highest-priority drill category with suggested drills and a link to the full Analysis screen.
 
@@ -46,11 +48,11 @@ An 18-week calendar grid above the best-round card shows every day you played a 
 
 | Color | Meaning |
 |---|---|
-| **Light green** | Round played or practice session on that day |
-| **Dark green** | Round and practice session both logged on the same day |
+| **Light accent tint** | Round played or practice session on that day |
+| **Full accent** | Round and practice session both logged on the same day |
 | **Empty** | No activity |
 
-A legend below the grid labels the two filled states.
+A legend below the grid labels the filled states. The accent color follows the theme chosen in [Settings](#9-settings).
 
 ### New Session Button
 
@@ -83,6 +85,8 @@ A single **Course** field. It shows the currently selected course (name, facilit
 
 Tap a course to select it (a green checkmark marks the current one) and the sheet closes. Tap **Cancel** to close without changing the selection.
 
+> When you reach this screen by editing a round from [Review & Save](#25-review-save), the sheet is **locked to the facility you started on** and lists only that facility's courses. That still lets you fix a wrong course at a multi-nine club (a 27-hole facility has three 18-hole combinations), and the nine you already played carries its scores over.
+
 #### Tee Box
 
 Colored pill buttons appear once a course is selected, one per tee box. Each pill shows the **color name** and the **Course Rating / Slope** (e.g. `72.1 / 128`). Tap the tee color you played from.
@@ -110,23 +114,23 @@ Defaults to today. Tap to change. Useful when logging a round you played yesterd
 
 #### Serious Round checkbox
 
-When checked, the round counts toward your Handicap Index. Unchecked rounds are logged and visible in history but excluded from handicap calculation.
+When checked, the round counts toward your Handicap Index (18-hole rounds only — a serious 9-hole round is still tracked in stats but does not feed the handicap). Unchecked rounds are logged and visible in history but excluded from handicap calculation.
 
 - Scramble rounds disable this checkbox automatically — scrambles never count
 - Use **Casual** for practice rounds or rounds you don't want affecting your index
 
 #### Simulator Round checkbox
 
-Marks the round as a simulator round. Simulator rounds are tracked separately — they show a "Sim" pill on the scorecard and feed the **Best Sim** card on the Home screen. They do not affect the handicap of real rounds.
+Marks the round as a simulator round. Simulator rounds show a "Sim" pill on the scorecard and feed the **Best Sim** card on the Home screen. A serious 18-hole sim round counts toward your Handicap Index like any other serious round (unless **Count simulator rounds** is off in [Settings](#9-settings)). Sim putts are auto-rolled, so sim rounds are left out of the putting stats — but their strokes-to-green are real input and feed GIR.
 
 #### Entry Mode
 
 | Mode | What you enter per hole |
 |---|---|
-| **Quick** | Score only — just a number |
+| **Quick** | Score only — just a number (on simulator rounds: strokes to green, putts auto-rolled) |
 | **Detailed** | Clubs used + putts — score is calculated automatically from the clubs you tap |
 
-Detailed mode is required to unlock the Performance and Analysis stats screens. Quick mode is faster and good for casual rounds.
+Detailed mode is what unlocks the Performance and Analysis stats screens (quick-mode simulator rounds also contribute GIR / strokes-to-green data). Quick mode is faster and good for casual rounds.
 
 > Your last-used mode is remembered and pre-selected next time.
 
@@ -144,14 +148,16 @@ The Quick entry screen shows one hole at a time.
 
 Shows the current **Hole number**, **Course name**, **Par**, **Yardage** (if entered for this course and tee), and **Tee color**.
 
+The small word **Hole** above the number is replaced by a counter such as `2/9` when you are filling in a subset of the round — see [Filling In Missing Holes](#filling-in-missing-holes).
+
 #### Score Display
 
 The large number in the center is your running score for the current hole. It shows `–` until you enter something. Beside or below it you will see your score vs. par (`E`, `+1`, `–2`, etc.).
 
 #### Navigation
 
-- **◀** — go back to the previous hole to correct a score. On hole 1, tapping ◀ exits the round without saving and returns to the Home screen.
-- **▶** — the single advance control. It moves to the next hole, or — on milestone holes — opens the round-flow dialogs (see [Advancing & Finishing](#advancing--finishing) below).
+- **◀** — go back to the previous hole to correct a score. On hole 1, tapping ◀ exits the round without saving and returns to the Home screen. While filling in missing holes, ◀ on the first of them returns to **Review & Save** instead of leaving the round.
+- **▶** — the single advance control. It moves to the next hole, or — on milestone holes — opens the round-flow dialogs (see [Advancing & Finishing](#24-advancing-finishing) below).
 
 #### Numpad
 
@@ -162,7 +168,11 @@ Buttons 1–9 are individual digit taps. For scores of 10 or above, tap two digi
 | **1–9** | Sets / appends a digit to the current hole score |
 | **0** | Appends a zero (e.g. `1` then `0` = score of 10) — centered under the keypad |
 
-There is no Forfeit or Next button on the numpad. Advancing between holes and finishing the round are both driven by the top **▶** arrow. Any holes left blank are forfeited (recorded as par+2) when you finish — see [Advancing & Finishing](#advancing--finishing).
+There is no Forfeit or Next button on the numpad. Advancing between holes and finishing the round are both driven by the top **▶** arrow. Any holes left blank are forfeited (recorded as par+2) when you finish — see [Advancing & Finishing](#24-advancing-finishing).
+
+#### Simulator Rounds in Quick Mode
+
+If you checked **Simulator Round** in setup, the number you tap is your **strokes to green** (everything before the putts). Galf rolls a putt count for the hole using the same odds as Detailed mode (see [Simulator Auto-Putts](#simulator-auto-putts)) and adds it on top. The big number shows the full hole score, with a line underneath like _"3 to green + 2 sim putts"_. Strokes to green are saved with the round, so quick sim rounds still feed the GIR stats. Forfeited holes are a flat par+2 with no putts added.
 
 ---
 
@@ -229,7 +239,7 @@ Tap clubs in the order you hit them on the hole. The sequence appears in the sco
 | **Putter** | Adds a putt. Tinted green. (The putter is always present even if it isn't in your bag.) |
 | **◀ Undo** | If a multi-tap is in progress, cancels it. Otherwise removes the last committed club/putt/penalty. |
 
-There is no Forfeit button. Advancing and finishing are driven by the top **▶** arrow (see [Advancing & Finishing](#advancing--finishing)); blank holes are forfeited at finish.
+There is no Forfeit button. Advancing and finishing are driven by the top **▶** arrow (see [Advancing & Finishing](#24-advancing-finishing)); blank holes are forfeited at finish.
 
 #### Penalty Strokes
 
@@ -255,6 +265,7 @@ Both entry modes use the top **▶** arrow as the single control for moving thro
 | **18-hole round, leaving hole 9** with the back 9 still untouched | Opens a **Front 9 Complete** summary (your front-9 score, diff, and birdie/par/bogey tally) with: **Continue to Back 9 ▶** or **Finish — 9 Holes** (saves just the front 9) |
 | **9-hole round, last hole** on a course that has 18 holes of data | Opens a **Round Complete** summary with: **Finish & Review** or **Add Back 9 / Add Front 9 (play 18)** — extending appends the holes you haven't played and keeps going |
 | **Last hole** otherwise | Goes to finish (Review & Save) |
+| **Filling in missing holes** after an edit | Plain step-through — no Front 9 or extend dialogs. On the last missing hole, ▶ goes straight back to Review & Save with the whole round intact. |
 
 When you finish, any holes still blank are not blocked — Galf shows a **Forfeit Empty Holes?** prompt listing them and, on confirm, records each as par+2 (double bogey) before moving to Review. This replaces the old per-hole Forfeit button.
 
@@ -262,11 +273,55 @@ When you finish, any holes still blank are not blocked — Galf shows a **Forfei
 
 ### 2.5 Review & Save
 
-After the last hole, you land on the **Review & Save** screen.
+After the last hole, you land on the **Review & Save** screen. Nothing is written to your history until you tap **Save Round**, so this is the place to fix anything that went in wrong.
 
 - A full scorecard is shown with your scores, pars, and totals — same layout as the Scorecard Viewer
 - The tee-colored header shows the course name, date, total score, and score vs. par
 - Pills show: hole selection (18 Holes / Front 9 / Back 9), round type, Casual (if not serious), Sim (if simulator), and tee color
+
+A hint line under the scorecard sums up the two edit gestures: _"Tap the header to change settings · tap the scorecard to edit scores"_.
+
+#### Editing Round Settings
+
+Tap the **header card** to go back to [Round Setup](#21-round-setup) with everything you entered still in hand. The title reads **Round Settings** and the back button reads **‹ Review**. Change the course, tee, date, holes, round type, or the Serious checkbox, then tap **✓ Update Round** to return to Review.
+
+Two fields are locked while editing, because they change what the numbers you already tapped *mean*:
+
+| Locked field | Why |
+|---|---|
+| **Entry Mode** | A Quick score is one number; a Detailed score is a list of clubs. They aren't interchangeable. |
+| **Simulator Round** | On a sim round, what you entered is strokes to green with auto-rolled putts added. Flipping it would re-interpret every hole. |
+
+The course picker is locked to the **facility** you started on. Sibling courses at that facility stay selectable, which is what makes a wrong-combo fix possible at a 27-hole club.
+
+#### How Scores Survive an Edit
+
+Your entered scores are remapped onto the new hole set, never thrown away:
+
+| Edit | What happens to your scores |
+|---|---|
+| Tee, date, round type, Serious | Nothing — scores are untouched |
+| 18 Holes ↔ Front 9 / Back 9 | Holes are matched **by hole number**. Shrinking drops the holes you no longer count; growing leaves the new holes empty. |
+| Swap to a sibling course at the same facility | Galf matches the two courses' **nines**: a nine whose nine pars are identical carries its scores over. When both old nines have the same pars, per-hole yardages for your tee break the tie. A nine with no match starts empty. |
+
+This is what "fixing the course" looks like in practice: you played the wrong combo (say you logged *Lakes/Pines* but actually played *Lakes/Ridge*), you swap the course from Review, the Lakes nine you already played keeps every score, and the Ridge nine comes back empty and ready to play.
+
+#### Filling In Missing Holes
+
+When an edit leaves some — but not all — holes empty, Review shows an orange banner above the hint line:
+
+> **9 holes not played yet** — Holes 10–18 on Ridge Course · **Play ▶**
+
+Tapping the banner (or the scorecard) drops you into the entry screen **restricted to just those holes**. In this mode:
+
+- The label above the hole number becomes a counter (`1/9`, `2/9`, …) over the missing holes only
+- **▶** steps through them and, on the last one, returns to Review with both nines in place — no Front 9 or extend dialogs fire
+- **◀** on the first missing hole backs out to Review instead of leaving the round
+- Holes you already played are skipped entirely
+
+When no holes are missing, tapping the scorecard walks the whole round again from hole 1, as before.
+
+The fill list is saved with the round draft, so closing the app mid-fill and resuming later puts you back on the same short walk.
 
 #### Notes
 
@@ -276,7 +331,7 @@ An optional text field at the bottom. Use it to jot down anything about the roun
 
 Tap **Save Round** to write the round to your history. Your Handicap Index updates immediately. You are taken to the Rounds screen.
 
-> The Review & Save screen has no back button. If you need to fix a score, use **◀** on the entry screen to step back through holes before finishing with **▶**.
+If any hole still has no score, Galf will not save silently. A **Holes Not Played** prompt lists them and offers **Forfeit & Save**, which records each as par+2 (double bogey) and then saves. Cancel instead if you meant to play them — your typed notes are kept either way.
 
 ---
 
@@ -324,7 +379,7 @@ Tap a practice session row to expand it inline and see the drill results. Tap ag
 
 ## 4. Scorecard Viewer
 
-The Scorecard Viewer shows a full breakdown of a saved round.
+The Scorecard Viewer shows a full breakdown of a saved round. The card column is capped at a readable width and centered, so it sits in the middle of the screen on an iPad or desktop instead of stretching edge to edge.
 
 ### Header Card
 
@@ -354,7 +409,7 @@ The traditional hole-by-hole grid appears for the front 9 and back 9 separately.
 - **Hole numbers** across the top
 - **Yardage** row (if entered for this course and tee)
 - **Par** row — par 3s in green, par 5s in the app's accent color, par 4s in the default
-- **Score** row — each score is color-coded (see [Score Color Coding](#7-score-color-coding))
+- **Score** row — each score is color-coded (see [Score Color Coding](#8-score-color-coding))
 
 For 18-hole rounds, a **Totals row** appears between the two grids showing OUT (front 9), IN (back 9), TOTAL, PAR, and +/−.
 
@@ -435,7 +490,7 @@ Each tee box has three fields:
 
 | Field | Where to find it |
 |---|---|
-| **Color** | The tee color name (e.g. `White`, `Blue`, `Red`). Any color name works — the app renders it visually. |
+| **Color** | The tee color name (e.g. `White`, `Blue`, `Red`). Any color name works — the app renders it visually. Names are stored in Title Case automatically (`red` becomes `Red`, `dark blue` becomes `Dark Blue`), so a round logged on `red` and a tee saved as `Red` always match. |
 | **Rating** | Course Rating for this tee (on the scorecard, e.g. `72.1`) |
 | **Slope** | Slope Rating (on the scorecard, e.g. `128`) |
 
@@ -464,6 +519,8 @@ Instead of entering course data by hand, you can photograph a real scorecard and
 #### Starting a Scan
 
 Tap **+ Add New Course**, then tap the **Scan Card** button that appears at the top of the Add Course form. The Scan Scorecard screen opens.
+
+> The **Scan Card** button only appears when **Scorecard scanning (OCR)** is on in [Settings](#9-settings) and the server has the OCR engine installed. Turn the setting off to hide the button entirely.
 
 #### Upload Step
 
@@ -530,7 +587,7 @@ Tap **Save Course** when the data looks correct. The course is added to your lib
 
 ## 6. Statistics
 
-The Statistics screen is reached by tapping the **Stats** cell on the Home screen. It has four sub-tabs.
+The Statistics screen is reached by tapping the **Handicap Index** number on the Home screen. It has four sub-tabs.
 
 ---
 
@@ -549,13 +606,13 @@ Below the handicap, four quick-stat cells:
 | **Avg Score (9h)** | Average total score across serious 9-hole rounds only |
 | **Avg Score (18h)** | Average total score across serious 18-hole rounds only |
 
-Below the quick numbers, a list of your **top 8 score differentials** sorted best to worst. Each row shows the course, date, hole count, raw score, and the computed differential. The top 3 are highlighted green — these are the rounds carrying the most weight in your handicap.
+Below the quick numbers, a list of your **top 8 score differentials** across all serious solo rounds, sorted best to worst. Each row shows the course, date, hole count, raw score, and the computed differential. 9-hole rounds are scaled to an 18-hole differential so they rank alongside full rounds. This list is independent of the handicap (which uses 18-hole rounds only) — the top 3 are highlighted green.
 
 ---
 
 ### 6.2 Performance
 
-**Requires Detailed entry mode.** Shows nothing until you have at least one Detailed round.
+**Requires strokes-to-green data.** Shows nothing until you have at least one Detailed round (or one quick-mode simulator round, which records strokes to green). Putting, scramble, club usage, and penalty stats still need Detailed rounds.
 
 #### Greens in Regulation (GIR)
 
@@ -738,6 +795,39 @@ Every score in the app — on scorecards, the home best-round card, and the log 
 | Plain score | Default text | Par | Even |
 | Score in a **square** | Red | Bogey | +1 |
 | Score in a **double square** | Red | Double bogey or worse | +2 or worse |
+
+---
+
+## 9. Settings
+
+Open from the **⚙ Settings** button on the Home hero card. Every setting saves instantly and is remembered on the server, so it follows you across devices.
+
+### Appearance
+
+Two themes, each with its own light and dark variant (dark follows your system setting):
+
+| Theme | Palette |
+|---|---|
+| **Royal Green** | Fairway green accent on a pale sage ground — the default |
+| **Burgundy** | Deep red accent (`#8C282A`), darker burgundy for depth (`#5A1E1A`), slate blue (`#5B6493`) for the hero gradient and sim heatmap, on a pale slate ground |
+
+Score colors (green birdies, red bogeys) stay the same in both themes so a scorecard always reads the same way.
+
+### Handicap
+
+| Setting | What it does |
+|---|---|
+| **Count simulator rounds** | On (default): serious 18-hole sim rounds feed the Handicap Index and the "rounds to establish" counter. Off: real rounds only. |
+
+### Courses
+
+| Setting | What it does |
+|---|---|
+| **Scorecard scanning (OCR)** | Shows or hides the **Scan Card** button when adding a course. Greyed out if the OCR engine isn't installed on the server. |
+
+### Help
+
+**Manual** opens this reference as a full page. The front page lists every section — tap one to read it, or type in the search field to find a section, heading, or phrase. Inside a section, the chips under the title jump to each part; **Previous / Next** at the bottom step through sections in order; **‹ Manual** returns to the list. Content is served live from the app's `MANUAL.md`, so it always matches the version you are running.
 
 ---
 
