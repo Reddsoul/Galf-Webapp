@@ -28,10 +28,9 @@ Suggested models (running on a helper box, NOT the NAS):
 The app itself can run on a 1 GB NAS — the model RAM is only used on the
 machine OCR_LLM_URL points at, and only while a scan is in flight.
 
-Public interface mirrors ScorecardOCR:
+Public interface:
     LLMScorecardOCR().process_image(image_bytes: bytes) -> dict
-Raises RuntimeError when the endpoint is unreachable so the caller can fall
-back to the Tesseract pipeline.
+Raises RuntimeError when the endpoint is unreachable or returns unusable output.
 """
 
 import base64
@@ -141,17 +140,6 @@ class LLMScorecardOCR:
         self._score_confidence(result)
         return result
 
-    def available(self) -> bool:
-        """Cheap reachability probe (models endpoint or bare origin)."""
-        base = re.sub(r"/(chat/completions|api/chat)/?$", "", self.url)
-        probe = base + "/models" if base.endswith("/v1") else base
-        try:
-            req = urllib.request.Request(probe, method="GET")
-            with urllib.request.urlopen(req, timeout=3):
-                return True
-        except Exception:
-            return False
-
     # ── Helpers ───────────────────────────────────────────────────────────
 
     @staticmethod
@@ -238,7 +226,6 @@ class LLMScorecardOCR:
             "club_name":        (str(raw["club_name"]).strip()
                                  if raw.get("club_name") else None),
             "nine_hole_card":   nine,
-            "multiple_courses": None,
             "tee_boxes":        tee_boxes,
             "pars":             pars,
             "handicaps":        hcps,
@@ -247,8 +234,7 @@ class LLMScorecardOCR:
                                  "ratings": 0.0, "yardages": 0.0},
         }
 
-    # Same validation/confidence semantics as the Tesseract pipeline so the
-    # frontend review screen behaves identically for both backends.
+    # Validation/confidence for the frontend review screen.
 
     @staticmethod
     def _validate(result: dict):

@@ -524,9 +524,9 @@ If the back of the card contains the second 9 holes, tap **Scan another photo (b
 
 Tap **Save Course** when the data looks correct. The course is added to your library just as if you had entered it by hand.
 
-> Scan Card uses a **local vision LLM** as its primary engine. The model does not run on the box hosting Galf — the photo is sent to an [Ollama](https://ollama.com) (or llama.cpp / LM Studio) server elsewhere on your LAN, set via `OCR_LLM_URL`. With the default `OCR_LLM_KEEP_ALIVE=0`, the model is loaded only for the duration of a scan and unloaded immediately after, so the helper machine's RAM is free between scans. Nothing leaves your network. A scan takes ~15–60 s including the cold model load.
+> Scan Card uses a **local vision LLM**. The model does not run on the box hosting Galf — the photo is sent to an [Ollama](https://ollama.com) (or llama.cpp / LM Studio) server elsewhere on your LAN, set via `OCR_LLM_URL`. With the default `OCR_LLM_KEEP_ALIVE=0`, the model is loaded only for the duration of a scan and unloaded immediately after, so the helper machine's RAM is free between scans. Nothing leaves your network. A scan takes ~15–60 s including the cold model load.
 >
-> If the helper machine is off or asleep, the server falls back to a classic Tesseract + OpenCV pipeline when those optional dependencies (`opencv-python-headless`, `pytesseract`, `numpy`, plus the `tesseract` binary) are installed. With neither engine available, Scan Card is disabled and manual entry still works. See the README for setup.
+> If the helper machine is off or asleep, Scan Card reports that the scan failed. Manual entry still works. See the README for setup.
 
 ---
 

@@ -11,7 +11,7 @@ A self-hosted mobile golf companion that lives on your iPhone. Log rounds, track
 - **Practice sessions** — Adaptive drill templates built from your bag. Covers warm-up, putting, chipping, Wedge Matrix (calibrates partial carry distances per wedge), irons, and woods. Saving a session writes updated wedge distances back to your club bag automatically. Sessions saved to history.
 - **Stats** — GIR %, scrambling, putts per round, penalty strokes (water / OB / unplayable, plus per-round average), and stroke leak analysis by hole position.
 - **Course library** — Store hole pars, per-tee yardages, slope rating, and course rating. Multiple tee colors per course.
-- **Scorecard scanning** — Photograph a scorecard and the app extracts course name, pars, handicaps, tees, ratings, and yardages using a **local vision LLM** (Ollama / llama.cpp / LM Studio — nothing leaves your network). Falls back to a Tesseract pipeline if no LLM endpoint is configured.
+- **Scorecard scanning** — Photograph a scorecard and the app extracts course name, pars, handicaps, tees, ratings, and yardages using a **local vision LLM** (Ollama / llama.cpp / LM Studio — nothing leaves your network).
 - **Club bag** — Track carry distances (and partial-wedge distances) per club. Mark clubs **Out of Bag** without deleting them — they're hidden from entry, suggestions, and the wedge matrix but kept for history. During detailed entry the app suggests the fewest-shots club sequence to reach the pin, preferring full swings over partial swings when both reach in the same number of shots.
 - **Simulator rounds** — Tracked separately, excluded from real handicap.
 - **Personal bests** — Home screen shows best IRL and simulator scorecards on a single toggle card.
@@ -146,7 +146,7 @@ Then set on the Galf side (e.g. in DSM Container Manager env):
 OCR_LLM_URL=http://<helper-box-ip>:11434/api/chat
 ```
 
-With `OCR_LLM_KEEP_ALIVE=0` (the default) the model is loaded from disk when a scan arrives and unloaded seconds after — the helper box's RAM is only occupied during the scan itself, and nothing needs to run "always on". A scan takes roughly 15–60 s including the cold load. If the helper box is asleep or off, Scan Card reports it's unavailable (or falls back to the optional Tesseract pipeline if installed); every other feature keeps working.
+With `OCR_LLM_KEEP_ALIVE=0` (the default) the model is loaded from disk when a scan arrives and unloaded seconds after — the helper box's RAM is only occupied during the scan itself, and nothing needs to run "always on". A scan takes roughly 15–60 s including the cold load. If the helper box is asleep or off, Scan Card reports it's unavailable; every other feature keeps working.
 
 To make Ollama reachable from the NAS, ensure it listens on the LAN: `launchctl setenv OLLAMA_HOST 0.0.0.0` (or `OLLAMA_HOST=0.0.0.0` in the service env), then restart Ollama.
 

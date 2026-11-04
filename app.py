@@ -8,27 +8,15 @@ import gzip
 import os
 import socket
 import sys
-import traceback
 
 from flask import Flask, request, jsonify, render_template, send_from_directory
 
 from models import db, Round
 from Backend import GolfBackend, generate_scorecard_data, _round_to_dict
 
-# Primary scan backend: local vision LLM (llama.cpp / Ollama), stdlib client
+# Scan backend: local vision LLM (llama.cpp / Ollama), stdlib client
 from ocr_llm import LLMScorecardOCR
 _ocr_llm = LLMScorecardOCR()
-
-# Fallback scan backend: classic OpenCV + Tesseract pipeline
-try:
-    from scorecard_ocr import ScorecardOCR
-    _ocr = ScorecardOCR()
-    OCR_AVAILABLE = True
-except Exception:
-    print("[galf] Tesseract OCR pipeline unavailable:", file=sys.stderr)
-    traceback.print_exc()
-    OCR_AVAILABLE = False
-    _ocr = None
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -163,40 +151,21 @@ def api_scan_scorecard():
     if not image_bytes:
         return jsonify({"error": "Empty image file"}), 400
 
-    # 1) Local vision LLM (best accuracy)
     try:
-        result = _ocr_llm.process_image(image_bytes)
-        result["engine"] = "llm"
-        return jsonify(result)
+        return jsonify(_ocr_llm.process_image(image_bytes))
     except ValueError as e:
         return jsonify({"error": "Could not read image",
                         "tip": "Try better lighting or a flatter angle",
                         "detail": str(e)}), 400
     except RuntimeError as e:
-        print(f"[galf] LLM scan failed, falling back to Tesseract: {e}",
-              file=sys.stderr)
-
-    # 2) Tesseract fallback
-    if not OCR_AVAILABLE or _ocr is None:
+        print(f"[galf] LLM scan failed: {e}", file=sys.stderr)
         return jsonify({
-            "error": "No scan engine available",
-            "tip": ("Start a local vision LLM (e.g. `ollama pull qwen2.5vl:3b`) "
-                    "or set OCR_LLM_URL. Alternatively install "
-                    "opencv-python-headless, pytesseract and tesseract."),
+            "error": "Scan failed",
+            "tip": "Could not get a result from the vision LLM. Check that the "
+                   "helper box is on and OCR_LLM_URL is correct, then try again, "
+                   "or enter the course by hand.",
+            "detail": str(e),
         }), 503
-    try:
-        result = _ocr.process_image(image_bytes)
-        result["engine"] = "tesseract"
-    except ValueError as e:
-        return jsonify({"error": "Could not read image",
-                        "tip": "Try better lighting or a flatter angle",
-                        "detail": str(e)}), 400
-    except Exception as e:
-        return jsonify({"error": "OCR processing failed",
-                        "tip": "Try better lighting or a flatter angle",
-                        "detail": str(e)}), 500
-
-    return jsonify(result)
 
 
 @app.route("/api/courses/scan/confirm", methods=["POST"])
