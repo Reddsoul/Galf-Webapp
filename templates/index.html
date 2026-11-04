@@ -9,9 +9,8 @@
 <title>Galf</title>
 <link rel="icon" type="image/x-icon" href="/galf.ico">
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-<!-- No external libraries needed -->
-<link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/app.css?v={{ v }}">
+<script>window.GALF_V="{{ v }}";</script>
 </head>
 <body>
 <div id="app">
@@ -36,14 +35,14 @@
   <!-- Tab bar: exactly 3 tabs matching _create_tab_bar -->
   <nav id="tabbar">
     <a class="tab" data-tab="rounds" onclick="navRounds()" aria-label="Logbook">
-      <span class="tab-icon"><img src="/static/logbook-96.png" alt="Logbook"></span><span class="tab-label">Logbook</span></a>
+      <span class="tab-icon"><img src="/static/logbook-96.png?v={{ v }}" alt="Logbook"></span><span class="tab-label">Logbook</span></a>
     <a class="tab active" data-tab="home" onclick="navHome()" aria-label="Home">
-      <span class="tab-icon"><img src="/static/golfer-96.png" alt="Home"></span><span class="tab-label"></span></a>
+      <span class="tab-icon"><img src="/static/golfer-96.png?v={{ v }}" alt="Home"></span><span class="tab-label"></span></a>
     <a class="tab" data-tab="courses" onclick="navCourses()" aria-label="Courses">
-      <span class="tab-icon"><img src="/static/golf-course-96.png" alt="Courses"></span><span class="tab-label">Courses</span></a>
+      <span class="tab-icon"><img src="/static/golf-course-96.png?v={{ v }}" alt="Courses"></span><span class="tab-label">Courses</span></a>
   </nav>
 </div>
 
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v={{ v }}" defer></script>
 </body>
 </html>

@@ -1,0 +1,11 @@
+# Keep the build context small; data lives in the /data volume.
+.git
+data/
+instance/
+thoughts/
+**/.DS_Store
+**/__pycache__/
+*.pyc
+.vscode/
+.claude/
+.odysseus*

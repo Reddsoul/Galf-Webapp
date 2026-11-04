@@ -4,6 +4,7 @@ Galf — Golf companion web app.
 Flask wrapper around Backend.py. Run with: python app.py
 """
 
+import gzip
 import os
 import socket
 import sys
@@ -67,9 +68,44 @@ backend = GolfBackend()
 # ---------------------------------------------------------------------------
 # Main page
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# HTTP performance: versioned static assets get long-lived caching; text
+# responses get gzip. Un-versioned URLs keep default revalidation.
+# ---------------------------------------------------------------------------
+def _asset_version():
+    return int(max(os.path.getmtime(os.path.join(_STATIC_DIR, f))
+                   for f in ("app.js", "app.css")))
+
+
+_GZIP_TYPES = {"text/html", "text/css", "text/plain", "text/javascript",
+               "application/javascript", "application/json"}
+
+
+@app.after_request
+def _perf_headers(response):
+    if request.path.startswith("/static/") and request.args.get("v"):
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+
+    if (response.status_code == 200
+            and response.mimetype in _GZIP_TYPES
+            and "Content-Encoding" not in response.headers
+            and "gzip" in request.headers.get("Accept-Encoding", "").lower()):
+        response.direct_passthrough = False
+        data = response.get_data()
+        if len(data) >= 1024:
+            response.set_data(gzip.compress(data, compresslevel=6))
+            response.headers["Content-Encoding"] = "gzip"
+            response.headers["Content-Length"] = str(len(response.get_data()))
+            etag = response.headers.get("ETag")
+            if etag and not etag.startswith("W/"):
+                response.headers["ETag"] = "W/" + etag
+        response.vary.add("Accept-Encoding")
+    return response
+
+
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", v=_asset_version())
 
 
 @app.route("/favicon.ico")
@@ -281,6 +317,16 @@ def api_best_round():
     return jsonify(best if best else {})
 
 
+@app.route("/api/stats/bundle")
+def api_stats_bundle():
+    return jsonify(backend.get_stats_bundle())
+
+
+@app.route("/api/home")
+def api_home():
+    return jsonify(backend.get_home_bundle())
+
+
 # ---------------------------------------------------------------------------
 # API: Training Sessions
 # ---------------------------------------------------------------------------
@@ -359,4 +405,10 @@ if __name__ == "__main__":
     print(f"  Local:   http://127.0.0.1:{port}")
     print(f"  Network: http://{ip}:{port}")
     print(f"{'='*50}\n")
-    app.run(host="0.0.0.0", port=port, debug=False)
+    try:
+        # Production WSGI server (pure Python, small) — falls back to the
+        # Flask dev server if waitress isn't installed.
+        from waitress import serve
+        serve(app, host="0.0.0.0", port=port, threads=4)
+    except ImportError:
+        app.run(host="0.0.0.0", port=port, debug=False)

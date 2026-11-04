@@ -1,6 +1,8 @@
 from statistics import mean
 from datetime import datetime
 
+from sqlalchemy.orm import selectinload
+
 from models import db, Course, TeeBox, Round, Club, UserPrefs, StatsCache, TrainingSession
 
 # Club categories for analytics (category is the only field used)
@@ -119,11 +121,13 @@ class GolfBackend:
     def get_courses(self):
         return [
             _course_to_dict(c)
-            for c in Course.query.filter_by(user_id=self.user_id).all()
+            for c in Course.query.options(selectinload(Course.tee_boxes))
+                                 .filter_by(user_id=self.user_id).all()
         ]
 
     def get_course_by_name(self, name):
-        c = Course.query.filter_by(user_id=self.user_id, name=name).first()
+        c = (Course.query.options(selectinload(Course.tee_boxes))
+             .filter_by(user_id=self.user_id, name=name).first())
         return _course_to_dict(c) if c else None
 
     def _prepare_course_data(self, course_data):
@@ -266,8 +270,8 @@ class GolfBackend:
             db.session.commit()
             self.invalidate_stats_cache()
 
-    def get_filtered_rounds(self, round_type="all", sort_by="recent"):
-        rounds = self.get_rounds()
+    def get_filtered_rounds(self, round_type="all", sort_by="recent", _rounds=None):
+        rounds = list(_rounds) if _rounds is not None else self.get_rounds()
 
         if round_type == "solo":
             rounds = [r for r in rounds
@@ -393,14 +397,14 @@ class GolfBackend:
 
     # --- aggregates ---
 
-    def _round_summary_counts(self):
+    def _round_summary_counts(self, _rounds=None):
         counts = {
             "total": 0, "serious": 0, "solo": 0, "scramble": 0, "sim": 0,
             "holes_18": 0, "holes_9": 0, "all_holes": 0,
             "hc_18": 0, "hc_9": 0, "hc_holes": 0,
             "serious_18_scores": [], "serious_9_scores": [],
         }
-        for r in self.get_rounds():
+        for r in (_rounds if _rounds is not None else self.get_rounds()):
             counts["total"] += 1
             holes = r.get("holes_played", 18)
             counts["all_holes"] += holes
@@ -429,8 +433,8 @@ class GolfBackend:
                     counts["serious_9_scores"].append(r["total_score"])
         return counts
 
-    def get_best_round(self, is_sim=False):
-        all_rounds = self.get_rounds()
+    def get_best_round(self, is_sim=False, _rounds=None):
+        all_rounds = _rounds if _rounds is not None else self.get_rounds()
         if is_sim:
             candidates = [r for r in all_rounds if r.get("is_sim")]
         else:
@@ -447,8 +451,9 @@ class GolfBackend:
         best = min(candidates, key=score_vs_par)
         return best, best["id"]
 
-    def get_score_differentials(self):
-        all_18 = self._handicap_eligible_18s(self.get_rounds())
+    def get_score_differentials(self, _rounds=None):
+        all_18 = self._handicap_eligible_18s(
+            _rounds if _rounds is not None else self.get_rounds())
         diffs = []
         for r in all_18:
             diff = self.calculate_score_differential(r)
@@ -525,11 +530,12 @@ class GolfBackend:
 
     # --- statistics ---
 
-    def get_statistics(self):
-        c = self._round_summary_counts()
+    def get_statistics(self, _rounds=None):
+        rounds = _rounds if _rounds is not None else self.get_rounds()
+        c = self._round_summary_counts(_rounds=rounds)
         # Avg scores: include sim rounds, derive 9h datapoints from 18h rounds
         all_18_scores, all_9_scores = [], []
-        for r in self.get_rounds():
+        for r in rounds:
             is_solo = r.get("round_type", "solo") == "solo"
             is_serious = r.get("is_serious", False)
             is_sim = r.get("is_sim", False)
@@ -786,6 +792,38 @@ class GolfBackend:
         severity_order = {"high": 0, "medium": 1, "low": 2}
         insights.sort(key=lambda x: severity_order.get(x["severity"], 2))
         return insights
+
+    # --- aggregate bundles (one request per screen, rounds loaded once) ---
+
+    def get_home_bundle(self):
+        rounds = self.get_rounds()
+        best, _ = self.get_best_round(is_sim=False, _rounds=rounds)
+        best_sim, _ = self.get_best_round(is_sim=True, _rounds=rounds)
+        return {
+            "stats": self.get_statistics(_rounds=rounds),
+            "handicap_index": self.calculate_handicap_index(_rounds=rounds),
+            "best": best if best else {},
+            "best_sim": best_sim if best_sim else {},
+            "best_scorecard": generate_scorecard_data(self, best) if best else None,
+            "best_sim_scorecard": generate_scorecard_data(self, best_sim) if best_sim else None,
+            "advanced": self.get_advanced_statistics(),
+            "rounds": self.get_filtered_rounds("all", "recent", _rounds=rounds),
+            "training": self.get_training_sessions(),
+            "leaks": self.get_stroke_leak_analysis(),
+        }
+
+    def get_stats_bundle(self):
+        rounds = self.get_rounds()
+        best, _ = self.get_best_round(is_sim=False, _rounds=rounds)
+        return {
+            "stats": self.get_statistics(_rounds=rounds),
+            "handicap_index": self.calculate_handicap_index(_rounds=rounds),
+            "advanced": self.get_advanced_statistics(),
+            "leaks": self.get_stroke_leak_analysis(),
+            "differentials": self.get_score_differentials(_rounds=rounds),
+            "best": best if best else {},
+            "club_analytics": self.get_club_analytics(),
+        }
 
     # --- training sessions ---
 

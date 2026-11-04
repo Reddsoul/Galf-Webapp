@@ -250,6 +250,8 @@ function nav(page) {
 
 // Cached static DOM refs — set once in init(), never re-queried.
 let _contentEl, _tabbarEl;
+// Resolves once the initial /api/clubs fetch lands (set in init()).
+let _clubsReady = Promise.resolve();
 // Currently visible page name — lets show() swap only two elements instead of all views.
 let _currentPage = null;
 
@@ -289,9 +291,9 @@ function scoreClass(score, par) {
    HOME — _show_home_page
    ================================================================ */
 // Build inner content for a best-round card. Returns {innerHtml, diff, hasData, idx}.
-async function buildBestCard(bestData) {
+async function buildBestCard(bestData, prefetchedSc) {
   if(!bestData||!bestData.total_score||bestData.id==null) return {innerHtml:'',diff:Infinity,hasData:false,idx:null};
-  const sc=await GET(`/api/rounds/${bestData.id}/scorecard`);
+  const sc=prefetchedSc||await GET(`/api/rounds/${bestData.id}/scorecard`);
   const d=bestData.total_score-(bestData.par||72);
   const ds=d>0?`+${d}`:d===0?'E':`${d}`;
   const dsColor=d>0?'var(--red)':d<0?'var(--green)':'var(--text)';
@@ -405,14 +407,11 @@ function buildActivityMatrix(rounds, training) {
 async function renderHome() {
   const v=document.getElementById('v-home');
   v.innerHTML='<div class="skeleton-card"><div class="skeleton skeleton-num" style="margin:20px auto"></div><div class="skeleton skeleton-line" style="margin:8px 20px"></div><div class="skeleton skeleton-line-sm" style="margin:4px 20px"></div></div>';
-  const [stats,hc,best,bestSim,adv,allRounds,allTraining,leaks]=await Promise.all([
-    GET('/api/stats'), GET('/api/stats/handicap'),
-    GET('/api/stats/best-round'), GET('/api/stats/best-round?sim=true'),
-    GET('/api/stats/advanced'),
-    GET('/api/rounds?round_type=all&sort=recent'),
-    GET('/api/training'),
-    GET('/api/stats/stroke-leaks'),
-  ]);
+  // One request for the whole screen (see /api/home in app.py)
+  const H=await GET('/api/home');
+  const stats=H.stats||{}, hc={handicap_index:H.handicap_index??null};
+  const best=H.best, bestSim=H.best_sim, adv=H.advanced;
+  const allRounds=H.rounds, allTraining=H.training, leaks=H.leaks;
   S.stats=stats; S.handicap=hc.handicap_index;
 
   // Handicap hero
@@ -426,8 +425,8 @@ async function renderHome() {
 
   // Build combined best-round widget (IRL + Sim toggle)
   const [irlCard, simCard] = await Promise.all([
-    buildBestCard(best),
-    buildBestCard(bestSim)
+    buildBestCard(best, H.best_scorecard),
+    buildBestCard(bestSim, H.best_sim_scorecard)
   ]);
   let bestWidgetHtml = '';
   if (irlCard.hasData || simCard.hasData) {
@@ -1531,6 +1530,7 @@ async function deleteTrainingSession(id, btn) {
    ================================================================ */
 async function startLog(){
   // S.clubs is kept current by all club mutators — no need to re-fetch
+  await _clubsReady;
   const [courses,prefs]=await Promise.all([GET('/api/courses'),GET('/api/prefs')]);
   S.courses=courses;
   S.logMode=prefs.entry_mode||'quick';
@@ -3344,14 +3344,13 @@ function svgRing(pct, color, size=80, stroke=7) {
 
 async function renderStats(){
   const v=document.getElementById('v-stats');
+  await _clubsReady;
   if(!_statsCache){
     v.innerHTML='<div class="page-header" style="text-align:right"><div class="page-title">Statistics</div></div><div class="skeleton-card" style="margin:8px 16px"><div class="skeleton skeleton-num" style="margin:20px auto;width:80px;height:80px"></div><div class="skeleton skeleton-line" style="margin:8px 20px"></div><div class="skeleton skeleton-line-sm" style="margin:4px 20px"></div></div>';
-    const [stats,hc,adv,leaks,diffs,best,analytics]=await Promise.all([
-      GET('/api/stats'),GET('/api/stats/handicap'),GET('/api/stats/advanced'),
-      GET('/api/stats/stroke-leaks'),GET('/api/stats/differentials'),GET('/api/stats/best-round'),
-      GET('/api/stats/club-analytics')
-    ]);
-    _statsCache={stats,hc,adv,leaks,diffs,best,analytics};
+    // One request for the whole screen (see /api/stats/bundle in app.py)
+    const B=await GET('/api/stats/bundle');
+    _statsCache={stats:B.stats||{},hc:{handicap_index:B.handicap_index??null},adv:B.advanced,
+      leaks:B.leaks,diffs:B.differentials,best:B.best,analytics:B.club_analytics};
   }
   const {stats,hc,adv,leaks,diffs,best,analytics:cachedAnalytics}=_statsCache;
   const idx=hc.handicap_index;
@@ -4453,7 +4452,7 @@ async function scanSave() {
    Pattern: /static/{name}-96.png (light) or /static/{name}-w-96.png (dark)
    ================================================================ */
 function ico(name) {
-  return `/static/${name}${DARK_MQ.matches?'-w':''}-96.png`;
+  return `/static/${name}${DARK_MQ.matches?'-w':''}-96.png${window.GALF_V?`?v=${window.GALF_V}`:''}`;
 }
 
 function updateTabIcons() {
@@ -4486,6 +4485,22 @@ function _parseSections(raw) {
       return { title, body };
     })
     .filter(s => s.title !== 'Table of Contents');
+}
+
+// marked is only needed by the manual — load it on first open, not on page load.
+// Pinned to the version the old unversioned CDN URL resolved to (15.0.12).
+let _markedLoading = null;
+function _loadMarked() {
+  if (typeof marked !== 'undefined') return Promise.resolve();
+  if (!_markedLoading) {
+    _markedLoading = new Promise(resolve => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js';
+      s.onload = s.onerror = () => resolve();  // on error, _mdToHtml falls back to regex
+      document.head.appendChild(s);
+    });
+  }
+  return _markedLoading;
 }
 
 function _mdToHtml(md) {
@@ -4557,7 +4572,8 @@ async function showManual() {
 
   requestAnimationFrame(() => { backdrop.classList.add('open'); sheet.classList.add('open'); });
 
-  // Load & parse
+  // Load & parse (marked fetched in parallel with the manual text)
+  const markedReady = _loadMarked();
   if (!_manualSections) {
     try {
       const res = await fetch('/api/manual');
@@ -4568,6 +4584,8 @@ async function showManual() {
       return;
     }
   }
+
+  await markedReady;
 
   // Build list
   const list = sheet.querySelector('#manual-section-list');
@@ -4600,7 +4618,8 @@ async function showManual() {
 async function init(){
   _contentEl=document.getElementById('content');
   _tabbarEl=document.getElementById('tabbar');
-  S.clubs=await GET('/api/clubs');
+  // Clubs load in parallel with home; readers (startLog, renderStats) await _clubsReady
+  _clubsReady=GET('/api/clubs').then(c=>{ if(Array.isArray(c)) S.clubs=c; });
   updateTabIcons();
   history.replaceState({page:'home'},'','');
   nav('home');
