@@ -37,9 +37,10 @@ const LEAK_DRILL_MAP = {
    ================================================================ */
 const S = {
   courses:[], clubs:[], handicap:null, editingClub:null,
+  prefs:{theme:'green', ocr_enabled:true, sim_in_handicap:false, entry_mode:'quick'},
   // Log round
   logCourse:null, logTee:null, logHoles:'full_18', logType:'solo',
-  logSerious:true, logMode:'quick', logDate:'',
+  logSerious:true, logMode:'quick', logDate:'', logEditSnap:null, logFillIdxs:null,
   logIsSim:false,
   holesToScore:[], currentHoleIdx:0,
   holeScores:[], holeClubs:[],
@@ -142,6 +143,7 @@ function saveDraft() {
       holeScores: S.holeScores,
       holeClubs: S.holeClubs,
       holeSimPutts: S.holeSimPutts,
+      logFillIdxs: S.logFillIdxs,
     }));
   } catch(e) {}
 }
@@ -187,6 +189,7 @@ function resumeDraft(draft) {
   S.holeScores = draft.holeScores;
   S.holeClubs = draft.holeClubs;
   S.holeSimPutts = draft.holeSimPutts;
+  S.logFillIdxs = draft.logFillIdxs || null;
   buildClubLookups(S.clubUsage);
   show('log-entry');
 }
@@ -206,6 +209,7 @@ const RENDERERS = {
   'training-setup':renderTrainingSetup, training:renderTraining,
   'training-history':renderTrainingHistory,
   'practice-detail':renderPracticeDetail,
+  settings:renderSettings, manual:renderManual,
 };
 
 function navRounds() {
@@ -267,6 +271,17 @@ function scoreClass(score, par) {
   if (d === 0)  return 'sc-par-score';
   if (d === 1)  return 'sc-bogey';
   return 'sc-dbl-bogey';
+}
+
+// Score marker cell. Sim rounds show the strokes the player actually hit
+// (score − auto-rolled putts) with the putt count as a superscript; the
+// birdie/bogey marker still reflects the full hole score vs par.
+function scoreCellHtml(score, par, putts, isSim) {
+  const cls = scoreClass(score, par);
+  if (isSim && putts != null) {
+    return `<div class="sc-cell"><div class="sc-score ${cls}">${score - putts}<sup class="sc-sim-putts">${putts}</sup></div></div>`;
+  }
+  return `<div class="sc-cell"><div class="sc-score ${cls}">${score}</div></div>`;
 }
 
 /* ================================================================
@@ -466,7 +481,7 @@ async function renderHome() {
   v.innerHTML=`
     <div class="home-hero">
       <div class="home-hero-stripe"></div>
-      <button class="manual-info-btn" onclick="showManual()" aria-label="Open manual">Manual</button>
+      <button class="manual-info-btn" onclick="show('settings')" aria-label="Open settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>Settings</button>
       <div class="home-hero-body">
         <div class="home-hero-left">
           <div class="home-hc-label">Handicap Index</div>
@@ -734,8 +749,9 @@ function renderScorecard() {
   const teePill=`<span class="sc-pill"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${teeCSS};border:${teeDotBorder};vertical-align:middle;margin-right:4px"></span>${teeColor} Tees</span>`;
 
   // Build scorecard grids — traditional horizontal format
-  function buildNine(label, pars, scores, yardages, startHole) {
+  function buildNine(label, pars, scores, yardages, startHole, putts) {
     if(!pars||!pars.length) return '';
+    putts=putts||[];
 
     // Header row (hole numbers)
     let holeRow=`<div class="sc-cell sc-cell-header sc-cell-hole"></div>`;
@@ -770,7 +786,7 @@ function renderScorecard() {
       if(s!=null){
         hasScores=true;
         scoreTotal+=s;
-        scoreRow+=`<div class="sc-cell"><div class="sc-score ${scoreClass(s,pars[i])}">${s}</div></div>`;
+        scoreRow+=scoreCellHtml(s,pars[i],putts[i],sc.is_sim);
       } else {
         scoreRow+=`<div class="sc-cell" style="color:var(--text3)">—</div>`;
       }
@@ -787,8 +803,8 @@ function renderScorecard() {
       </div>`;
   }
 
-  const frontGrid=buildNine('FRONT OUT', sc.front_9.pars, sc.front_9.scores, sc.front_9.yardages, 0);
-  const backGrid=buildNine('BACK IN', sc.back_9.pars, sc.back_9.scores, sc.back_9.yardages, 9);
+  const frontGrid=buildNine('FRONT OUT', sc.front_9.pars, sc.front_9.scores, sc.front_9.yardages, 0, sc.front_9.putts);
+  const backGrid=buildNine('BACK IN', sc.back_9.pars, sc.back_9.scores, sc.back_9.yardages, 9, sc.back_9.putts);
 
   // Totals summary row — shown for all completed rounds
   let totalsHtml='';
@@ -816,6 +832,7 @@ function renderScorecard() {
   }
 
   v.innerHTML=`
+    <div class="sc-page">
     <!-- Tee-colored header card -->
     <div class="sc-header-card" style="background:${headerBg};color:${headerFg};border:${headerBorder}">
       <div class="sc-header-stripe" style="background:${teeCSS}"></div>
@@ -826,7 +843,7 @@ function renderScorecard() {
         </div>
         <div class="sc-header-right">
           <div class="sc-header-total">${sc.total_score}</div>
-          <div class="sc-header-diff" style="color:${diffColor}">${ds}</div>
+          <div class="sc-header-diff" style="background:${headerFg==='#FFFFFF'?'rgba(255,255,255,0.22)':'rgba(0,0,0,0.08)'}">${ds==="E"?"Even":ds}<span class="sc-header-diff-lbl">par</span></div>
         </div>
       </div>
       <div class="sc-header-footer" style="border-top-color:${headerFg==='#FFFFFF'?'rgba(255,255,255,0.15)':'rgba(0,0,0,0.1)'}">
@@ -844,6 +861,7 @@ function renderScorecard() {
     <div class="sc-actions">
       <button class="btn btn-red" style="flex:0;padding:10px 20px;font-size:13px;display:flex;align-items:center;gap:6px" onclick="delRound(${S.viewRoundIdx})"><img src="/static/trash-96.png" class="icon-16"> Delete</button>
       <div style="flex:1"></div>
+    </div>
     </div>
   `;
 }
@@ -1531,7 +1549,8 @@ function renderLogSetup() {
   const seriousDisabled=S.logType==='scramble';
   const seriousChecked=S.logSerious&&!seriousDisabled;
 
-  const _draft = getDraft();
+  const editing=!!S.logEditSnap;
+  const _draft = editing ? null : getDraft(); // editing = the draft IS this round
   let _draftBanner = '';
   if(_draft){
     const dc = S.courses.find(c => c.name === _draft.courseName);
@@ -1554,8 +1573,8 @@ function renderLogSetup() {
 
   v.innerHTML=`
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
-      <button class="back-btn" onclick="show('home')" style="margin-bottom:0">‹ Home</button>
-      <div class="page-title">Log Round</div>
+      <button class="back-btn" onclick="${editing?"S.logEditSnap=null;show('log-notes')":"show('home')"}" style="margin-bottom:0">${editing?'‹ Review':'‹ Home'}</button>
+      <div class="page-title">${editing?'Round Settings':'Log Round'}</div>
     </div>
 
     ${_draftBanner}
@@ -1581,7 +1600,7 @@ function renderLogSetup() {
       </div>
       <div class="form-group">
         <div class="form-label">Date</div>
-        <input type="date" class="form-input" id="ls-date" value="${today}">
+        <input type="date" class="form-input" id="ls-date" value="${editing&&S.logDate?S.logDate:today}">
       </div>
     </div>
 
@@ -1608,11 +1627,11 @@ function renderLogSetup() {
           <label for="ls-serious" style="${seriousDisabled?'opacity:0.4':''}">Serious round (counts toward handicap)</label>
         </div>
         <div class="check-row" id="ls-sim-row">
-          <input type="checkbox" id="ls-sim" ${S.logIsSim?'checked':''} onchange="S.logIsSim=this.checked">
-          <label for="ls-sim">Simulator Round</label>
+          <input type="checkbox" id="ls-sim" ${S.logIsSim?'checked':''} ${editing?'disabled':''} onchange="S.logIsSim=this.checked">
+          <label for="ls-sim" style="${editing?'opacity:0.4':''}">Simulator Round${editing?' (locked — scores depend on it)':''}</label>
         </div>
         <div class="form-label" style="font-weight:600;margin:10px 0 6px">Entry Mode</div>
-        <div class="radio-row" id="ls-mode">
+        <div class="radio-row" id="ls-mode" style="${editing?'opacity:0.4;pointer-events:none':''}">
           <button class="radio-opt${S.logMode==='quick'?' active':''}" onclick="setR(this,'ls-mode');S.logMode='quick'">Quick (scores only)</button>
           <button class="radio-opt${S.logMode==='detailed'?' active':''}" onclick="setR(this,'ls-mode');S.logMode='detailed'">Detailed (scores + clubs)</button>
         </div>
@@ -1620,7 +1639,7 @@ function renderLogSetup() {
       `:''}</div>
 
     <div class="card">
-      <button class="btn btn-primary" onclick="beginEntry()">▶ Start Entering Scores</button>
+      <button class="btn btn-primary" onclick="beginEntry()">${editing?'✓ Update Round':'▶ Start Entering Scores'}</button>
     </div>
   `;
 
@@ -1721,6 +1740,17 @@ function csRow(c){
 function csBuildListHtml(query){
   const q=(query||'').trim().toLowerCase();
   let html='';
+  // Editing a round in progress: you can't change club mid-round, but a
+  // multi-nine club (27 holes = three 18-hole combos) may share nines, so
+  // sibling courses at the same club stay pickable. Scores on shared nines
+  // carry over (see beginEntry).
+  const lockClub=S.logEditSnap?(S.logEditSnap.club||''):null;
+  if(lockClub!==null){
+    html+=`<div class="cs-section-label">${esc(lockClub||'Other')} · locked to this club mid-round</div>`;
+    const sib=S.courses.filter(c=>(c.club||'')===lockClub && (!q||c.name.toLowerCase().includes(q)));
+    sib.sort((a,b)=>a.name.localeCompare(b.name));
+    return html+(sib.length?sib.map(csRow).join(''):'<div class="muted-sm" style="padding:18px 16px">No matching courses</div>');
+  }
   // Recent (only when not searching)
   if(!q){
     const recents=(S.logRecentCourses||[]).map(n=>S.courses.find(c=>c.name===n)).filter(Boolean);
@@ -1836,14 +1866,37 @@ async function beginEntry(){
   if(!S.logTee){showAlert('Select a Tee Box','Pick a tee box before starting.');return;}
   S.logDate=document.getElementById('ls-date').value;
   const pars=S.logCourse.pars;
-  if(S.logHoles==='front_9') S.holesToScore=[...Array(9).keys()];
-  else if(S.logHoles==='back_9') S.holesToScore=[...Array(Math.min(9,pars.length-9)).keys()].map(i=>i+9);
-  else S.holesToScore=[...Array(pars.length).keys()];
+  let holes;
+  if(S.logHoles==='front_9') holes=[...Array(9).keys()];
+  else if(S.logHoles==='back_9') holes=[...Array(Math.min(9,pars.length-9)).keys()].map(i=>i+9);
+  else holes=[...Array(pars.length).keys()];
   S.currentHoleIdx=0;
-  S.holeScores=new Array(S.holesToScore.length).fill(null);
-  S.holeClubs=Array.from({length:S.holesToScore.length},()=>[]);
-  // Initialize sim putts array (null = not yet rolled for this hole)
-  S.holeSimPutts=(S.logIsSim&&S.logMode==='detailed')?new Array(S.holesToScore.length).fill(null):null;
+  // Editing settings from the review page: keep entered scores. Sim + entry
+  // mode are locked in the UI (they change what the entered numbers mean);
+  // course picker is locked to the same club. Tee, date, type, serious,
+  // holes and sibling-course changes all preserve what was entered; holes
+  // are remapped by hole number (18 ↔ 9) and by matching nine (course swap).
+  const snap=S.logEditSnap; S.logEditSnap=null;
+  const oldCourse=snap&&S.courses.find(c=>c.name===snap.course);
+  const keep=snap&&oldCourse&&snap.mode===S.logMode&&snap.sim===S.logIsSim&&Array.isArray(S.holeScores);
+  if(keep){
+    const old=S.holesToScore, oScores=S.holeScores, oClubs=S.holeClubs, oPutts=S.holeSimPutts;
+    // Same course → hole numbers map 1:1. Sibling course at the same club →
+    // match nines by pars (+ yardages when a common tee exists), so a shared
+    // nine keeps its scores and an unshared one starts empty.
+    const nineMap=oldCourse.name===S.logCourse.name?null:_matchNines(oldCourse,S.logCourse,S.logTee);
+    const src=h=>{ const oh=nineMap?nineMap(h):h; return oh<0?-1:old.indexOf(oh); };
+    S.holeScores=holes.map(h=>src(h)>=0?oScores[src(h)]:null);
+    S.holeClubs=holes.map(h=>src(h)>=0?[...oClubs[src(h)]]:[]);
+    S.holeSimPutts=S.logIsSim?holes.map(h=>src(h)>=0&&oPutts?oPutts[src(h)]:null):null;
+  } else {
+    S.holeScores=new Array(holes.length).fill(null);
+    S.holeClubs=Array.from({length:holes.length},()=>[]);
+    // Initialize sim putts array (null = not yet rolled for this hole). Both entry
+    // modes auto-roll putts on sim rounds — quick mode takes strokes-to-green input.
+    S.holeSimPutts=S.logIsSim?new Array(holes.length).fill(null):null;
+  }
+  S.holesToScore=holes;
   // Fetch club usage for hole suggestions (Feature 1), then build lookups with usage as tiebreaker
   try{
     const analytics=await GET('/api/stats/club-analytics');
@@ -1851,6 +1904,59 @@ async function beginEntry(){
     for(const c of (analytics.ranked_clubs||[])) S.clubUsage[c.name]=c.count;
   }catch(e){ S.clubUsage={}; }
   buildClubLookups(S.clubUsage);
+  // Editing always lands back on review. Holes left empty by the edit (a new
+  // nine after a course swap, or an extended round) become the fill window, so
+  // tapping through from review only walks those holes.
+  if(keep){
+    const empties=_emptyIdxs();
+    S.logFillIdxs=empties.length&&empties.length<S.holesToScore.length?empties:null;
+    if(S.logFillIdxs) S.currentHoleIdx=S.logFillIdxs[0];
+    saveDraft();
+    show('log-notes');
+    return;
+  }
+  S.logFillIdxs=null;
+  saveDraft();
+  show('log-entry');
+}
+
+// Returns newHole → oldHole (or -1) for two courses at the same club, by
+// matching 9-hole blocks. Pars must be identical; yardages (for `tee`) only
+// break a tie when both old nines have the same pars — separate records of
+// the same physical nine rarely agree on yardage to the yard.
+function _matchNines(oldC,newC,tee){
+  const block=(c,n)=>{
+    const pars=c.pars.slice(n*9,n*9+9); if(pars.length<9) return null;
+    const y=(c.yardages||{})[tee]||[];
+    return {pars:pars.join(','), yds:y.length>=n*9+9?y.slice(n*9,n*9+9):null};
+  };
+  const dist=(a,b)=>(!a.yds||!b.yds)?0:a.yds.reduce((t,v,i)=>t+Math.abs((v||0)-(b.yds[i]||0)),0);
+  const oldN=[0,1].map(n=>block(oldC,n)), newN=[0,1].map(n=>block(newC,n));
+  const used=new Set(), n2o={};
+  for(let i=0;i<2;i++){
+    if(!newN[i]) continue;
+    const cands=[0,1].filter(j=>oldN[j]&&!used.has(j)&&oldN[j].pars===newN[i].pars);
+    if(!cands.length) continue;
+    cands.sort((a,b)=>dist(newN[i],oldN[a])-dist(newN[i],oldN[b]));
+    n2o[i]=cands[0]; used.add(cands[0]);
+  }
+  return h=>{ const j=n2o[Math.floor(h/9)]; return j===undefined?-1:j*9+(h%9); };
+}
+
+// Review page → tap header card: fix round settings, scores survive.
+function editLogSettings(){
+  S.logEditSnap={course:S.logCourse?.name,club:S.logCourse?.club||'',mode:S.logMode,sim:S.logIsSim};
+  show('log-setup');
+}
+// Review page → tap scorecard: back to hole entry. With holes still missing,
+// entry is restricted to those; otherwise the whole round is walkable again.
+function editLogScores(){
+  const empties=_emptyIdxs();
+  if(empties.length&&empties.length<S.holesToScore.length){
+    S.logFillIdxs=empties; S.currentHoleIdx=empties[0];
+  } else {
+    S.logFillIdxs=null; S.currentHoleIdx=0;
+  }
   saveDraft();
   show('log-entry');
 }
@@ -1954,9 +2060,12 @@ function renderLogEntry(){
   const yardages=S.logCourse.yardages?.[S.logTee]||[];
   const yard=yardages[holeNum]||'-';
   const isD=S.logMode==='detailed';
+  const _nl=_navList();
 
-  // Feature 3: Roll sim putts on first load of this hole
-  if(isD&&S.logIsSim&&S.holeSimPutts&&S.holeSimPutts[hi]===null){
+  // Feature 3: Roll sim putts on first load of this hole (both entry modes).
+  // Quick mode only rolls for an unscored hole — a scored hole with no roll is a
+  // forfeit (flat par+2), which must stay put if the draft is resumed here.
+  if(S.logIsSim&&S.holeSimPutts&&S.holeSimPutts[hi]===null&&(isD||S.holeScores[hi]==null)){
     const r=Math.random();
     S.holeSimPutts[hi]=r<0.022?1:r<0.600?2:3;
   }
@@ -1974,7 +2083,12 @@ function renderLogEntry(){
       clubsStr=displayParts.length?displayParts.join(' ▶ '):'Tap clubs in order';
     }
   }
-  else{score=S.holeScores[hi];}
+  else{
+    // Quick mode: the numpad enters strokes to green on sim rounds; auto-rolled
+    // putts are added on top. Real rounds: the entered number is the score.
+    score=S.holeScores[hi];
+    if(score&&_quickSimPutts(hi)!=null) score+=_quickSimPutts(hi);
+  }
   const hasScore = score!=null&&score>0;
   const scoreStr = hasScore ? String(score) : '–';
   let diffStr='';
@@ -2019,7 +2133,7 @@ function renderLogEntry(){
   v.innerHTML=`
     <div class="entry-topbar">
       <div class="entry-hole-num">
-        <div class="entry-hole-label">Hole</div>
+        <div class="entry-hole-label">${S.logFillIdxs?`${_navPos()+1}/${_nl.length}`:'Hole'}</div>
         <div class="entry-hole-digit">${holeNum+1}</div>
       </div>
       <div class="entry-course-info">
@@ -2033,16 +2147,25 @@ function renderLogEntry(){
       <button class="entry-nav-btn" onclick="prevH()">◀</button>
       <div class="entry-center">
         <div class="entry-stroke${hasScore?'':' entry-stroke-empty'}">${scoreStr}</div>
-        ${!hasScore&&!isD?`<div class="entry-no-score-hint">Tap a number to enter score</div>`:''}
+        ${!hasScore&&!isD?`<div class="entry-no-score-hint">${S.logIsSim?'Tap strokes to green — putts added automatically':'Tap a number to enter score'}</div>`:''}
         ${isD?`<div class="entry-clubs-display">${esc(clubsStr)}</div>`:''}
         <div class="entry-diff">${diffStr}</div>
         ${suggestStr?`<div class="entry-suggest">${esc(suggestStr)}</div>`:''}
         ${isD&&S.logIsSim&&S.holeSimPutts&&S.holeSimPutts[hi]!==null?`<div class="entry-sim-putts">Sim putts: ${S.holeSimPutts[hi]}${S.holeClubs[hi].filter(c=>c==='P').length>0?' (overridden)':''}</div>`:''}
+        ${!isD&&hasScore&&_quickSimPutts(hi)!=null?`<div class="entry-sim-putts">${S.holeScores[hi]} to green + ${_quickSimPutts(hi)} sim putts</div>`:''}
       </div>
       <button class="entry-nav-btn" onclick="advanceHole()">▶</button>
     </div>
     ${bottomHtml}
   `;
+}
+
+// Auto-rolled putt count for a quick-mode sim hole, or null when not applicable
+// (real round, not rolled yet, or hole forfeited — forfeits store null so par+2 stands).
+function _quickSimPutts(i){
+  if(S.logMode==='detailed'||!S.logIsSim||!S.holeSimPutts) return null;
+  const p=S.holeSimPutts[i];
+  return p==null?null:p;
 }
 
 function inputScore(n){let c=S.holeScores[S.currentHoleIdx];if(c===null){if(n===0)return;c=n;}else{c=c*10+n;if(c>20)c=n;}if(c===0)return;S.holeScores[S.currentHoleIdx]=c;if(navigator.vibrate)navigator.vibrate(8);saveDraft();renderLogEntry();const el=document.querySelector('.entry-stroke');if(el){el.classList.remove('entry-stroke-pop');void el.offsetWidth;el.classList.add('entry-stroke-pop');}}
@@ -2268,9 +2391,32 @@ function undoClub(){
   }
 }
 
+// A hole counts as played when it has clubs (detailed) or a score (quick).
+function _holeEmpty(i){
+  return S.logMode==='detailed'
+    ? !(S.holeClubs[i]&&S.holeClubs[i].length)
+    : (S.holeScores[i]==null||S.holeScores[i]===0);
+}
+function _emptyIdxs(){
+  const out=[]; for(let i=0;i<S.holesToScore.length;i++) if(_holeEmpty(i)) out.push(i);
+  return out;
+}
+// After a course swap the played nine carries over, so entry is restricted to
+// the holes still missing (S.logFillIdxs). Null = whole round, as normal.
+function _navList(){
+  const w=S.logFillIdxs;
+  return (w&&w.length)?w:S.holesToScore.map((_,i)=>i);
+}
+function _navPos(){
+  const l=_navList(), p=l.indexOf(S.currentHoleIdx);
+  return p<0?0:p;
+}
+
 function prevH(){
   _flushPending();
-  if(S.currentHoleIdx>0){S.currentHoleIdx--;saveDraft();renderLogEntry();}
+  const l=_navList(), p=_navPos();
+  if(p>0){S.currentHoleIdx=l[p-1];saveDraft();renderLogEntry();}
+  else if(S.logFillIdxs) show('log-notes'); // fill mode: back out to review
   else nav('home');
 }
 
@@ -2279,8 +2425,14 @@ function prevH(){
 // round, plain finish on the last hole, otherwise step to the next hole.
 function advanceHole(){
   _flushPending();
-  const hi=S.currentHoleIdx, len=S.holesToScore.length, lastH=hi===len-1;
+  const list=_navList(), pos=_navPos(), hi=S.currentHoleIdx, lastH=pos===list.length-1;
   const pars=S.logCourse.pars;
+  // Filling in a missing nine after a course swap: plain step-through, and the
+  // last hole goes straight back to review with both nines.
+  if(S.logFillIdxs){
+    if(lastH){ S.logFillIdxs=null; checkFinish(); return; }
+    S.currentHoleIdx=list[pos+1]; saveDraft(); renderLogEntry(); return;
+  }
   // Crossing the 9-hole mark of an 18-hole round, back 9 still untouched → summary
   if(!lastH && S.logHoles==='full_18' && hi===8){
     const backUntouched=S.holesToScore.slice(9).every((_,k)=>{
@@ -2293,7 +2445,7 @@ function advanceHole(){
     if((S.logHoles==='front_9'||S.logHoles==='back_9') && pars.length>=18){ showFinishOrExtend(); return; }
     checkFinish(); return;
   }
-  S.currentHoleIdx++; saveDraft(); renderLogEntry();
+  S.currentHoleIdx=list[pos+1]; saveDraft(); renderLogEntry();
 }
 
 // Aggregate score breakdown over holesToScore[start .. start+count).
@@ -2401,7 +2553,13 @@ function computeHoleScores() {
   const isD = S.logMode === 'detailed';
   const course = S.logCourse;
   return S.holesToScore.map((holeNum, i) => {
-    if (!isD) return {score: S.holeScores[i], putts: null, stg: null, allClubs: null};
+    if (!isD) {
+      const entered = S.holeScores[i];
+      const simP = _quickSimPutts(i);
+      // Sim round: entered number is strokes to green, auto-rolled putts added on top.
+      if (entered && simP != null) return {score: entered + simP, putts: simP, stg: entered, allClubs: null};
+      return {score: entered, putts: null, stg: null, allClubs: null};
+    }
     const clubs = [...S.holeClubs[i]];
     const isForfeited = clubs.length === 1 && clubs[0] === 'X';
     if (isForfeited) {
@@ -2445,14 +2603,19 @@ function checkFinish(){
       ()=>{
         for(const i of empties){
           if(isD) S.holeClubs[i]=['X'];
-          else S.holeScores[i]=S.logCourse.pars[S.holesToScore[i]]+2;
+          else {
+            S.holeScores[i]=S.logCourse.pars[S.holesToScore[i]]+2;
+            if(S.holeSimPutts) S.holeSimPutts[i]=null; // forfeit = flat par+2, no sim putts
+          }
         }
+        S.logFillIdxs=null;
         saveDraft();
         show('log-notes');
       }
     );
     return;
   }
+  S.logFillIdxs=null;
   saveDraft();
   show('log-notes');
 }
@@ -2468,22 +2631,24 @@ function renderLogNotes(){
   const headerBg=teeColor==='White'?'#F8F8F8':teeCSS_;
   const headerFg=teeTextColor(headerBg);
 
-  const scores=computeHoleScores().map(h=>h.score??0);
+  const computed=computeHoleScores();
+  const scores=computed.map(h=>h.score??0);
+  const puttsArr=computed.map(h=>h.putts);
   const total=scores.reduce((a,b)=>a+b,0);
   const parTotal=S.holesToScore.reduce((a,hi)=>a+course.pars[hi],0);
   const diff=total-parTotal;
   const ds=diff>0?`+${diff}`:diff===0?'E':`${diff}`;
-  const diffColor=diff>0?'rgba(255,59,48,0.9)':diff<0?'rgba(52,199,89,0.9)':'inherit';
 
   // Build scorecard grids (reuse the buildNine logic from renderScorecard)
   function buildMiniNine(label, startIdx, count) {
-    const pars=[],sc=[],yds=[];
+    const pars=[],sc=[],yds=[],pt_=[];
     const yardages=course.yardages?.[teeColor]||[];
     for(let i=startIdx;i<startIdx+count&&i<course.pars.length;i++){
       pars.push(course.pars[i]);
       // Find this hole in our holesToScore
       const hi=S.holesToScore.indexOf(i);
       sc.push(hi>=0?scores[hi]:null);
+      pt_.push(hi>=0?puttsArr[hi]:null);
       yds.push(yardages[i]||null);
     }
     if(!sc.some(s=>s!=null)) return '';
@@ -2502,7 +2667,7 @@ function renderLogNotes(){
     for(let i=0;i<pars.length;i++){
       const s=sc[i];
       if(s!=null&&s>0){has=true;st+=s;
-        scoreRow+=`<div class="sc-cell"><div class="sc-score ${scoreClass(s,pars[i])}">${s}</div></div>`;}
+        scoreRow+=scoreCellHtml(s,pars[i],pt_[i],S.logIsSim);}
       else scoreRow+=`<div class="sc-cell" style="color:var(--text3)">—</div>`;
     }
     scoreRow+=`<div class="sc-cell sc-cell-total">${has?st:''}</div>`;
@@ -2529,12 +2694,26 @@ function renderLogNotes(){
   const teeDotBorder=teeCSS_==='#FFFFFF'?'1px solid rgba(0,0,0,0.2)':'none';
   const teePill=`<span class="sc-pill"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${teeCSS_};border:${teeDotBorder};vertical-align:middle;margin-right:4px"></span>${teeColor} Tees</span>`;
 
+  // Holes left empty by a settings edit (new nine after a course swap).
+  const missing=_emptyIdxs();
+  const missHtml=missing.length?(()=>{
+    const nums=missing.map(i=>S.holesToScore[i]+1);
+    const rng=nums.length>1?`${nums[0]}–${nums[nums.length-1]}`:`${nums[0]}`;
+    return `<div class="sc-missing" onclick="editLogScores()" role="button">
+      <div>
+        <div class="sc-missing-title">${nums.length} hole${nums.length>1?'s':''} not played yet</div>
+        <div class="sc-missing-sub">Hole${nums.length>1?'s':''} ${rng} on ${esc(course.name)}</div>
+      </div>
+      <span class="sc-missing-cta">Play ▶</span>
+    </div>`;
+  })():'';
+
   v.innerHTML=`
     <div class="page-header">
       <div class="page-title">Review & Save</div>
     </div>
 
-    <div class="sc-header-card" style="background:${headerBg};color:${headerFg};border:${teeColor==='White'?'1px solid var(--sep)':'none'}">
+    <div class="sc-header-card sc-tappable" onclick="editLogSettings()" role="button" title="Change round settings" style="background:${headerBg};color:${headerFg};border:${teeColor==='White'?'1px solid var(--sep)':'none'}">
       <div class="sc-header-stripe" style="background:${teeCSS_}"></div>
       <div class="sc-header-main">
         <div class="sc-header-left">
@@ -2543,7 +2722,7 @@ function renderLogNotes(){
         </div>
         <div class="sc-header-right">
           <div class="sc-header-total">${total}</div>
-          <div class="sc-header-diff" style="color:${diffColor}">${ds}</div>
+          <div class="sc-header-diff" style="background:${headerFg==='#FFFFFF'?'rgba(255,255,255,0.22)':'rgba(0,0,0,0.08)'}">${ds==="E"?"Even":ds}<span class="sc-header-diff-lbl">par</span></div>
         </div>
       </div>
       <div class="sc-header-footer" style="border-top-color:${headerFg==='#FFFFFF'?'rgba(255,255,255,0.15)':'rgba(0,0,0,0.1)'}">
@@ -2551,8 +2730,12 @@ function renderLogNotes(){
       </div>
     </div>
 
-    ${frontGrid}
-    ${backGrid}
+    <div class="sc-tappable" onclick="editLogScores()" role="button" title="Edit scores">
+      ${frontGrid}
+      ${backGrid}
+    </div>
+    ${missHtml}
+    <div class="sc-edit-hint">Tap the header to change settings · tap the scorecard to edit scores</div>
 
     <div class="sc-notes">
       <div class="sc-notes-title">Notes (optional)</div>
@@ -2565,6 +2748,23 @@ function renderLogNotes(){
   `;
 }
 async function submitRound(){
+  // A settings edit can leave holes unplayed; saving them silently would post a
+  // wrong total, so forfeit them explicitly (same rule as the finish flow).
+  const missing=_emptyIdxs();
+  if(missing.length){
+    const nums=missing.map(i=>S.holesToScore[i]+1);
+    showConfirm('Holes Not Played',
+      `Hole${nums.length>1?'s':''} ${nums.slice(0,8).join(', ')}${nums.length>8?' +'+(nums.length-8)+' more':''} ${nums.length>1?'have':'has'} no score. Record each as double bogey (par+2) and save?`,
+      'Forfeit & Save',
+      ()=>{
+        for(const i of missing){
+          if(S.logMode==='detailed') S.holeClubs[i]=['X'];
+          else { S.holeScores[i]=S.logCourse.pars[S.holesToScore[i]]+2; if(S.holeSimPutts) S.holeSimPutts[i]=null; }
+        }
+        S.logFillIdxs=null; saveDraft(); submitRound(); // no re-render: keeps typed notes
+      });
+    return;
+  }
   const btn=document.getElementById('btn-submit-round');
   if(btn){btn.disabled=true;btn.style.opacity='0.6';}
   const course=S.logCourse;
@@ -2572,6 +2772,7 @@ async function submitRound(){
   const scores=computed.map(h=>h.score);
   const det=computed.map(h=>h.allClubs!=null
     ? {score:h.score,putts:h.putts,strokes_to_green:h.stg,clubs_used:h.allClubs.map(c=>S.clubFullNames[c]||c),...(h.penalties?{penalties:h.penalties}:{})}
+    : h.stg!=null ? {score:h.score,putts:h.putts,strokes_to_green:h.stg}
     : {score:h.score});
   const total=scores.reduce((a,b)=>a+b,0);const parP=S.holesToScore.reduce((a,hi)=>a+course.pars[hi],0);
   const fullScores=new Array(course.pars.length).fill(null);const fullDet=new Array(course.pars.length).fill(null).map(()=>({}));
@@ -2665,7 +2866,7 @@ function teeTextColor(cssColor){
   // Design overrides: colors where convention beats pure luminance math.
   // Red (#FF3B30) computes to dark text at 5.5:1, but white on red is the
   // universal golf convention and looks far better in practice.
-  const overrides={'#FF3B30':'#FFFFFF','#34C759':'#FFFFFF'};
+  const overrides={'#FF3B30':'#FFFFFF','#34C759':'#FFFFFF','#007AFF':'#FFFFFF'};
   if(overrides[cssColor]) return overrides[cssColor];
   const[r,g,b]=parseColor(cssColor);
   const L=wcagLuminance(r,g,b);
@@ -2686,7 +2887,9 @@ function teeColorCSS(name){
     'Green':'#34C759',   // bright fairway green, CSS green (#008000) is too dark
     'Silver':'#C7C7CC',  // iOS system gray, CSS silver (#C0C0C0) is close but mismatched
   };
-  if(m[name]) return m[name];
+  // Case-insensitive lookup so legacy lowercase names ("red") still hit the overrides
+  const key=String(name||'').trim().toLowerCase().replace(/\b\w/g,ch=>ch.toUpperCase());
+  if(m[key]) return m[key];
   // For any other name (Purple, Pink, Brown, Maroon, Orange, Teal, etc.)
   // try it as a CSS named color directly — covers ~140 colors automatically.
   if(CSS.supports('color', name.toLowerCase())) return name.toLowerCase();
@@ -2870,7 +3073,7 @@ function renderCourseEditor(){
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <div class="section-head">Course Information</div>
-        ${!c ? `<button class="btn btn-primary" style="width:auto;padding:6px 12px;font-size:12px;display:flex;align-items:center;gap:5px" onclick="openScanForEditor()"><img src="/static/camera-w-96.png" style="width:14px;height:14px;object-fit:contain"> Scan Card</button>` : ''}
+        ${!c && ocrEnabled() ? `<button class="btn btn-primary" style="width:auto;padding:6px 12px;font-size:12px;display:flex;align-items:center;gap:5px" onclick="openScanForEditor()"><img src="/static/camera-w-96.png" style="width:14px;height:14px;object-fit:contain"> Scan Card</button>` : ''}
       </div>
       <div class="form-group">
         <div class="form-label">Course Name</div>
@@ -3071,7 +3274,9 @@ function addTeeBox(){
   refreshCeTeePills();
 }
 
+let _courseSaving=false; // guards Save against double-tap while the POST is in flight
 async function saveCourse(){
+  if(_courseSaving) return;
   const name=document.getElementById('ce-name').value.trim();
   const club=document.getElementById('ce-club').value.trim();
   if(!name){showAlert('Course Name Required','Enter a name for this course.');return;}
@@ -3104,12 +3309,18 @@ async function saveCourse(){
 
   const data={name,club,pars,tee_boxes:teeBoxes,yardages};
 
-  if(S.editCourse) await PUT(`/api/courses/${encodeURIComponent(S.editCourse.name)}`,data);
-  else await POST('/api/courses',data);
-
-  S.courses=await GET('/api/courses');
-  S.viewCourseName=name;
-  show('course-detail');
+  _courseSaving=true;
+  try{
+    const res=S.editCourse
+      ? await PUT(`/api/courses/${encodeURIComponent(S.editCourse.name)}`,data)
+      : await POST('/api/courses',data);
+    if(res&&res.ok===false){showAlert('Save Failed',res.error||'Could not save course.');return;}
+    S.courses=await GET('/api/courses');
+    S.viewCourseName=name;
+    show('course-detail');
+  } finally {
+    _courseSaving=false;
+  }
 }
 
 /* ================================================================
@@ -4048,25 +4259,40 @@ function updateTabIcons() {
 
 DARK_MQ.addEventListener('change', () => {
   updateTabIcons();
+  applyTheme(S.prefs.theme);
   if(_currentPage && RENDERERS[_currentPage]) RENDERERS[_currentPage]();
 });
 
 /* ================================================================
-   MANUAL VIEWER
+   MANUAL — full-page reader (HIG: large titles, inset grouped list,
+   search, back-navigation, prev/next pagination, 17pt body)
    ================================================================ */
-let _manualSections = null; // [{title, body}]
+let _manualSections = null; // [{title, label, num, body, subs:[{level,text,id}]}]
+let _manualIdx = null;      // null = section list, number = open section
+let _manualQuery = '';
+let _manualJumpId = null;   // heading id to scroll to after render
+
+function _slug(t){
+  return String(t).toLowerCase().replace(/<[^>]+>/g,'').replace(/[^a-z0-9\s-]/g,'').trim().replace(/\s+/g,'-');
+}
 
 function _parseSections(raw) {
-  // Strip leading HTML h1 block
   raw = raw.replace(/^<h1>[\s\S]*?<\/h1>\s*/m, '');
-  // Split on ## headers
   const chunks = raw.split(/^## /m).filter(Boolean);
-  return chunks
-    .map(chunk => {
+  return chunks.map(chunk => {
       const nl = chunk.indexOf('\n');
       const title = chunk.slice(0, nl).trim();
       const body  = chunk.slice(nl + 1).trim();
-      return { title, body };
+      const m = title.match(/^(\d+)\.?\s*(.*)$/);
+      const subs = [];
+      for (const line of body.split('\n')) {
+        const h = line.match(/^(#{3,4}) (.+)$/);
+        if (h) {
+          const text = h[2].replace(/^\d+(\.\d+)*\.?\s*/, '').trim();
+          subs.push({ level: h[1].length, text, id: _slug(h[2]) });
+        }
+      }
+      return { title, num: m ? m[1] : '', label: m ? m[2] : title, body, subs, slug: _slug(title) };
     })
     .filter(s => s.title !== 'Table of Contents');
 }
@@ -4099,111 +4325,282 @@ function _mdToHtml(md) {
     .replace(/\n\n/g, '</p><p>');
 }
 
-// Strip leading number "1. " or "1.1 " from section title for display
-function _sectionLabel(title) {
-  return title.replace(/^\d+(\.\d+)*\.?\s*/, '');
+async function _loadManual(){
+  if (_manualSections) return true;
+  try {
+    const markedReady = _loadMarked();  // fetched in parallel with the manual text
+    const res = await fetch('/api/manual');
+    _manualSections = _parseSections(await res.text());
+    await markedReady;
+    return true;
+  } catch(e) { return false; }
 }
 
-async function showManual() {
-  const backdrop = document.createElement('div');
-  backdrop.className = 'manual-backdrop';
-  const sheet = document.createElement('div');
-  sheet.className = 'manual-sheet';
+// Entry point (hero button, settings row, deep links)
+function showManual(idx=null, jumpId=null){
+  _manualIdx = idx; _manualJumpId = jumpId; _manualQuery = '';
+  show('manual');
+}
 
-  sheet.innerHTML = `
-    <div class="manual-drag-handle"></div>
-    <div class="manual-header">
-      <div style="width:52px"></div>
-      <div class="manual-title">Manual</div>
-      <button class="manual-done-btn">Done</button>
-    </div>
-    <div class="manual-sep"></div>
-    <div class="manual-panels">
-      <div class="manual-panel" id="manual-list-panel">
-        <div class="manual-section-list" id="manual-section-list">
-          <div style="color:var(--text2);text-align:center;padding:48px 0;font-size:15px">Loading…</div>
+function openManualSection(i, jumpId=null){
+  _manualIdx = i; _manualJumpId = jumpId;
+  renderManual();
+  _contentEl.scrollTop = 0;
+}
+
+function manualBack(){
+  if (_manualIdx === null) { show('settings'); return; }
+  _manualIdx = null; renderManual(); _contentEl.scrollTop = 0;
+}
+
+// Resolve an in-manual anchor ("#9-settings", "#simulator-auto-putts") to
+// {idx, id}. Section slugs first, then any subsection heading.
+function _manualResolveAnchor(hash){
+  const slug = hash.replace(/^#/, '');
+  let i = _manualSections.findIndex(s => s.slug === slug);
+  if (i >= 0) return { idx: i, id: null };
+  for (i = 0; i < _manualSections.length; i++) {
+    if (_manualSections[i].subs.some(h => h.id === slug)) return { idx: i, id: slug };
+  }
+  return null;
+}
+
+function manualSearch(q){
+  _manualQuery = q;
+  const list = document.getElementById('manual-list');
+  if (list) list.innerHTML = _manualListHtml();
+}
+
+function _manualListHtml(){
+  const q = _manualQuery.trim().toLowerCase();
+  if (!q) {
+    return `<div class="manual-group"><div class="manual-card">${
+      _manualSections.map((s, i) => `
+        <div class="manual-row" onclick="openManualSection(${i})" role="button" tabindex="0">
+          <div class="manual-row-num">${s.num || '•'}</div>
+          <div class="manual-row-text">
+            <div class="manual-row-label">${esc(s.label)}</div>
+            <div class="manual-row-sub">${esc(s.subs.filter(h=>h.level===3).slice(0,3).map(h=>h.text).join(' · ') || 'Overview')}</div>
+          </div>
+          <span class="manual-chevron">›</span>
+        </div>`).join('')
+    }</div></div>`;
+  }
+  // Search: match section labels, subsection headings, and body text
+  const hits = [];
+  _manualSections.forEach((s, i) => {
+    if (s.label.toLowerCase().includes(q)) hits.push({ i, id:null, title:s.label, crumb:`Section ${s.num}` });
+    s.subs.forEach(h => { if (h.text.toLowerCase().includes(q)) hits.push({ i, id:h.id, title:h.text, crumb:s.label }); });
+    if (!s.label.toLowerCase().includes(q)) {
+      const at = s.body.toLowerCase().indexOf(q);
+      if (at >= 0 && !hits.some(h => h.i===i && h.id===null)) {
+        const from = Math.max(0, at - 40);
+        const snippet = s.body.slice(from, at + 60)
+          .replace(/\[([^\]]+)\]\([^)]*\)/g,'$1')   // [text](#link) -> text
+          .replace(/[#*`|>\n-]+/g,' ').replace(/\s+/g,' ').trim();
+        hits.push({ i, id:null, title:s.label, crumb:'…' + snippet + '…' });
+      }
+    }
+  });
+  if (!hits.length) return `<div class="manual-empty">No results for “${esc(_manualQuery)}”</div>`;
+  return `<div class="manual-group"><div class="manual-card">${
+    hits.slice(0, 30).map(h => `
+      <div class="manual-row" onclick="openManualSection(${h.i}${h.id?`,'${h.id}'`:''})" role="button" tabindex="0">
+        <div class="manual-row-text">
+          <div class="manual-row-label">${esc(h.title)}</div>
+          <div class="manual-row-sub">${esc(h.crumb)}</div>
         </div>
+        <span class="manual-chevron">›</span>
+      </div>`).join('')
+  }</div></div>`;
+}
+
+async function renderManual(){
+  const v = document.getElementById('v-manual');
+  if (!_manualSections) {
+    v.innerHTML = `<div class="page-header" style="text-align:right"><div class="page-title">Manual</div></div><div class="hint">Loading…</div>`;
+    const ok = await _loadManual();
+    if (!ok) { v.innerHTML += `<div class="manual-empty" style="color:var(--red)">Could not load manual.</div>`; return; }
+    if (_currentPage !== 'manual') return;
+  }
+
+  // ---- List ----
+  if (_manualIdx === null) {
+    v.innerHTML = `
+      <div class="manual-page">
+        <div class="page-header" style="text-align:right"><div class="page-title">Manual</div></div>
+        <div class="manual-search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+          <input type="search" placeholder="Search the manual" value="${esc(_manualQuery)}" oninput="manualSearch(this.value)" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Search the manual">
+        </div>
+        <div id="manual-list">${_manualListHtml()}</div>
+        <div class="manual-foot">Served live from MANUAL.md — always matches the version you're running.</div>
+      </div>`;
+    return;
+  }
+
+  // ---- Section detail ----
+  const s = _manualSections[_manualIdx];
+  const prev = _manualIdx > 0 ? _manualSections[_manualIdx - 1] : null;
+  const next = _manualIdx < _manualSections.length - 1 ? _manualSections[_manualIdx + 1] : null;
+  const chips = s.subs.filter(h => h.level === 3);
+  v.innerHTML = `
+    <div class="manual-page">
+      <div class="page-header" style="text-align:right">
+        ${s.num ? `<div class="manual-eyebrow">Section ${s.num}</div>` : ''}
+        <div class="page-title">${esc(s.label)}</div>
       </div>
-      <div class="manual-panel off-right" id="manual-detail-panel">
-        <div class="manual-detail" id="manual-detail-body"></div>
+      ${chips.length > 1 ? `<div class="manual-chips" role="navigation" aria-label="On this page">${
+        chips.map(h => `<button class="manual-chip" onclick="manualJump('${h.id}')">${esc(h.text)}</button>`).join('')
+      }</div>` : ''}
+      <article class="manual-detail" id="manual-body">${_mdToHtml(s.body)}</article>
+      <div class="manual-pager">
+        ${prev ? `<button class="manual-pager-btn" onclick="openManualSection(${_manualIdx-1})"><span class="manual-pager-dir">‹ Previous</span><span class="manual-pager-title">${esc(prev.label)}</span></button>` : '<span></span>'}
+        ${next ? `<button class="manual-pager-btn is-next" onclick="openManualSection(${_manualIdx+1})"><span class="manual-pager-dir">Next ›</span><span class="manual-pager-title">${esc(next.label)}</span></button>` : '<span></span>'}
       </div>
     </div>`;
 
-  document.body.appendChild(backdrop);
-  document.body.appendChild(sheet);
-
-  const listPanel   = sheet.querySelector('#manual-list-panel');
-  const detailPanel = sheet.querySelector('#manual-detail-panel');
-  const headerTitle = sheet.querySelector('.manual-title');
-  const doneBtn     = sheet.querySelector('.manual-done-btn');
-
-  const goBack = () => {
-    listPanel.classList.remove('off-left');
-    detailPanel.classList.add('off-right');
-    headerTitle.textContent = 'Manual';
-    doneBtn.textContent = 'Done';
-    doneBtn.removeEventListener('click', goBack);
-    doneBtn.addEventListener('click', close);
-  };
-
-  const close = () => {
-    backdrop.classList.remove('open');
-    sheet.classList.remove('open');
-    setTimeout(() => { backdrop.remove(); sheet.remove(); }, 380);
-  };
-  doneBtn.addEventListener('click', close);
-  backdrop.addEventListener('click', close);
-
-  requestAnimationFrame(() => { backdrop.classList.add('open'); sheet.classList.add('open'); });
-
-  // Load & parse (marked fetched in parallel with the manual text)
-  const markedReady = _loadMarked();
-  if (!_manualSections) {
-    try {
-      const res = await fetch('/api/manual');
-      _manualSections = _parseSections(await res.text());
-    } catch(e) {
-      sheet.querySelector('#manual-section-list').innerHTML =
-        '<p style="color:var(--red);padding:20px">Could not load manual.</p>';
-      return;
-    }
-  }
-
-  await markedReady;
-
-  // Build list
-  const list = sheet.querySelector('#manual-section-list');
-  list.innerHTML = _manualSections.map((s, i) =>
-    `<div class="manual-section-row" data-idx="${i}">
-      <span class="manual-section-label">${esc(_sectionLabel(s.title))}</span>
-      <span class="manual-section-chevron">›</span>
-    </div>`
-  ).join('<div class="manual-sep"></div>');
-
-  list.querySelectorAll('.manual-section-row').forEach(row => {
-    row.addEventListener('click', () => {
-      const s = _manualSections[+row.dataset.idx];
-      sheet.querySelector('#manual-detail-body').innerHTML =
-        `<h2>${esc(_sectionLabel(s.title))}</h2>` + _mdToHtml(s.body);
-      detailPanel.classList.remove('off-right');
-      listPanel.classList.add('off-left');
-      detailPanel.scrollTop = 0;
-      headerTitle.textContent = _sectionLabel(s.title);
-      doneBtn.textContent = '‹ Back';
-      doneBtn.removeEventListener('click', close);
-      doneBtn.addEventListener('click', goBack);
-    });
+  const body = v.querySelector('#manual-body');
+  // Stable heading ids for chips + cross-links
+  body.querySelectorAll('h3,h4').forEach(h => { h.id = _slug(h.textContent); });
+  // Tables scroll sideways instead of breaking the page
+  body.querySelectorAll('table').forEach(t => {
+    const w = document.createElement('div'); w.className = 'manual-table-wrap';
+    t.parentNode.insertBefore(w, t); w.appendChild(t);
   });
+  // In-manual links navigate inside the reader; external ones open a new tab
+  body.querySelectorAll('a[href]').forEach(a => {
+    const href = a.getAttribute('href');
+    if (href.startsWith('#')) {
+      a.addEventListener('click', e => {
+        e.preventDefault();
+        const t = _manualResolveAnchor(href);
+        if (!t) return;
+        if (t.idx === _manualIdx) manualJump(t.id); else openManualSection(t.idx, t.id);
+      });
+    } else { a.target = '_blank'; a.rel = 'noopener'; }
+  });
+
+  if (_manualJumpId) { const id = _manualJumpId; _manualJumpId = null; requestAnimationFrame(() => manualJump(id)); }
+}
+
+function manualJump(id){
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  document.querySelectorAll('.manual-chip').forEach(c => c.classList.toggle('active', c.textContent === el.textContent));
 }
 
 /* ================================================================
-   INIT
+   SETTINGS — theme, OCR toggle, handicap rules, manual
    ================================================================ */
+const THEMES = {
+  green:    { name:'Royal Green', sub:'Fairway green · classic', swatches:['#1B6B3A','#34C759','#EEF2EB'] },
+  burgundy: { name:'Burgundy',    sub:'Deep red · slate ground', swatches:['#8C282A','#5A1E1A','#5B6493'] },
+};
+const THEME_COLOR_META = { green:{light:'#EEF2EB',dark:'#1C1C1E'}, burgundy:{light:'#E8EAF2',dark:'#1A1A1F'} };
+
+// Scan Card is offered only when the setting is on AND the server has an OCR engine
+function ocrEnabled(){ return S.prefs.ocr_enabled !== false; }
+
+function applyTheme(name){
+  const t = THEMES[name] ? name : 'green';
+  if(t==='green') delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = t;
+  try { localStorage.setItem('galf-theme', t); } catch(e){}
+  const meta=document.querySelector('meta[name="theme-color"]');
+  if(meta) meta.content = THEME_COLOR_META[t][DARK_MQ.matches?'dark':'light'];
+}
+
+async function loadPrefs(){
+  const p = await GET('/api/prefs');
+  if(p && !p.error) S.prefs = {...S.prefs, ...p};
+  applyTheme(S.prefs.theme);
+}
+
+// Persist one setting. Server is the source of truth; theme is mirrored to
+// localStorage by applyTheme so the next load paints correctly before the fetch.
+async function savePref(key, value){
+  S.prefs[key]=value;
+  if(key==='theme') applyTheme(value);
+  if(key==='sim_in_handicap') clearStatsCache(); // handicap + eligible counts change
+  const res = await PUT('/api/prefs', {[key]:value});
+  if(res && res.error) showAlert('Save Failed', res.error);
+}
+
+function renderSettings(){
+  const v=document.getElementById('v-settings');
+  const p=S.prefs;
+  const sw=(key,checked,disabled)=>`
+    <label class="switch">
+      <input type="checkbox" ${checked?'checked':''} ${disabled?'disabled':''} onchange="savePref('${key}',this.checked)">
+      <span class="switch-track"></span>
+    </label>`;
+  const themeOpts=Object.entries(THEMES).map(([k,t])=>`
+    <button class="theme-opt${p.theme===k?' active':''}" onclick="savePref('theme','${k}');renderSettings()" aria-pressed="${p.theme===k}">
+      <div class="theme-swatches">${t.swatches.map(c=>`<span class="theme-swatch" style="background:${c}"></span>`).join('')}</div>
+      <div class="theme-opt-name">${t.name}</div>
+      <div class="theme-opt-sub">${t.sub}</div>
+    </button>`).join('');
+
+  v.innerHTML=`
+    <div class="page-header" style="text-align:right"><div class="page-title">Settings</div></div>
+
+    <div class="settings-group">
+      <div class="settings-group-title">Appearance</div>
+      <div class="settings-card">
+        <div class="theme-picker">${themeOpts}</div>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-title">Handicap</div>
+      <div class="settings-card">
+        <div class="settings-row">
+          <div class="settings-row-text">
+            <div class="settings-row-label">Count simulator rounds</div>
+            <div class="settings-row-sub">Serious sim rounds feed your Handicap Index. Off = real rounds only.</div>
+          </div>
+          ${sw('sim_in_handicap', p.sim_in_handicap===true)}
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-title">Courses</div>
+      <div class="settings-card">
+        <div class="settings-row">
+          <div class="settings-row-text">
+            <div class="settings-row-label">Scorecard scanning (OCR)</div>
+            <div class="settings-row-sub">Shows the Scan Card button when adding a course.</div>
+          </div>
+          ${sw('ocr_enabled', p.ocr_enabled!==false)}
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-title">Help</div>
+      <div class="settings-card">
+        <div class="settings-row is-link" onclick="showManual()" role="button" tabindex="0">
+          <div class="settings-row-text">
+            <div class="settings-row-label">Manual</div>
+            <div class="settings-row-sub">Every screen, explained.</div>
+          </div>
+          <span class="settings-chevron">›</span>
+        </div>
+      </div>
+    </div>
+    <div class="settings-version">Galf</div>
+  `;
+}
+
 async function init(){
   _contentEl=document.getElementById('content');
   _tabbarEl=document.getElementById('tabbar');
   // Clubs load in parallel with home; readers (startLog, renderStats) await _clubsReady
   _clubsReady=GET('/api/clubs').then(c=>{ if(Array.isArray(c)) S.clubs=c; });
+  await loadPrefs();
   updateTabIcons();
   history.replaceState({page:'home'},'','');
   nav('home');

@@ -12,7 +12,7 @@ import sys
 from flask import Flask, request, jsonify, render_template, send_from_directory
 
 from models import db, Round
-from Backend import GolfBackend, generate_scorecard_data, _round_to_dict
+from Backend import GolfBackend, generate_scorecard_data, _round_to_dict, normalize_existing_tee_colors, run_migrations, SETTINGS_KEYS
 
 # Scan backend: local vision LLM (llama.cpp / Ollama), stdlib client
 from ocr_llm import LLMScorecardOCR
@@ -47,6 +47,8 @@ with app.app_context():
         with db.engine.connect() as _conn:
             _conn.execute(text("ALTER TABLE clubs ADD COLUMN in_bag INTEGER DEFAULT 1"))
             _conn.commit()
+    run_migrations()
+    normalize_existing_tee_colors()
 
 backend = GolfBackend()
 
@@ -136,6 +138,9 @@ def api_delete_course(name):
 
 @app.route("/api/courses/scan", methods=["POST"])
 def api_scan_scorecard():
+    if not backend.user_prefs.get("ocr_enabled", True):
+        return jsonify({"ok": False, "error": "Scorecard OCR is disabled in Settings"}), 403
+
     if "image" not in request.files:
         return jsonify({"error": "No image uploaded"}), 400
 
@@ -277,15 +282,17 @@ def api_prefs():
 @app.route("/api/prefs", methods=["PUT"])
 def api_update_prefs():
     data = request.get_json() or {}
-    # Only these keys persist (UserPrefs columns) — reject the rest loudly
-    allowed = {"entry_mode", "preferred_tee"}
+    # Only these keys persist — reject the rest loudly
+    allowed = {"entry_mode", "preferred_tee", *SETTINGS_KEYS}
     unknown = set(data) - allowed
     if unknown:
         return jsonify({"ok": False,
                         "error": f"Unknown pref keys: {sorted(unknown)}"}), 400
     backend.user_prefs.update(data)
     backend.save_user_prefs()
-    return jsonify({"ok": True})
+    # Handicap eligibility depends on sim_in_handicap; stats cache holds none
+    # of it, but the client re-fetches home/stats after a prefs change anyway.
+    return jsonify({"ok": True, "prefs": backend.user_prefs})
 
 
 @app.route("/api/manual")

@@ -86,6 +86,9 @@ class UserPrefs(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), primary_key=True)
     entry_mode = db.Column(db.String(50), default="quick")
     preferred_tee = db.Column(db.String(50))
+    # Free-form settings bag (theme, ocr_enabled, sim_in_handicap, ...) so new
+    # toggles don't need a schema change each time.
+    settings = db.Column(JSON)
 
 
 class StatsCache(db.Model):
