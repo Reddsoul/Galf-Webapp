@@ -27,18 +27,16 @@ _setAppH();
 const LEAK_DRILL_MAP = {
   putting:       { cat:'Putting',  drills:["20 in a row from 3'","8/10 from 6'","3 Strikes and You're Out"] },
   putting_avg:   { cat:'Putting',  drills:["10 in a row from 20 ft","10 in a row from 30 ft","8/10 from 50 ft"] },
-  three_putts:   { cat:'Putting',  drills:["10 in a row from 30 ft","8/10 from 50 ft","20 Tee Game"] },
   tee_shots_par3:{ cat:'Irons',    drills:["9 Iron","8 Iron","7 Iron"] },
   approach:      { cat:'Irons',    drills:["7 Iron","6 Iron","5 Iron","4 Iron"] },
   gir:           { cat:'Irons',    drills:["7 Iron","6 Iron","5 Iron"] },
-  scrambling:    { cat:'Chipping', drills:["8/10 — 1st bounce in circle (10 yd carry)","10 in a row from 15 yds","10 in a row from 25 yds"] },
 };
 
 /* ================================================================
    STATE
    ================================================================ */
 const S = {
-  courses:[], clubs:[], handicap:null, stats:null, editingClub:null,
+  courses:[], clubs:[], handicap:null, editingClub:null,
   // Log round
   logCourse:null, logTee:null, logHoles:'full_18', logType:'solo',
   logSerious:true, logMode:'quick', logDate:'',
@@ -49,7 +47,6 @@ const S = {
   clubOptions:[], clubFullNames:{}, distByAbbr:{},
   clubUsage:{}, wedgeMatrix:[],
   logOptionsOpen:false,
-  logClubMap:{},
   // Scorecard
   viewRound:null, viewRoundIdx:null,
   // Course editor
@@ -170,21 +167,6 @@ function clearTrainingDraft() {
 }
 function getTrainingDraft() {
   try { const r = localStorage.getItem(TRAINING_DRAFT_KEY); return r ? JSON.parse(r) : null; } catch(e) { return null; }
-}
-function resumeTrainingDraft() {
-  const draft = getTrainingDraft();
-  if (!draft) return;
-  if (draft.drillStates && draft.drillStates.length === T.drillStates.length) {
-    T.drillStates = draft.drillStates;
-    T.date = draft.date || T.date;
-    T.notes = draft.notes || '';
-    T.selectedCategories = draft.selectedCategories || ['RANGE WARM-UP', 'PUTTING'];
-    T.selectedClubs = draft.selectedClubs || _defaultSelectedClubs();
-    T.activeCatIdx = draft.activeCatIdx || 0;
-    T.wedgeMatrix = draft.wedgeMatrix || {};
-  }
-  clearTrainingDraft();
-  renderTraining();
 }
 
 function resumeDraft(draft) {
@@ -412,7 +394,7 @@ async function renderHome() {
   const stats=H.stats||{}, hc={handicap_index:H.handicap_index??null};
   const best=H.best, bestSim=H.best_sim, adv=H.advanced;
   const allRounds=H.rounds, allTraining=H.training, leaks=H.leaks;
-  S.stats=stats; S.handicap=hc.handicap_index;
+  S.handicap=hc.handicap_index;
 
   // Handicap hero
   const hasHC = S.handicap!==null;
@@ -454,9 +436,6 @@ async function renderHome() {
   const girP3n  = adv?.gir_par3    ?? null;
   const girP4n  = adv?.gir_par4    ?? null;
   const girP5n  = adv?.gir_par5    ?? null;
-  const girP3   = girP3n != null ? girP3n + '%' : '—';
-  const girP4   = girP4n != null ? girP4n + '%' : '—';
-  const girP5   = girP5n != null ? girP5n + '%' : '—';
   const mkBar   = (lbl, n) => `<div class="home-gir-bar-row">
     <span class="home-gir-bar-lbl">${lbl}</span>
     <div class="home-gir-track"><div class="home-gir-fill" style="width:${n ?? 0}%"></div></div>
@@ -929,7 +908,6 @@ async function startTraining() {
           name: drill.name,
           club: (cat.clubs && cat.clubs.length === 1) ? cat.clubs[0] : null,
           resultType: drill.resultType,
-          hint: drill.hint || '',
           completed: false,
           skipped: false,
           result: '',
@@ -1434,7 +1412,6 @@ async function saveTrainingSession() {
             name: drill.name,
             club: (cat.clubs && cat.clubs.length === 1) ? cat.clubs[0] : null,
             resultType: drill.resultType,
-            hint: drill.hint || '',
             completed: false,
             skipped: false,
             result: '',
@@ -1498,7 +1475,7 @@ async function renderTrainingHistory() {
         </div>
         <div style="display:flex;align-items:center;gap:8px">
           <span class="training-session-badge">${done}/${total}</span>
-          <button onclick="deleteTrainingSession(${ts.id},this)" style="background:none;border:none;cursor:pointer;padding:4px"><img src="/static/trash-96.png" style="width:18px;height:18px;object-fit:contain"></button>
+          <button onclick="deleteTrainingSession(${ts.id})" style="background:none;border:none;cursor:pointer;padding:4px"><img src="/static/trash-96.png" style="width:18px;height:18px;object-fit:contain"></button>
         </div>
       </div>
       ${drillDetail}
@@ -1518,7 +1495,7 @@ async function renderTrainingHistory() {
   `;
 }
 
-async function deleteTrainingSession(id, btn) {
+async function deleteTrainingSession(id) {
   showConfirm('Delete Session?', 'This cannot be undone.', 'Delete', async () => {
     await DEL(`/api/training/${id}`);
     renderTrainingHistory();
@@ -1977,7 +1954,6 @@ function renderLogEntry(){
   const yardages=S.logCourse.yardages?.[S.logTee]||[];
   const yard=yardages[holeNum]||'-';
   const isD=S.logMode==='detailed';
-  const lastH=hi===S.holesToScore.length-1;
 
   // Feature 3: Roll sim putts on first load of this hole
   if(isD&&S.logIsSim&&S.holeSimPutts&&S.holeSimPutts[hi]===null){
@@ -2029,7 +2005,7 @@ function renderLogEntry(){
   let bottomHtml='';
   if(isD){
     // Nokia fixed 3×4 keypad (rows 0-2: club cells, row 3: action row)
-    bottomHtml = buildKeypadHtml(lastH);
+    bottomHtml = buildKeypadHtml();
   } else {
     // Quick mode numpad: 1-9, then 0 centered in the middle column (advance via the
     // top ▶ arrow, empty holes are forfeited at finish — same flow as detailed mode)
@@ -2169,19 +2145,18 @@ function buildKeypadCells() {
 }
 
 // Build the full 12-cell keypad HTML (9 club cells + 3 action cells).
-function buildKeypadHtml(lastH) {
+function buildKeypadHtml() {
   const cells = buildKeypadCells();
   let html = '<div class="club-grid-container"><div class="club-grid">';
 
   for (const cell of cells.slice(0, 9)) {
     const isPending = _kpPending && _kpPending.cellKey === cell.key;
-    const isPutter  = false;
     const isEmpty   = !cell.clubs.length;
 
     if (isEmpty) { html += `<button class="club-grid-btn empty-cell" aria-hidden="true"></button>`; continue; }
 
     const activeIdx = isPending ? _kpPending.idx : -1;
-    const cls = ['club-grid-btn', isPutter ? 'is-putter' : '', isPending ? 'is-pending' : ''].filter(Boolean).join(' ');
+    const cls = ['club-grid-btn', isPending ? 'is-pending' : ''].filter(Boolean).join(' ');
     const ariaLabel = cell.clubs.map(c => c.name).join(', ');
 
     // Build flat side-by-side club labels with separator dots
@@ -2280,7 +2255,6 @@ function _cancelPending() {
   _kpPending = null;
 }
 
-function addClub(c){S.holeClubs[S.currentHoleIdx].push(c);saveDraft();renderLogEntry();}
 
 function undoClub(){
   if (_kpPending) {
@@ -2298,10 +2272,6 @@ function prevH(){
   _flushPending();
   if(S.currentHoleIdx>0){S.currentHoleIdx--;saveDraft();renderLogEntry();}
   else nav('home');
-}
-function nextH(){
-  _flushPending();
-  if(S.currentHoleIdx<S.holesToScore.length-1){S.currentHoleIdx++;saveDraft();renderLogEntry();}
 }
 
 // Single advance control (top ▶ arrow + quick-mode Next button).
@@ -2492,7 +2462,6 @@ function checkFinish(){
    ================================================================ */
 function renderLogNotes(){
   const v=document.getElementById('v-log-notes');
-  const isD=S.logMode==='detailed';
   const course=S.logCourse;
   const teeColor=S.logTee||'White';
   const teeCSS_=teeColorCSS(teeColor);
@@ -2878,7 +2847,7 @@ function renderCourseEditor(){
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <div class="form-group" style="flex:1;min-width:70px">
           <div class="form-label">Color</div>
-          <input class="form-input tee-color" value="${t.color}" onchange="onTeeColorRenamed(this)">
+          <input class="form-input tee-color" value="${t.color}" onchange="onTeeColorRenamed()">
         </div>
         <div class="form-group" style="flex:1;min-width:70px">
           <div class="form-label">Rating</div>
@@ -3082,7 +3051,7 @@ function removeTeeEditor(btn){
   refreshCeHoleGrid();
 }
 
-function onTeeColorRenamed(input){
+function onTeeColorRenamed(){
   // When a tee color is changed, refresh the pill selector
   refreshCeTeePills();
   refreshCeHoleGrid();
@@ -3094,7 +3063,7 @@ function addTeeBox(){
   div.className='tee-editor-card';
   div.innerHTML=`<button class="tee-editor-remove" onclick="removeTeeEditor(this)" title="Remove" aria-label="Remove tee box">✕</button>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <div class="form-group" style="flex:1;min-width:70px"><div class="form-label">Color</div><input class="form-input tee-color" value="" onchange="onTeeColorRenamed(this)" placeholder="e.g. Blue"></div>
+      <div class="form-group" style="flex:1;min-width:70px"><div class="form-label">Color</div><input class="form-input tee-color" value="" onchange="onTeeColorRenamed()" placeholder="e.g. Blue"></div>
       <div class="form-group" style="flex:1;min-width:70px"><div class="form-label">Rating</div><input class="form-input tee-rating" value="" type="number" inputmode="decimal" step="0.1"></div>
       <div class="form-group" style="flex:1;min-width:70px"><div class="form-label">Slope</div><input class="form-input tee-slope" value="" type="number" inputmode="numeric"></div>
     </div>`;
@@ -3824,23 +3793,12 @@ async function clubToggleInBag(name){
 
 // Scan state
 let _scanOcr = null;         // raw OCR response from /api/courses/scan
-let _scanStep = 'upload';    // upload | nine-q | multi-q | review
+let _scanStep = 'upload';    // upload | nine-q | review
 let _scanReview = null;      // course data object being reviewed/edited
-let _scanNineChoice = null;  // 'front'|'back'|'full'
-let _scanMultiChoice = null; // 'split'|'combine'
 let _scanEditorMode = false; // true = fill course editor instead of showing review form
 
 // tee color options matching teeColorCSS
 const SCAN_TEE_COLORS = ['Black','Blue','White','Yellow','Red','Gold','Green','Silver'];
-
-function openScan() {
-  _scanEditorMode = false;
-  _scanOcr = null;
-  _scanStep = 'upload';
-  _scanReview = null;
-  show('scan');
-  renderScan();
-}
 
 function openScanForEditor() {
   _scanEditorMode = true;
@@ -3864,7 +3822,6 @@ function _renderScanBody() {
   if (_scanStep === 'upload')   return _renderScanUpload();
   if (_scanStep === 'loading')  return _renderScanLoading();
   if (_scanStep === 'nine-q')   return _renderScanNineQ();
-  if (_scanStep === 'multi-q')  return _renderScanMultiQ();
   if (_scanStep === 'review')   return _renderScanReview();
   return '';
 }
@@ -3872,7 +3829,6 @@ function _renderScanBody() {
 // ── Step 1: Upload ────────────────────────────────────────────────────────────
 
 function _renderScanUpload() {
-  const hasFile = !!(_scanOcr === null && document.getElementById('scan-file-hidden')?.files?.length);
   return `
     <div class="hint">Take a photo of the scorecard or upload an image file.</div>
 
@@ -3922,22 +3878,6 @@ function _renderScanNineQ() {
       <button class="scan-nine-btn" onclick="scanNineChoice('front')">🔵 Front 9 — Holes 1–9</button>
       <button class="scan-nine-btn" onclick="scanNineChoice('back')">🟢 Back 9 — Holes 10–18</button>
       <button class="scan-nine-btn" onclick="scanNineChoice('full')">⚪ It's actually a full 18-hole card</button>
-    </div>
-  `;
-}
-
-// ── Step 4: Multi-course question ─────────────────────────────────────────────
-
-function _renderScanMultiQ() {
-  return `
-    <div class="card" style="margin-top:8px">
-      <div style="font-size:16px;font-weight:600;margin-bottom:6px">Two Layouts Found</div>
-      <div style="font-size:14px;color:var(--text2)">This card appears to show two 9-hole courses. How would you like to save them?</div>
-    </div>
-    <div class="scan-nine-choice">
-      <button class="scan-nine-btn" onclick="scanMultiChoice('combine')"><img src="${ico('golf-course')}" style="width:20px;height:20px;object-fit:contain;vertical-align:middle;margin-right:6px"> One 18-hole course (front + back combined)</button>
-      <button class="scan-nine-btn" onclick="scanMultiChoice('split-1')">🔵 Save first layout only</button>
-      <button class="scan-nine-btn" onclick="scanMultiChoice('split-2')">🟢 Save second layout only</button>
     </div>
   `;
 }
@@ -4161,10 +4101,7 @@ async function scanSubmit() {
     }
 
     // Route to correct next step
-    if (data.multiple_courses?.length >= 2) {
-      _scanStep = 'multi-q';
-      renderScan();
-    } else if (data.nine_hole_card) {
+    if (data.nine_hole_card) {
       _scanStep = 'nine-q';
       renderScan();
     } else if (_scanEditorMode) {
@@ -4182,7 +4119,6 @@ async function scanSubmit() {
 }
 
 function scanNineChoice(choice) {
-  _scanNineChoice = choice;
   const data = _scanOcr;
   const review = (choice === 'full') ? _scanOcrToReview(data) : _scanOcrToReview(data, choice);
   if (_scanEditorMode) {
@@ -4194,60 +4130,12 @@ function scanNineChoice(choice) {
   renderScan();
 }
 
-function scanMultiChoice(choice) {
-  _scanMultiChoice = choice;
-  const data = _scanOcr;
-  let review;
-  if (choice === 'combine') {
-    const a = data.multiple_courses[0];
-    const b = data.multiple_courses[1];
-    const merged = {
-      course_name: a.course_name || b.course_name,
-      club_name: a.club_name || b.club_name,
-      pars: [...(a.pars || []), ...(b.pars || [])],
-      handicaps: [...(a.handicaps || []), ...(b.handicaps || [])],
-      tee_boxes: _mergeTeeBoxes(a.tee_boxes || [], b.tee_boxes || []),
-      nine_hole_card: false,
-    };
-    review = _scanOcrToReview(merged);
-  } else if (choice === 'split-1') {
-    review = _scanOcrToReview(data.multiple_courses[0]);
-  } else {
-    review = _scanOcrToReview(data.multiple_courses[1]);
-  }
-  if (_scanEditorMode) {
-    _fillEditorFromOcr(review);
-    return;
-  }
-  _scanReview = review;
-  _scanStep = 'review';
-  renderScan();
-}
-
-function _mergeTeeBoxes(a, b) {
-  const merged = a.map(ta => {
-    const tb = b.find(t => t.label === ta.label) || {};
-    return {
-      ...ta,
-      yardages: [...(ta.yardages || []), ...(tb.yardages || [])],
-    };
-  });
-  // Add any tees from b not in a
-  for (const tb of b) {
-    if (!merged.find(t => t.label === tb.label)) {
-      merged.push({ ...tb, yardages: [...new Array(a[0]?.yardages?.length || 9).fill(null), ...(tb.yardages || [])] });
-    }
-  }
-  return merged;
-}
-
 function _scanOcrToReview(ocrData, nineChoice) {
   // Clone so review edits don't mutate OCR result
   const d = JSON.parse(JSON.stringify(ocrData));
   if (!nineChoice || nineChoice === 'full') return d;
 
   const offset = nineChoice === 'back' ? 9 : 0;
-  const emptyNine = new Array(9).fill(null);
 
   // Expand pars to 18-hole array
   const pars9 = d.pars || [];
@@ -4358,7 +4246,7 @@ function _fillEditorFromOcr(data) {
           div.className = 'tee-editor-card';
           div.innerHTML = `<button class="tee-editor-remove" onclick="removeTeeEditor(this)" title="Remove">✕</button>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <div class="form-group" style="flex:1;min-width:70px"><div class="form-label">Color</div><input class="form-input tee-color" value="${esc(color)}" onchange="onTeeColorRenamed(this)"></div>
+              <div class="form-group" style="flex:1;min-width:70px"><div class="form-label">Color</div><input class="form-input tee-color" value="${esc(color)}" onchange="onTeeColorRenamed()"></div>
               <div class="form-group" style="flex:1;min-width:70px"><div class="form-label">Rating</div><input class="form-input tee-rating" value="${t.rating != null ? t.rating : ''}" type="number" step="0.1"></div>
               <div class="form-group" style="flex:1;min-width:70px"><div class="form-label">Slope</div><input class="form-input tee-slope" value="${t.slope != null ? t.slope : ''}" type="number"></div>
             </div>`;
