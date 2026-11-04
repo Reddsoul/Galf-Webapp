@@ -552,7 +552,7 @@ async function renderRounds() {
 
   // ── ROUNDS filters ───────────────────────────────────────────────────────
   const [rounds, practiceSessions] = await Promise.all([
-    GET(`/api/rounds?round_type=${roundsFilter}&sort=recent`),
+    GET(`/api/rounds?round_type=${roundsFilter}`),
     roundsFilter === 'all' ? GET('/api/training') : Promise.resolve([]),
   ]);
   if (roundsFilter === 'all') _practiceSessionsCache = practiceSessions;
@@ -1684,7 +1684,7 @@ async function openCourseSheet(){
   // Seed recents from played rounds the first time (existing users have no local list yet)
   if(!S.logRecentCourses.length){
     try{
-      const rounds=await GET('/api/rounds?round_type=all&sort=recent');
+      const rounds=await GET('/api/rounds?round_type=all');
       const seen=new Set(), seed=[];
       for(const rd of (rounds||[])){
         const n=rd.course_name;

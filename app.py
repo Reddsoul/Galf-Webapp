@@ -22,7 +22,6 @@ _ocr_llm = LLMScorecardOCR()
 # App setup
 # ---------------------------------------------------------------------------
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))
-os.chdir(_APP_DIR)  # Backend.py expects data/ relative to cwd
 
 _DATA_PATH = os.environ.get("DATA_PATH", os.path.join(_APP_DIR, "data"))
 _APP_NAME = os.environ.get("APP_NAME", "Galf")
@@ -33,7 +32,6 @@ app = Flask(__name__,
     template_folder=os.path.join(_APP_DIR, "templates"),
     static_folder=_STATIC_DIR)
 
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-me-in-production")
 os.makedirs(_DATA_PATH, exist_ok=True)
 app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{os.path.join(_DATA_PATH, 'galf.db')}"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
@@ -105,11 +103,6 @@ def apple_touch_icon():
     return send_from_directory(_STATIC_DIR, "galf.png", mimetype="image/png")
 
 
-@app.route("/templates/static/<path:filename>")
-def favicon_files(filename):
-    return send_from_directory(_STATIC_DIR, filename)
-
-
 # ---------------------------------------------------------------------------
 # API: Courses
 # ---------------------------------------------------------------------------
@@ -174,8 +167,7 @@ def api_scan_scorecard():
 @app.route("/api/rounds")
 def api_rounds():
     rt = request.args.get("round_type", "all")
-    sort = request.args.get("sort", "recent")
-    return jsonify(backend.get_filtered_rounds(round_type=rt, sort_by=sort))
+    return jsonify(backend.get_filtered_rounds(round_type=rt))
 
 
 @app.route("/api/rounds", methods=["POST"])
@@ -233,42 +225,9 @@ def api_delete_club(name):
 # ---------------------------------------------------------------------------
 # API: Stats
 # ---------------------------------------------------------------------------
-@app.route("/api/stats")
-def api_stats():
-    return jsonify(backend.get_statistics())
-
-
-@app.route("/api/stats/handicap")
-def api_handicap():
-    idx = backend.calculate_handicap_index()
-    return jsonify({"handicap_index": idx})
-
-
-@app.route("/api/stats/differentials")
-def api_differentials():
-    return jsonify(backend.get_score_differentials())
-
-
-@app.route("/api/stats/advanced")
-def api_advanced_stats():
-    return jsonify(backend.get_advanced_statistics())
-
-
 @app.route("/api/stats/club-analytics")
 def api_club_analytics():
     return jsonify(backend.get_club_analytics())
-
-
-@app.route("/api/stats/stroke-leaks")
-def api_stroke_leaks():
-    return jsonify(backend.get_stroke_leak_analysis())
-
-
-@app.route("/api/stats/best-round")
-def api_best_round():
-    is_sim = request.args.get("sim", "false").lower() == "true"
-    best, _ = backend.get_best_round(is_sim=is_sim)
-    return jsonify(best if best else {})
 
 
 @app.route("/api/stats/bundle")
@@ -286,8 +245,7 @@ def api_home():
 # ---------------------------------------------------------------------------
 @app.route("/api/training")
 def api_training():
-    limit = request.args.get("limit", type=int)
-    return jsonify(backend.get_training_sessions(limit=limit))
+    return jsonify(backend.get_training_sessions())
 
 
 @app.route("/api/training", methods=["POST"])

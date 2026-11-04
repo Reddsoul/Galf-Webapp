@@ -15,7 +15,6 @@ EXPOSE 5003
 # stays tiny and runs fine on a 1 GB NAS.
 # Override OCR_LLM_URL with your helper box's LAN IP.
 ENV PORT=5003 \
-    SECRET_KEY=change-me-in-production \
     DATA_PATH=/data \
     APP_NAME=Galf \
     OCR_LLM_URL=http://host.docker.internal:11434/api/chat \

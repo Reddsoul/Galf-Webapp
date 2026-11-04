@@ -76,10 +76,6 @@ class GolfBackend:
             self._user_prefs_cache = self._load_user_prefs()
         return self._user_prefs_cache
 
-    @user_prefs.setter
-    def user_prefs(self, value):
-        self._user_prefs_cache = value
-
     # --- user prefs ---
 
     def _load_user_prefs(self):
@@ -270,7 +266,7 @@ class GolfBackend:
             db.session.commit()
             self.invalidate_stats_cache()
 
-    def get_filtered_rounds(self, round_type="all", sort_by="recent", _rounds=None):
+    def get_filtered_rounds(self, round_type="all", _rounds=None):
         rounds = list(_rounds) if _rounds is not None else self.get_rounds()
 
         if round_type == "solo":
@@ -281,22 +277,8 @@ class GolfBackend:
         elif round_type == "sim":
             rounds = [r for r in rounds if r.get("is_sim")]
 
-        if sort_by == "recent":
-            rounds.sort(key=lambda r: r.get("date", ""), reverse=True)
-        elif sort_by == "best":
-            rounds.sort(key=self._get_score_relative_to_par)
-        elif sort_by == "worst":
-            rounds.sort(key=self._get_score_relative_to_par, reverse=True)
-
+        rounds.sort(key=lambda r: r.get("date", ""), reverse=True)
         return rounds
-
-    def _get_score_relative_to_par(self, round_data):
-        total_score = round_data.get("total_score", 999)
-        total_par = round_data.get("par", 0)
-        if total_par == 0:
-            holes_played = round_data.get("holes_played", 18)
-            total_par = holes_played * 4
-        return total_score - total_par
 
     # --- handicap ---
 
@@ -368,8 +350,6 @@ class GolfBackend:
 
     def _apply_handicap_table(self, sorted_diffs):
         n = len(sorted_diffs)
-        if n < 3:
-            return None
         if n == 3:
             idx = sorted_diffs[0] - 2.0
         elif n == 4:
@@ -402,7 +382,6 @@ class GolfBackend:
             "total": 0, "serious": 0, "solo": 0, "scramble": 0, "sim": 0,
             "holes_18": 0, "holes_9": 0, "all_holes": 0,
             "hc_18": 0, "hc_9": 0, "hc_holes": 0,
-            "serious_18_scores": [], "serious_9_scores": [],
         }
         for r in (_rounds if _rounds is not None else self.get_rounds()):
             counts["total"] += 1
@@ -427,10 +406,8 @@ class GolfBackend:
                 counts["hc_holes"] += holes
                 if holes == 18:
                     counts["hc_18"] += 1
-                    counts["serious_18_scores"].append(r["total_score"])
                 elif holes == 9:
                     counts["hc_9"] += 1
-                    counts["serious_9_scores"].append(r["total_score"])
         return counts
 
     def get_best_round(self, is_sim=False, _rounds=None):
@@ -443,13 +420,12 @@ class GolfBackend:
                           and r.get("round_type", "solo") == "solo"
                           and not r.get("is_sim")]
         if not candidates:
-            return None, None
+            return None
 
         def score_vs_par(r):
             return r["total_score"] - r.get("par", 36 if r.get("holes_played") == 9 else 72)
 
-        best = min(candidates, key=score_vs_par)
-        return best, best["id"]
+        return min(candidates, key=score_vs_par)
 
     def get_score_differentials(self, _rounds=None):
         all_18 = self._handicap_eligible_18s(
@@ -797,8 +773,8 @@ class GolfBackend:
 
     def get_home_bundle(self):
         rounds = self.get_rounds()
-        best, _ = self.get_best_round(is_sim=False, _rounds=rounds)
-        best_sim, _ = self.get_best_round(is_sim=True, _rounds=rounds)
+        best = self.get_best_round(is_sim=False, _rounds=rounds)
+        best_sim = self.get_best_round(is_sim=True, _rounds=rounds)
         return {
             "stats": self.get_statistics(_rounds=rounds),
             "handicap_index": self.calculate_handicap_index(_rounds=rounds),
@@ -807,14 +783,14 @@ class GolfBackend:
             "best_scorecard": generate_scorecard_data(self, best) if best else None,
             "best_sim_scorecard": generate_scorecard_data(self, best_sim) if best_sim else None,
             "advanced": self.get_advanced_statistics(),
-            "rounds": self.get_filtered_rounds("all", "recent", _rounds=rounds),
+            "rounds": self.get_filtered_rounds("all", _rounds=rounds),
             "training": self.get_training_sessions(),
             "leaks": self.get_stroke_leak_analysis(),
         }
 
     def get_stats_bundle(self):
         rounds = self.get_rounds()
-        best, _ = self.get_best_round(is_sim=False, _rounds=rounds)
+        best = self.get_best_round(is_sim=False, _rounds=rounds)
         return {
             "stats": self.get_statistics(_rounds=rounds),
             "handicap_index": self.calculate_handicap_index(_rounds=rounds),
@@ -970,10 +946,8 @@ class GolfBackend:
 
         return categories
 
-    def get_training_sessions(self, limit=None):
+    def get_training_sessions(self):
         q = TrainingSession.query.filter_by(user_id=self.user_id).order_by(TrainingSession.id.desc())
-        if limit:
-            q = q.limit(limit)
         return [_training_to_dict(s) for s in q.all()]
 
     def add_training_session(self, data):

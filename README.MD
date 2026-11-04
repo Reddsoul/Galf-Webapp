@@ -35,7 +35,6 @@ No accounts, no external services, no telemetry. The app runs fully on your own 
 Create a `.env` file in the project root and set at minimum:
 
 ```
-SECRET_KEY=some-random-string-here
 PORT=5003
 ```
 
@@ -68,7 +67,7 @@ pip install flask flask-sqlalchemy pillow
 
 Create a `.env` file with any of the variables below. Defaults work out of the box without one.
 
-The app reads `PORT`, `SECRET_KEY`, `DATA_PATH`, and `APP_NAME` from environment variables.
+The app reads `PORT`, `DATA_PATH`, and `APP_NAME` from environment variables.
 
 ### 3. Run
 
@@ -122,7 +121,6 @@ All config via environment variables (or `.env` file):
 | Variable | Default | Description |
 |---|---|---|
 | `PORT` | `5003` | Port the app listens on (set `PORT=5003` in `.env`) |
-| `SECRET_KEY` | `change-me-in-production` | Flask session secret — change this |
 | `DATA_PATH` | `./data` | Directory for `galf.db` |
 | `APP_NAME` | `Galf` | Name shown in startup banner |
 | `OCR_LLM_URL` | `http://127.0.0.1:11434/api/chat` | Vision-LLM endpoint. Ollama native API (`/api/chat`, recommended) or any OpenAI-compatible `/v1/chat/completions` (llama.cpp, LM Studio). Use a LAN IP when the app runs on a NAS |
