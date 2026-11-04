@@ -488,41 +488,9 @@ If the scan finds only 9 holes of par values, Galf asks which 9 holes the card c
 | **Back 9 — Holes 10–18** | Assigns extracted data to holes 10–18 |
 | **It's actually a full 18-hole card** | Treats all values as 18 holes (use this if the card fits on one page) |
 
-#### Two Layouts Found
-
-If the scan detects two separate 9-hole sections (common on cards that print both nines side by side), Galf asks how to save them:
-
-| Choice | Effect |
-|---|---|
-| **One 18-hole course** | Combines both layouts into a single front+back course |
-| **Save first layout only** | Saves holes from the first column of the card |
-| **Save second layout only** | Saves holes from the second column of the card |
-
-#### Review Screen
-
-The extracted data is shown in an editable form before saving. A **confidence badge** indicates how much of the card was read cleanly:
-
-- **Green (70%+)** — most fields were read correctly; spot-check
-- **Orange (40–69%)** — review carefully; several fields may need correction
-- **Red (below 40%)** — many fields need manual entry; the scan is a rough starting point
-
-Fields highlighted in orange were not read and need to be filled in.
-
-**What you can review and correct:**
-
-- **Course Name** and **Club / Facility** — extracted from text at the top of the card
-- **Tee Boxes** — each detected tee shows color (dropdown), label, rating, and slope
-- **Hole Data table** — rows for Par, Handicap (HCP), and yardages per tee; scroll right to see all holes
-
-Any warnings (unread holes, missing ratings, etc.) appear in an orange banner above the form.
-
-#### Scanning a Second Photo
-
-If the back of the card contains the second 9 holes, tap **Scan another photo (back of card / second 9)** at the bottom of the review screen to upload a second image without losing what was already extracted.
-
 #### Saving
 
-Tap **Save Course** when the data looks correct. The course is added to your library just as if you had entered it by hand.
+The extracted values fill in the Add Course form: course name, club, pars, tee colors, ratings, slopes, and yardages. Check them, correct anything misread, and save the course as you would when entering it by hand.
 
 > Scan Card uses a **local vision LLM**. The model does not run on the box hosting Galf — the photo is sent to an [Ollama](https://ollama.com) (or llama.cpp / LM Studio) server elsewhere on your LAN, set via `OCR_LLM_URL`. With the default `OCR_LLM_KEEP_ALIVE=0`, the model is loaded only for the duration of a scan and unloaded immediately after, so the helper machine's RAM is free between scans. Nothing leaves your network. A scan takes ~15–60 s including the cold model load.
 >

@@ -3793,18 +3793,11 @@ async function clubToggleInBag(name){
 
 // Scan state
 let _scanOcr = null;         // raw OCR response from /api/courses/scan
-let _scanStep = 'upload';    // upload | nine-q | review
-let _scanReview = null;      // course data object being reviewed/edited
-let _scanEditorMode = false; // true = fill course editor instead of showing review form
-
-// tee color options matching teeColorCSS
-const SCAN_TEE_COLORS = ['Black','Blue','White','Yellow','Red','Gold','Green','Silver'];
+let _scanStep = 'upload';    // upload | loading | nine-q
 
 function openScanForEditor() {
-  _scanEditorMode = true;
   _scanOcr = null;
   _scanStep = 'upload';
-  _scanReview = null;
   show('scan');
   renderScan();
 }
@@ -3812,7 +3805,7 @@ function openScanForEditor() {
 function renderScan() {
   const v = document.getElementById('v-scan');
   if (!v) return;
-  const backBtn = _scanEditorMode ? `<button class="back-btn" onclick="show('course-editor')">◀ Add Course</button>` : '';
+  const backBtn = `<button class="back-btn" onclick="show('course-editor')">◀ Add Course</button>`;
   v.innerHTML = `<div class="page-header">${backBtn}<div class="page-title">Scan Scorecard</div></div>` +
     _renderScanBody();
   _scanBindEvents();
@@ -3822,7 +3815,6 @@ function _renderScanBody() {
   if (_scanStep === 'upload')   return _renderScanUpload();
   if (_scanStep === 'loading')  return _renderScanLoading();
   if (_scanStep === 'nine-q')   return _renderScanNineQ();
-  if (_scanStep === 'review')   return _renderScanReview();
   return '';
 }
 
@@ -3878,145 +3870,6 @@ function _renderScanNineQ() {
       <button class="scan-nine-btn" onclick="scanNineChoice('front')">🔵 Front 9 — Holes 1–9</button>
       <button class="scan-nine-btn" onclick="scanNineChoice('back')">🟢 Back 9 — Holes 10–18</button>
       <button class="scan-nine-btn" onclick="scanNineChoice('full')">⚪ It's actually a full 18-hole card</button>
-    </div>
-  `;
-}
-
-// ── Step 5: Review ────────────────────────────────────────────────────────────
-
-function _renderScanReview() {
-  if (!_scanReview) return '<div class="card">No data to review.</div>';
-  const d = _scanReview;
-  const warnings = _scanOcr?.warnings || [];
-  const conf = _scanOcr?.confidence || {};
-  const nHoles = (d.pars || []).length || 18;
-  const holeNums = Array.from({length: nHoles}, (_, i) => i + 1);
-
-  // Confidence badge
-  const o = conf.overall || 0;
-  const confClass = o >= 0.7 ? 'scan-conf-high' : o >= 0.4 ? 'scan-conf-med' : 'scan-conf-low';
-  const confLabel = o >= 0.7 ? `${Math.round(o*100)}% confidence` : o >= 0.4 ? `${Math.round(o*100)}% — review carefully` : `${Math.round(o*100)}% — many fields need correction`;
-
-  // Warnings banner
-  let warnHtml = '';
-  if (warnings.length) {
-    const items = warnings.map(w => `<div class="scan-warning-item">• ${esc(w)}</div>`).join('');
-    warnHtml = `<div class="scan-warning-banner">
-      <div class="scan-warning-title">⚠ ${warnings.length} issue${warnings.length > 1 ? 's' : ''} detected</div>
-      ${items}
-    </div>`;
-  }
-
-  // Tee boxes editor
-  const tees = d.tee_boxes || [];
-  let teesHtml = '';
-  tees.forEach((t, i) => {
-    const colorOpts = SCAN_TEE_COLORS.map(c =>
-      `<option value="${c}" ${(t.color || '') === c ? 'selected' : ''}>${c}</option>`
-    ).join('');
-    teesHtml += `<div class="scan-tee-card" data-tee-idx="${i}">
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">
-        <div class="form-group" style="flex:1;min-width:80px">
-          <div class="form-label">Color</div>
-          <select class="form-select scan-tee-color" style="min-height:44px">
-            <option value="">— unknown —</option>${colorOpts}
-          </select>
-        </div>
-        <div class="form-group" style="flex:1;min-width:80px">
-          <div class="form-label">Label</div>
-          <input class="form-input scan-tee-label" value="${esc(t.label || '')}" placeholder="e.g. Championship" style="min-height:44px">
-        </div>
-        <div class="form-group" style="flex:1;min-width:70px">
-          <div class="form-label">Rating</div>
-          <input class="form-input scan-tee-rating ${t.rating == null ? 'missing' : ''}" type="number" step="0.1" value="${t.rating != null ? t.rating : ''}" placeholder="—" style="min-height:44px">
-        </div>
-        <div class="form-group" style="flex:1;min-width:70px">
-          <div class="form-label">Slope</div>
-          <input class="form-input scan-tee-slope ${t.slope == null ? 'missing' : ''}" type="number" value="${t.slope != null ? t.slope : ''}" placeholder="—" style="min-height:44px">
-        </div>
-      </div>
-    </div>`;
-  });
-  if (!tees.length) {
-    teesHtml = `<div style="font-size:13px;color:var(--text2);padding:8px 0">No tee boxes detected — you can add them manually after saving, or add them in the course editor.</div>`;
-  }
-
-  // Hole data table: rows = tee yardages + pars + handicaps
-  const pars = d.pars || new Array(nHoles).fill('');
-  const hdcps = d.handicaps || new Array(nHoles).fill('');
-
-  const hdrCells = holeNums.map(n => `<th>${n}</th>`).join('');
-  let tableRows = '';
-
-  // Par row
-  const parCells = holeNums.map((n, i) => {
-    const v = pars[i];
-    const miss = (v == null || ![3,4,5].includes(v)) ? ' missing' : '';
-    return `<td><input class="scan-hole-input scan-par-input${miss}" type="number" min="3" max="6" value="${v != null ? v : ''}" placeholder="—" data-hole="${i}"></td>`;
-  }).join('');
-  tableRows += `<tr><td>Par</td>${parCells}</tr>`;
-
-  // Handicap row
-  const hcpCells = holeNums.map((n, i) => {
-    const v = hdcps[i];
-    const miss = (v == null) ? ' missing' : '';
-    return `<td><input class="scan-hole-input scan-hcp-input${miss}" type="number" min="1" max="18" value="${v != null ? v : ''}" placeholder="—" data-hole="${i}"></td>`;
-  }).join('');
-  tableRows += `<tr><td>HCP</td>${hcpCells}</tr>`;
-
-  // Yardage rows per tee
-  tees.forEach((t, ti) => {
-    const yards = t.yardages || [];
-    const teeCells = holeNums.map((n, i) => {
-      const v = yards[i];
-      const miss = (v == null) ? ' missing' : '';
-      return `<td><input class="scan-hole-input scan-yard-input${miss}" type="number" value="${v != null ? v : ''}" placeholder="—" data-tee="${ti}" data-hole="${i}"></td>`;
-    }).join('');
-    const dot = t.color ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${teeColorCSS(t.color)};margin-right:4px"></span>` : '';
-    tableRows += `<tr><td>${dot}${esc(t.label || t.color || `Tee ${ti+1}`)}</td>${teeCells}</tr>`;
-  });
-
-  return `
-    <div class="card" style="margin-top:4px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-        <div class="section-head">Review Extracted Data</div>
-        <span class="scan-conf-badge ${confClass}">${confLabel}</span>
-      </div>
-      <div class="form-group">
-        <div class="form-label">Course Name</div>
-        <input class="form-input ${!d.course_name ? 'missing' : ''}" id="scan-name" value="${esc(d.course_name || '')}" placeholder="Course name" style="min-height:44px">
-      </div>
-      <div class="form-group">
-        <div class="form-label">Club / Facility</div>
-        <input class="form-input" id="scan-club" value="${esc(d.club_name || '')}" placeholder="Club or facility name" style="min-height:44px">
-      </div>
-    </div>
-
-    ${warnHtml}
-
-    <div class="card">
-      <div class="section-head" style="margin-bottom:8px">Tee Boxes</div>
-      <div id="scan-tees-container">${teesHtml}</div>
-    </div>
-
-    <div class="card">
-      <div class="section-head" style="margin-bottom:4px">Hole Data</div>
-      <div style="font-size:11px;color:var(--text2);margin-bottom:8px">Orange = unread / needs review. Scroll right to see all holes.</div>
-      <div class="scan-hole-scroll">
-        <table class="scan-hole-table">
-          <thead><tr><th>Row</th>${hdrCells}</tr></thead>
-          <tbody id="scan-hole-tbody">${tableRows}</tbody>
-        </table>
-      </div>
-    </div>
-
-    <div style="padding:12px 16px;display:flex;gap:8px">
-      <button class="btn btn-primary" style="flex:2;display:flex;align-items:center;justify-content:center;gap:6px" onclick="scanSave()"><img src="/static/save-96.png" class="icon-16"> Save Course</button>
-      <button class="btn" style="flex:1;background:var(--bg)" onclick="nav('courses')">Cancel</button>
-    </div>
-
-    <div style="padding:0 16px 24px">
-      <button class="btn" style="width:100%;background:var(--card);font-size:13px;display:flex;align-items:center;justify-content:center;gap:6px" onclick="scanAddAnotherPhoto()"><img src="${ico('camera')}" style="width:15px;height:15px;object-fit:contain"> Scan another photo (back of card / second 9)</button>
     </div>
   `;
 }
@@ -4084,32 +3937,12 @@ async function scanSubmit() {
 
     _scanOcr = data;
 
-    // If merging a second photo into existing review
-    if (_scanPrevReview) {
-      const prev = _scanPrevReview;
-      _scanPrevReview = null;
-      const newReview = _scanOcrToReview(data);
-      _scanReview = _mergeReviews(prev, newReview);
-      _scanOcr.warnings = [...(prev._warnings || []), ...(data.warnings || [])];
-      if (_scanEditorMode) {
-        _fillEditorFromOcr(_scanReview);
-        return;
-      }
-      _scanStep = 'review';
-      renderScan();
-      return;
-    }
-
     // Route to correct next step
     if (data.nine_hole_card) {
       _scanStep = 'nine-q';
       renderScan();
-    } else if (_scanEditorMode) {
-      _fillEditorFromOcr(_scanOcrToReview(data));
     } else {
-      _scanReview = _scanOcrToReview(data);
-      _scanStep = 'review';
-      renderScan();
+      _fillEditorFromOcr(_scanOcrToCourse(data));
     }
   } catch (err) {
     showAlert('Network Error','Make sure the app is running and try again.');
@@ -4119,19 +3952,10 @@ async function scanSubmit() {
 }
 
 function scanNineChoice(choice) {
-  const data = _scanOcr;
-  const review = (choice === 'full') ? _scanOcrToReview(data) : _scanOcrToReview(data, choice);
-  if (_scanEditorMode) {
-    _fillEditorFromOcr(review);
-    return;
-  }
-  _scanReview = review;
-  _scanStep = 'review';
-  renderScan();
+  _fillEditorFromOcr(_scanOcrToCourse(_scanOcr, choice));
 }
 
-function _scanOcrToReview(ocrData, nineChoice) {
-  // Clone so review edits don't mutate OCR result
+function _scanOcrToCourse(ocrData, nineChoice) {
   const d = JSON.parse(JSON.stringify(ocrData));
   if (!nineChoice || nineChoice === 'full') return d;
 
@@ -4145,14 +3969,6 @@ function _scanOcrToReview(ocrData, nineChoice) {
   }
   d.pars = pars18;
 
-  // Expand handicaps
-  const hcp9 = d.handicaps || [];
-  const hcp18 = new Array(18).fill(null);
-  for (let i = 0; i < 9 && i < hcp9.length; i++) {
-    hcp18[offset + i] = hcp9[i];
-  }
-  d.handicaps = hcp18;
-
   // Expand tee yardages
   for (const tee of d.tee_boxes || []) {
     const y9 = tee.yardages || [];
@@ -4163,62 +3979,12 @@ function _scanOcrToReview(ocrData, nineChoice) {
     tee.yardages = y18;
   }
 
-  d.nine_hole_card = false;
   return d;
 }
-
-// ── Scan more photos (merge additional data) ──────────────────────────────────
-
-function scanAddAnotherPhoto() {
-  // Store current review data and warnings, reset to upload step
-  if (_scanReview) {
-    _scanReview._warnings = _scanOcr?.warnings || [];
-  }
-  _scanPrevReview = _scanReview;
-  _scanFile = null;
-  _scanStep = 'upload';
-  renderScan();
-}
-
-let _scanPrevReview = null;
-
-function _mergeReviews(base, incoming) {
-  const merged = JSON.parse(JSON.stringify(base));
-  // Fill null pars from incoming
-  if (incoming.pars?.length) {
-    merged.pars = merged.pars || [];
-    incoming.pars.forEach((v, i) => { if (v != null && merged.pars[i] == null) merged.pars[i] = v; });
-  }
-  // Fill null handicaps
-  if (incoming.handicaps?.length) {
-    merged.handicaps = merged.handicaps || [];
-    incoming.handicaps.forEach((v, i) => { if (v != null && merged.handicaps[i] == null) merged.handicaps[i] = v; });
-  }
-  // Fill null yardages per tee
-  for (const inTee of (incoming.tee_boxes || [])) {
-    const existing = merged.tee_boxes?.find(t => t.label === inTee.label || t.color === inTee.color);
-    if (existing) {
-      existing.rating = existing.rating ?? inTee.rating;
-      existing.slope = existing.slope ?? inTee.slope;
-      if (inTee.yardages?.length) {
-        existing.yardages = existing.yardages || [];
-        inTee.yardages.forEach((v, i) => { if (v != null && existing.yardages[i] == null) existing.yardages[i] = v; });
-      }
-    } else if (merged.tee_boxes) {
-      merged.tee_boxes.push(inTee);
-    }
-  }
-  // Fill course/club name if missing
-  merged.course_name = merged.course_name || incoming.course_name;
-  merged.club_name = merged.club_name || incoming.club_name;
-  return merged;
-}
-
 
 // ── Fill course editor with OCR data ─────────────────────────────────────────
 
 function _fillEditorFromOcr(data) {
-  _scanEditorMode = false;
   S.editCourse = null;
   show('course-editor');
 
@@ -4262,76 +4028,6 @@ function _fillEditorFromOcr(data) {
       }
     }
   });
-}
-
-// ── Save ──────────────────────────────────────────────────────────────────────
-
-async function scanSave() {
-  const name = (document.getElementById('scan-name')?.value || '').trim();
-  const club = (document.getElementById('scan-club')?.value || '').trim();
-  if (!name) { showAlert('Course Name Required','Enter a name for this course.'); return; }
-
-  // Collect pars
-  const parInputs = document.querySelectorAll('.scan-par-input');
-  const pars = [];
-  parInputs.forEach(inp => {
-    const v = parseInt(inp.value);
-    pars.push(isNaN(v) ? 4 : v);
-  });
-
-  // Collect handicaps
-  const hcpInputs = document.querySelectorAll('.scan-hcp-input');
-  const handicaps = [];
-  hcpInputs.forEach(inp => {
-    const v = parseInt(inp.value);
-    handicaps.push(isNaN(v) ? null : v);
-  });
-
-  // Collect tee boxes + yardages
-  const teeCards = document.querySelectorAll('#scan-tees-container .scan-tee-card');
-  const teeBoxes = [];
-  const yardages = {};
-
-  teeCards.forEach((card, ti) => {
-    const color = card.querySelector('.scan-tee-color')?.value || '';
-    const label = card.querySelector('.scan-tee-label')?.value?.trim() || '';
-    const rating = parseFloat(card.querySelector('.scan-tee-rating')?.value);
-    const slope = parseInt(card.querySelector('.scan-tee-slope')?.value);
-    if (!color && !label) return;
-
-    const teeKey = color || label;
-    if (!isNaN(rating) && !isNaN(slope)) {
-      teeBoxes.push({ color, label, rating, slope });
-    } else {
-      teeBoxes.push({ color, label,
-        rating: isNaN(rating) ? null : rating,
-        slope: isNaN(slope) ? null : slope });
-    }
-
-    // Collect yardages for this tee
-    const yardInputs = document.querySelectorAll(`.scan-yard-input[data-tee="${ti}"]`);
-    const yards = [];
-    yardInputs.forEach(inp => {
-      const v = parseInt(inp.value);
-      yards.push(isNaN(v) ? 0 : v);
-    });
-    if (teeKey) yardages[teeKey] = yards;
-  });
-
-  if (!teeBoxes.length) { showAlert('Add a Tee Box','Add at least one tee box with rating and slope.'); return; }
-  if (pars.length < 9) { showAlert('Need More Holes','A course needs at least 9 holes.'); return; }
-
-  const payload = { name, club, pars, tee_boxes: teeBoxes, yardages };
-
-  try {
-    const res = await POST('/api/courses/scan/confirm', payload);
-    if (res && res.ok === false) { showAlert('Save Failed', res.error || 'Check all required fields and try again.'); return; }
-    S.courses = await GET('/api/courses');
-    S.viewCourseName = name;
-    show('course-detail');
-  } catch (err) {
-    showAlert('Save Failed','Check all required fields and try again.');
-  }
 }
 
 /* ================================================================

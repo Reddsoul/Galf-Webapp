@@ -135,10 +135,7 @@ class LLMScorecardOCR:
             raise RuntimeError(f"Unexpected LLM response shape: {str(body)[:300]}")
 
         raw = self._parse_json_block(text)
-        result = self._coerce(raw)
-        self._validate(result)
-        self._score_confidence(result)
-        return result
+        return self._coerce(raw)
 
     # ── Helpers ───────────────────────────────────────────────────────────
 
@@ -229,47 +226,6 @@ class LLMScorecardOCR:
             "tee_boxes":        tee_boxes,
             "pars":             pars,
             "handicaps":        hcps,
-            "warnings":         [],
-            "confidence":       {"overall": 0.0, "pars": 0.0,
-                                 "ratings": 0.0, "yardages": 0.0},
-        }
-
-    # Validation/confidence for the frontend review screen.
-
-    @staticmethod
-    def _validate(result: dict):
-        w = result.setdefault("warnings", [])
-        n = 9 if result.get("nine_hole_card") else 18
-        pars = result.get("pars", [])
-        if not pars:
-            w.append("No par values extracted")
-        elif len(pars) < n:
-            w.append(f"Only {len(pars)}/{n} par values extracted")
-        if result.get("nine_hole_card"):
-            w.append("Card appears to be 9-hole only")
-        for tee in result.get("tee_boxes", []):
-            lbl = tee.get("label", "?")
-            n_yards = len(tee.get("yardages") or [])
-            if tee.get("rating") is None:
-                w.append(f"No rating/slope for tee: {lbl}")
-            if n_yards < n:
-                w.append(f"Only {n_yards}/{n} yardages for tee: {lbl}")
-
-    @staticmethod
-    def _score_confidence(result: dict):
-        n = 9 if result.get("nine_hole_card") else 18
-        pars = result.get("pars", [])
-        pc = min(1.0, len(pars) / n) if pars else 0.0
-        tees = result.get("tee_boxes", [])
-        yc = (sum(min(1.0, len(t.get("yardages") or []) / n) for t in tees)
-              / len(tees)) if tees else 0.0
-        rc = (sum(1 for t in tees if t.get("rating") and t.get("slope"))
-              / len(tees)) if tees else 0.0
-        result["confidence"] = {
-            "overall":  round(0.40 * yc + 0.35 * pc + 0.25 * rc, 2),
-            "pars":     round(pc, 2),
-            "ratings":  round(rc, 2),
-            "yardages": round(yc, 2),
         }
 
 

@@ -168,18 +168,6 @@ def api_scan_scorecard():
         }), 503
 
 
-@app.route("/api/courses/scan/confirm", methods=["POST"])
-def api_scan_confirm():
-    data = request.get_json()
-    if not data:
-        return jsonify({"error": "No data provided"}), 400
-    try:
-        backend.add_course(data)
-    except (ValueError, KeyError) as e:
-        return jsonify({"ok": False, "error": str(e)}), 400
-    return jsonify({"ok": True})
-
-
 # ---------------------------------------------------------------------------
 # API: Rounds
 # ---------------------------------------------------------------------------
