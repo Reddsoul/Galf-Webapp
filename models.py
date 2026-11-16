@@ -20,6 +20,9 @@ class Course(db.Model):
     club = db.Column(db.String(255))
     name = db.Column(db.String(255), nullable=False)
     pars = db.Column(JSON)
+    # Per-hole handicap (stroke index) as printed on the card, aligned with
+    # pars. None when unknown.
+    hole_hcp = db.Column(JSON)
     tee_boxes = db.relationship("TeeBox", backref="course", cascade="all, delete-orphan")
 
 
@@ -56,6 +59,11 @@ class Round(db.Model):
     notes = db.Column(db.Text)
     scores = db.Column(JSON)
     detailed_stats = db.Column(JSON)
+    # Snapshot of the course at save time so later course edits don't
+    # rewrite history. NULL on rounds saved before migration v2.
+    pars = db.Column(JSON)
+    hole_hcp = db.Column(JSON)
+    course_handicap = db.Column(db.Integer)
 
 
 class Club(db.Model):

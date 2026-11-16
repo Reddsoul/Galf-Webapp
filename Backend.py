@@ -1,3 +1,8 @@
+import math
+import os
+import shutil
+import sys
+from collections import defaultdict
 from statistics import mean
 from datetime import datetime
 
@@ -40,6 +45,9 @@ def _round_to_dict(r):
         "notes": r.notes,
         "scores": r.scores or [],
         "detailed_stats": r.detailed_stats or [],
+        "pars": r.pars,
+        "hole_hcp": r.hole_hcp,
+        "course_handicap": r.course_handicap,
     }
 
 
@@ -59,35 +67,104 @@ DEFAULT_SETTINGS = {
     "ocr_llm_model": "",
     "ocr_llm_api_key": "",      # never sent to the client
     "ocr_llm_verified": False,
+    "show_hole_hcp": True,      # HCP (stroke index) row on scorecards
+    "home_club": "",            # club string shared by the user's home courses
 }
 SETTINGS_KEYS = tuple(DEFAULT_SETTINGS)
 
 
-def run_migrations():
-    """Additive column migrations for existing SQLite files (create_all won't
-    alter existing tables)."""
-    cols = {row[1] for row in db.session.execute(db.text("PRAGMA table_info(user_prefs)"))}
-    if "settings" not in cols:
-        db.session.execute(db.text("ALTER TABLE user_prefs ADD COLUMN settings JSON"))
-        db.session.commit()
-
-
 def normalize_existing_tee_colors():
-    """One-time cleanup: canonicalize tee colors already stored in lowercase."""
+    """One-time cleanup: canonicalize tee colors already stored in lowercase.
+    Raw SQL so it runs before later migrations add ORM-mapped columns."""
     changed = 0
-    for tb in TeeBox.query.all():
-        fixed = normalize_tee_color(tb.color)
-        if fixed != tb.color:
-            tb.color = fixed
-            changed += 1
-    for r in Round.query.all():
-        fixed = normalize_tee_color(r.tee_color or "")
-        if r.tee_color and fixed != r.tee_color:
-            r.tee_color = fixed
-            changed += 1
+    for table, col in (("tee_boxes", "color"), ("rounds", "tee_color")):
+        rows = db.session.execute(db.text(f"SELECT id, {col} FROM {table}")).all()
+        for row_id, color in rows:
+            if not color:
+                continue
+            fixed = normalize_tee_color(color)
+            if fixed != color:
+                db.session.execute(db.text(f"UPDATE {table} SET {col} = :c WHERE id = :i"),
+                                   {"c": fixed, "i": row_id})
+                changed += 1
     if changed:
         db.session.commit()
     return changed
+
+
+def _columns(table):
+    return {row[1] for row in db.session.execute(db.text(f"PRAGMA table_info({table})"))}
+
+
+def _add_column(table, column, decl):
+    if column not in _columns(table):
+        db.session.execute(db.text(f"ALTER TABLE {table} ADD COLUMN {column} {decl}"))
+
+
+def _migrate_v1():
+    """Columns added before versioning existed, plus the one-time tee color
+    cleanup that used to run on every boot."""
+    _add_column("clubs", "in_bag", "INTEGER DEFAULT 1")
+    _add_column("user_prefs", "settings", "JSON")
+    db.session.commit()
+    normalize_existing_tee_colors()
+
+
+def _migrate_v2():
+    """Per-hole handicap on courses, course snapshot on rounds, and one row
+    per (user, course name)."""
+    _add_column("courses", "hole_hcp", "JSON")
+    _add_column("rounds", "pars", "JSON")
+    _add_column("rounds", "hole_hcp", "JSON")
+    _add_column("rounds", "course_handicap", "INTEGER")
+    db.session.commit()
+
+    # Dedupe courses by (user_id, name): keep the lowest id, move tee boxes
+    # it lacks over from the duplicates, then drop the duplicates.
+    dupes = db.session.execute(db.text(
+        "SELECT user_id, name FROM courses GROUP BY user_id, name HAVING COUNT(*) > 1"
+    )).all()
+    for user_id, name in dupes:
+        rows = (Course.query.filter_by(user_id=user_id, name=name)
+                .order_by(Course.id).all())
+        keep, extra = rows[0], rows[1:]
+        have = {tb.color for tb in keep.tee_boxes}
+        for c in extra:
+            for tb in list(c.tee_boxes):
+                if tb.color not in have:
+                    tb.course_id = keep.id
+                    have.add(tb.color)
+            db.session.flush()
+            db.session.expire(c)
+            db.session.delete(c)
+        db.session.commit()
+    db.session.execute(db.text(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_courses_user_name ON courses (user_id, name)"
+    ))
+    db.session.commit()
+
+
+# Ordered ladder: index i migrates user_version i -> i+1. Steps must be
+# idempotent so a crash mid-step is safe to re-run.
+_MIGRATIONS = [_migrate_v1, _migrate_v2]
+SCHEMA_VERSION = len(_MIGRATIONS)
+
+
+def run_migrations(db_path=None):
+    """Bring the SQLite file up to SCHEMA_VERSION (create_all won't alter
+    existing tables). Copies the DB to galf.db.bak-v{N} before migrating."""
+    current = db.session.execute(db.text("PRAGMA user_version")).scalar() or 0
+    if current >= SCHEMA_VERSION:
+        return current
+    has_data = db.session.execute(db.text("SELECT 1 FROM rounds LIMIT 1")).first()
+    if db_path and os.path.exists(db_path) and has_data:
+        shutil.copy2(db_path, f"{db_path}.bak-v{current}")
+    for version in range(current, SCHEMA_VERSION):
+        _MIGRATIONS[version]()
+        db.session.execute(db.text(f"PRAGMA user_version = {version + 1}"))
+        db.session.commit()
+        print(f"[galf] migrated schema to v{version + 1}", file=sys.stderr)
+    return SCHEMA_VERSION
 
 
 def _course_to_dict(c):
@@ -100,6 +177,7 @@ def _course_to_dict(c):
         "name": c.name,
         "club": c.club or "",
         "pars": c.pars or [],
+        "hole_hcp": c.hole_hcp,
         "tee_boxes": tee_boxes,
         "yardages": yardages,
     }
@@ -110,6 +188,100 @@ def _club_to_dict(c):
     if c.partials:
         d["partials"] = c.partials
     return d
+
+
+# ---- WHS helpers ----
+
+def course_handicap(index, slope, rating, par, nine=False, full_par=None):
+    """WHS course handicap: index x slope/113 + (rating - par), rounded.
+
+    9-hole rounds: a rating under 50 is a 9-hole rating and pairs with the
+    9-hole par and half the index; an 18-hole rating gives the 18-hole course
+    handicap halved (same <50 rule as _pair_nine_holes)."""
+    if index is None or not slope or rating is None:
+        return None
+    if nine:
+        if rating < 50:
+            return round(index / 2 * slope / 113 + (rating - par))
+        return round((index * slope / 113 + (rating - (full_par or par * 2))) / 2)
+    return round(index * slope / 113 + (rating - par))
+
+
+def strokes_per_hole(ch, hcps):
+    """Handicap strokes received on each hole (WHS stroke allocation).
+
+    hcps: stroke index of each played hole, in play order. Holes are ranked
+    hardest (lowest index) first; every hole gets ch // n strokes and the
+    ch % n hardest get one more. A plus handicap (ch < 0) gives strokes back
+    on the easiest holes instead."""
+    n = len(hcps)
+    if not n or ch is None:
+        return [0] * n
+    order = sorted(range(n), key=lambda i: hcps[i])
+    out = [0] * n
+    if ch >= 0:
+        base, extra = divmod(ch, n)
+        for rank, i in enumerate(order):
+            out[i] = base + (1 if rank < extra else 0)
+    else:
+        base, extra = divmod(-ch, n)
+        for rank, i in enumerate(reversed(order)):
+            out[i] = -(base + (1 if rank < extra else 0))
+    return out
+
+
+def _is_nine(r):
+    return r.get("holes_choice") in ("front_9", "back_9") or r.get("holes_played") == 9
+
+
+def round_hole_layout(r, course):
+    """(played hole indexes, pars, hole_hcp) for a round. Prefers the round's
+    own snapshot; falls back to the course row for rounds saved before it.
+    hole_hcp is None when unknown or misaligned with pars."""
+    pars = r.get("pars") or (course or {}).get("pars") or []
+    hcp = r.get("hole_hcp") or (course or {}).get("hole_hcp")
+    if hcp and len(hcp) != len(pars):
+        hcp = None
+    scores = r.get("scores") or []
+    holes = [i for i, v in enumerate(scores)
+             if isinstance(v, (int, float)) and not isinstance(v, bool) and i < len(pars)]
+    return holes, pars, hcp
+
+
+def adjusted_gross(r, index, course):
+    """WHS adjusted gross score: each hole capped at net double bogey
+    (par + 2 + strokes received), or par + 5 before an index exists.
+    Rounds without per-hole scores keep their total. Without a hole HCP row,
+    strokes are spread evenly (ceil(ch / n) per hole) — lenient, never harsher
+    than the true cap."""
+    total = r.get("total_score")
+    holes, pars, hcp = round_hole_layout(r, course)
+    if not holes or total is None:
+        return total
+    scores = r["scores"]
+    if index is None:
+        caps = [pars[i] + 5 for i in holes]
+    else:
+        par = sum(pars[i] for i in holes)
+        ch = course_handicap(index, r.get("tee_slope"), r.get("tee_rating"), par,
+                             nine=_is_nine(r), full_par=sum(pars))
+        if ch is None:
+            caps = [pars[i] + 5 for i in holes]
+        elif hcp:
+            given = strokes_per_hole(ch, [hcp[i] for i in holes])
+            caps = [pars[i] + 2 + g for i, g in zip(holes, given)]
+        else:
+            even = math.ceil(ch / len(holes)) if ch > 0 else 0
+            caps = [pars[i] + 2 + even for i in holes]
+    excess = sum(max(0, scores[i] - cap) for i, cap in zip(holes, caps))
+    return total - excess
+
+
+def _differential(score, rating, slope):
+    try:
+        return round((113 * (score - rating)) / slope, 1)
+    except (ZeroDivisionError, TypeError):
+        return None
 
 
 class GolfBackend:
@@ -169,20 +341,65 @@ class GolfBackend:
     # --- courses ---
 
     def get_courses(self):
-        return [
-            _course_to_dict(c)
-            for c in Course.query.options(selectinload(Course.tee_boxes))
-                                 .filter_by(user_id=self.user_id).all()
-        ]
+        played = {
+            name: (last, n)
+            for name, last, n in db.session.query(
+                Round.course_name, db.func.max(Round.date), db.func.count(Round.id)
+            ).filter(Round.user_id == self.user_id).group_by(Round.course_name)
+        }
+        out = []
+        for c in (Course.query.options(selectinload(Course.tee_boxes))
+                  .filter_by(user_id=self.user_id).all()):
+            d = _course_to_dict(c)
+            last, n = played.get(c.name, (None, 0))
+            d["last_played"] = last
+            d["rounds_count"] = n
+            out.append(d)
+        return out
 
     def get_course_by_name(self, name):
         c = (Course.query.options(selectinload(Course.tee_boxes))
              .filter_by(user_id=self.user_id, name=name).first())
         return _course_to_dict(c) if c else None
 
+    @staticmethod
+    def _clean_hole_hcp(raw, n_holes):
+        """Validate a per-hole handicap row. Blank -> None. Otherwise one
+        distinct int 1-18 per hole (9-hole cards often print odds or evens)."""
+        if not raw or all(v in (None, "", 0) for v in raw):
+            return None
+        if not isinstance(raw, list) or len(raw) != n_holes:
+            raise ValueError(f"Hole handicaps must list all {n_holes} holes")
+        vals = []
+        for i, v in enumerate(raw):
+            if isinstance(v, bool) or not isinstance(v, (int, float, str)):
+                raise ValueError(f"Hole {i + 1}: handicap missing")
+            try:
+                iv = int(v)
+            except (TypeError, ValueError):
+                raise ValueError(f"Hole {i + 1}: handicap missing")
+            if not 1 <= iv <= 18:
+                raise ValueError(f"Hole {i + 1}: handicap must be 1-18")
+            vals.append(iv)
+        if len(set(vals)) != len(vals):
+            raise ValueError("Hole handicaps must not repeat")
+        return vals
+
     def _prepare_course_data(self, course_data):
-        par_total = sum(course_data["pars"])
+        name = str(course_data.get("name") or "").strip()
+        if not name:
+            raise ValueError("Course name is required")
+        course_data["name"] = name
+        course_data["club"] = str(course_data.get("club") or "").strip()
+        pars = course_data.get("pars")
+        if (not isinstance(pars, list) or len(pars) < 9
+                or not all(isinstance(p, int) and not isinstance(p, bool) and 3 <= p <= 6 for p in pars)):
+            raise ValueError("Course pars are required (9+ holes, 3-6 each)")
+        course_data["hole_hcp"] = self._clean_hole_hcp(course_data.get("hole_hcp"), len(pars))
+        par_total = sum(pars)
         yardages = course_data.get("yardages") or {}
+        if not isinstance(course_data.get("tee_boxes"), list):
+            raise ValueError("Tee boxes are required")
         for box in course_data["tee_boxes"]:
             # Canonical tee color ("red" -> "Red") so color lookups and round
             # matching are case-stable everywhere.
@@ -194,76 +411,69 @@ class GolfBackend:
             box["handicap"] = round(rating - par_total, 1) if rating is not None else None
         course_data["yardages"] = yardages
 
-    def add_course(self, course_data):
-        name = (course_data.get("name") or "").strip()
-        if not name:
-            raise ValueError("Course name is required")
-        if not course_data.get("pars"):
-            raise ValueError("Course pars are required")
-        course_data["name"] = name
-        if Course.query.filter_by(user_id=self.user_id, name=name).first():
-            raise ValueError(f"Course already exists: {name}")
-        self._prepare_course_data(course_data)
-        # Course name is the identifier used by rounds, PUT and DELETE, so a
-        # second row with the same name (double-tap on Save) must be rejected.
-        existing = Course.query.filter_by(
-            user_id=self.user_id, name=course_data["name"]
-        ).first()
-        if existing:
-            raise ValueError(f"Course already exists: {course_data['name']}")
-        course = Course(
-            user_id=self.user_id,
-            club=course_data.get("club", ""),
-            name=course_data["name"],
-            pars=course_data["pars"],
-        )
-        db.session.add(course)
-        db.session.flush()
+    def _add_tee_boxes(self, course, course_data):
         yardages_map = course_data.get("yardages", {})
         for tb in course_data.get("tee_boxes", []):
-            tee_box = TeeBox(
+            db.session.add(TeeBox(
                 course_id=course.id,
                 color=tb["color"],
                 rating=tb.get("rating"),
                 slope=tb.get("slope"),
                 handicap=tb.get("handicap"),
                 yardages=yardages_map.get(tb["color"], []),
-            )
-            db.session.add(tee_box)
+            ))
+
+    def add_course(self, course_data):
+        self._prepare_course_data(course_data)
+        # Course name is the identifier used by rounds, PUT and DELETE, so a
+        # second row with the same name (double-tap on Save) must be rejected.
+        if Course.query.filter_by(user_id=self.user_id, name=course_data["name"]).first():
+            raise ValueError(f"Course already exists: {course_data['name']}")
+        course = Course(
+            user_id=self.user_id,
+            club=course_data["club"],
+            name=course_data["name"],
+            pars=course_data["pars"],
+            hole_hcp=course_data["hole_hcp"],
+        )
+        db.session.add(course)
+        db.session.flush()
+        self._add_tee_boxes(course, course_data)
         db.session.commit()
+        self.invalidate_stats_cache()
 
     def update_course(self, original_name, course_data):
         self._prepare_course_data(course_data)
         c = Course.query.filter_by(user_id=self.user_id, name=original_name).first()
         if not c:
-            return
+            raise ValueError(f"Course not found: {original_name}")
         new_name = course_data["name"]
         if new_name != original_name:
+            if Course.query.filter_by(user_id=self.user_id, name=new_name).first():
+                raise ValueError(f"Course already exists: {new_name}")
             # Rounds reference courses by name string — cascade the rename
             Round.query.filter_by(
                 user_id=self.user_id, course_name=original_name
             ).update({"course_name": new_name})
-        c.club = course_data.get("club", "")
+        old_club = c.club or ""
+        c.club = course_data["club"]
         c.name = new_name
         c.pars = course_data["pars"]
+        c.hole_hcp = course_data["hole_hcp"]
 
         # Replace tee boxes
         for tb in list(c.tee_boxes):
             db.session.delete(tb)
         db.session.flush()
-
-        yardages_map = course_data.get("yardages", {})
-        for tb in course_data.get("tee_boxes", []):
-            tee_box = TeeBox(
-                course_id=c.id,
-                color=tb["color"],
-                rating=tb.get("rating"),
-                slope=tb.get("slope"),
-                handicap=tb.get("handicap"),
-                yardages=yardages_map.get(tb["color"], []),
-            )
-            db.session.add(tee_box)
+        self._add_tee_boxes(c, course_data)
         db.session.commit()
+
+        # Home club follows a rename once no course is left under the old name
+        home = self.user_prefs.get("home_club") or ""
+        if home and old_club == home and c.club and c.club != home:
+            if not Course.query.filter_by(user_id=self.user_id, club=home).first():
+                self.user_prefs["home_club"] = c.club
+                self.save_user_prefs()
         self.invalidate_stats_cache()
 
     def delete_course(self, name):
@@ -285,14 +495,29 @@ class GolfBackend:
         ]
 
     def add_round(self, round_data):
-        course = self.get_course_by_name(round_data["course_name"])
+        course = self.get_course_by_name(round_data.get("course_name"))
         if not course:
             raise ValueError(f"Course not found: {round_data.get('course_name')}")
         tee_color = normalize_tee_color(round_data.get("tee_color") or "")
         box = next((b for b in course["tee_boxes"] if b["color"] == tee_color), None)
         if not box:
             raise ValueError(f"Tee box not found: {round_data.get('tee_color')}")
+        # A NULL rating/slope or non-int score saves fine but 500s every
+        # handicap/stats read afterwards, so reject it here.
+        if box["rating"] is None or not box["slope"]:
+            raise ValueError(f"Tee box {tee_color} needs a rating and slope")
+        total = round_data.get("total_score")
+        if isinstance(total, bool) or not isinstance(total, int) or not 9 <= total <= 400:
+            raise ValueError("Invalid total_score")
         holes_choice = round_data.get("holes_choice", "full_18")
+        if holes_choice not in ("full_18", "front_9", "back_9"):
+            raise ValueError(f"Invalid holes_choice: {holes_choice}")
+        holes_played = round_data.get("holes_played", 18)
+        if isinstance(holes_played, bool) or not isinstance(holes_played, int) or not 1 <= holes_played <= 18:
+            raise ValueError("Invalid holes_played")
+        scores = round_data.get("scores") or []
+        if not isinstance(scores, list):
+            raise ValueError("scores must be a list")
         pars = course["pars"]
         if holes_choice == "front_9":
             par = sum(pars[:9])
@@ -300,31 +525,42 @@ class GolfBackend:
             par = sum(pars[9:])
         else:
             par = sum(pars)
-        if "date" not in round_data:
+        if not isinstance(round_data.get("date"), str) or not round_data["date"].strip():
             round_data["date"] = datetime.now().strftime("%Y-%m-%d %H:%M")
         # Course handicap (rating - 18-hole par) is an 18-hole quantity;
         # halve it for 9-hole targets
         hcp = box["handicap"] or 0
         if holes_choice in ("front_9", "back_9"):
             hcp = hcp / 2
+        # Course handicap from the index as it stands before this round; drives
+        # stroke dots / net score on the scorecard. None until established.
+        index = self.calculate_handicap_index()
+        ch = None
+        if index is not None:
+            ch = course_handicap(index, box["slope"], box["rating"], par,
+                                 nine=holes_choice in ("front_9", "back_9"),
+                                 full_par=sum(pars))
         row = Round(
             user_id=self.user_id,
-            course_name=round_data["course_name"],
+            course_name=course["name"],
             tee_color=tee_color,
             date=round_data["date"],
-            total_score=round_data["total_score"],
+            total_score=total,
             par=par,
             tee_rating=box["rating"],
             tee_slope=box["slope"],
             target_score=par + round(hcp),
-            holes_played=round_data.get("holes_played", 18),
+            holes_played=holes_played,
             holes_choice=holes_choice,
             round_type=round_data.get("round_type", "solo"),
-            is_serious=round_data.get("is_serious", False),
-            is_sim=round_data.get("is_sim", False),
-            notes=round_data.get("notes", ""),
-            scores=round_data.get("scores", []),
+            is_serious=bool(round_data.get("is_serious", False)),
+            is_sim=bool(round_data.get("is_sim", False)),
+            notes=round_data.get("notes", "") or "",
+            scores=scores,
             detailed_stats=round_data.get("detailed_stats", []),
+            pars=list(pars),
+            hole_hcp=course.get("hole_hcp"),
+            course_handicap=ch,
         )
         db.session.add(row)
         db.session.commit()
@@ -348,17 +584,15 @@ class GolfBackend:
         elif round_type == "sim":
             rounds = [r for r in rounds if r.get("is_sim")]
 
-        rounds.sort(key=lambda r: r.get("date", ""), reverse=True)
+        rounds.sort(key=lambda r: r.get("date") or "", reverse=True)
         return rounds
 
     # --- handicap ---
 
     def calculate_score_differential(self, round_data):
-        try:
-            diff = (113 * (round_data["total_score"] - round_data["tee_rating"])) / round_data["tee_slope"]
-            return round(diff, 1)
-        except (ZeroDivisionError, KeyError):
-            return None
+        """Differential from the raw total (no adjustment)."""
+        return _differential(round_data.get("total_score"),
+                             round_data.get("tee_rating"), round_data.get("tee_slope"))
 
     def _counts_toward_handicap(self, r):
         return (r.get("round_type", "solo") == "solo"
@@ -367,7 +601,6 @@ class GolfBackend:
 
     def _pair_nine_holes(self, rounds_9):
         """Pair front_9 + back_9 from same course+tee into virtual 18-hole dicts."""
-        from collections import defaultdict
         buckets = defaultdict(lambda: {"front": [], "back": []})
         for r in rounds_9:
             choice = r.get("holes_choice", "")
@@ -378,8 +611,8 @@ class GolfBackend:
 
         paired = []
         for (course, tee), halves in buckets.items():
-            fronts = sorted(halves["front"], key=lambda r: r.get("date", ""))
-            backs  = sorted(halves["back"],  key=lambda r: r.get("date", ""))
+            fronts = sorted(halves["front"], key=lambda r: r.get("date") or "")
+            backs  = sorted(halves["back"],  key=lambda r: r.get("date") or "")
             for front, back in zip(fronts, backs):
                 # If individual rating < 50 it's already a 9-hole rating (sum both halves).
                 # If >= 50 it's the full 18-hole rating stored per half (use one copy).
@@ -392,36 +625,86 @@ class GolfBackend:
                     "tee_rating": combined_rating,
                     "tee_slope": front["tee_slope"],
                     "holes_played": 18,
-                    "date": max(front.get("date", ""), back.get("date", "")),
+                    "date": max(front.get("date") or "", back.get("date") or ""),
                     "_paired": True,
                     "_front": front,
                     "_back": back,
                 })
         return paired
 
-    def _handicap_eligible_18s(self, all_rounds):
-        """Solo, serious rounds as 18-hole entries (sim only if opted in).
-        9-hole halves are paired into virtual 18s BEFORE any windowing so a
-        front-9 never loses its back-9 partner to the 20-round cut."""
-        eligible = [
+    def _eligible_rounds(self, all_rounds):
+        """Solo, serious rounds with a usable rating/slope (sim only if opted in)."""
+        return [
             r for r in all_rounds
             if self._counts_toward_handicap(r)
             and r.get("holes_played", 18) in (9, 18)
+            and r.get("tee_rating") is not None and r.get("tee_slope")
+            and isinstance(r.get("total_score"), int)
         ]
+
+    def _handicap_eligible_18s(self, all_rounds):
+        """Eligible rounds as 18-hole entries, oldest first.
+        9-hole halves are paired into virtual 18s BEFORE any windowing so a
+        front-9 never loses its back-9 partner to the 20-round cut."""
+        eligible = self._eligible_rounds(all_rounds)
         rounds_18 = [r for r in eligible if r.get("holes_played", 18) == 18]
         rounds_9  = [r for r in eligible if r.get("holes_played", 18) == 9]
         all_18 = rounds_18 + self._pair_nine_holes(rounds_9)
-        all_18.sort(key=lambda r: r.get("date", ""))
+        all_18.sort(key=lambda r: r.get("date") or "")
         return all_18
+
+    def _course_map(self):
+        return {c["name"]: c for c in self.get_courses()}
+
+    def _differential_series(self, all_rounds):
+        """Walk eligible 18s oldest first. Each round's adjusted gross score
+        uses the index as it stood before that round (par + 5 cap until one
+        exists). Returns [{entry, ags, diff}] in date order."""
+        courses = self._course_map()
+        series, diffs = [], []
+        for r in self._handicap_eligible_18s(all_rounds):
+            recent = diffs[-20:]
+            index = self._apply_handicap_table(sorted(recent)) if len(recent) >= 3 else None
+            if r.get("_paired"):
+                ags = sum(adjusted_gross(h, index, courses.get(h.get("course_name")))
+                          for h in (r["_front"], r["_back"]))
+            else:
+                ags = adjusted_gross(r, index, courses.get(r.get("course_name")))
+            diff = _differential(ags, r["tee_rating"], r["tee_slope"])
+            if diff is None:
+                continue
+            diffs.append(diff)
+            series.append({"entry": r, "ags": ags, "diff": diff})
+        return series
 
     def calculate_handicap_index(self, _rounds=None):
         all_rounds = _rounds if _rounds is not None else self.get_rounds()
         # WHS: last 20 differentials (a paired 9+9 counts as one)
-        recent = self._handicap_eligible_18s(all_rounds)[-20:]
-        diffs = [d for d in (self.calculate_score_differential(r) for r in recent) if d is not None]
+        diffs = [x["diff"] for x in self._differential_series(all_rounds)[-20:]]
         if len(diffs) < 3:
             return None
         return self._apply_handicap_table(sorted(diffs))
+
+    def handicap_progress(self, _rounds=None):
+        """What's missing before an index exists, for the home/stats hero."""
+        all_rounds = _rounds if _rounds is not None else self.get_rounds()
+        series = self._differential_series(all_rounds)
+        n = len(series)
+        nines = [r for r in self._eligible_rounds(all_rounds) if r.get("holes_played") == 9]
+        paired = sum(1 for x in series if x["entry"].get("_paired"))
+        sims_excluded = (not self.user_prefs.get("sim_in_handicap", False)
+                         and any(r.get("is_sim") and r.get("is_serious")
+                                 and r.get("round_type", "solo") == "solo" for r in all_rounds))
+        provisional = None
+        if 1 <= n <= 2:
+            provisional = round(min(x["diff"] for x in series) - 2.0, 1)
+        return {
+            "eligible": n,
+            "needed": max(0, 3 - n),
+            "unpaired_9": len(nines) - 2 * paired,
+            "provisional": provisional,
+            "sims_excluded": sims_excluded,
+        }
 
     def _apply_handicap_table(self, sorted_diffs):
         n = len(sorted_diffs)
@@ -509,26 +792,22 @@ class GolfBackend:
         return min(candidates, key=score_vs_par)
 
     def get_score_differentials(self, _rounds=None):
-        all_18 = self._handicap_eligible_18s(
-            _rounds if _rounds is not None else self.get_rounds())
         diffs = []
-        for r in all_18:
-            diff = self.calculate_score_differential(r)
-            if diff is None:
-                continue
+        for x in self._differential_series(
+                _rounds if _rounds is not None else self.get_rounds()):
+            r = x["entry"]
             if r.get("_paired"):
                 f, b = r["_front"], r["_back"]
                 label = f"{r['course_name']} (F9 {f['total_score']} + B9 {b['total_score']})"
-                score = r["total_score"]
             else:
                 label = r["course_name"]
-                score = r["total_score"]
             diffs.append({
-                "diff": diff,
+                "diff": x["diff"],
                 "course": label,
-                "score": score,
+                "score": r["total_score"],
+                "ags": x["ags"],
                 "holes": 18,
-                "date": r.get("date", "N/A"),
+                "date": r.get("date") or "N/A",
             })
         return sorted(diffs, key=lambda x: x["diff"])
 
@@ -859,6 +1138,7 @@ class GolfBackend:
         return {
             "stats": self.get_statistics(_rounds=rounds),
             "handicap_index": self.calculate_handicap_index(_rounds=rounds),
+            "handicap_progress": self.handicap_progress(_rounds=rounds),
             "best": best if best else {},
             "best_sim": best_sim if best_sim else {},
             "best_scorecard": generate_scorecard_data(self, best) if best else None,
@@ -875,6 +1155,7 @@ class GolfBackend:
         return {
             "stats": self.get_statistics(_rounds=rounds),
             "handicap_index": self.calculate_handicap_index(_rounds=rounds),
+            "handicap_progress": self.handicap_progress(_rounds=rounds),
             "advanced": self.get_advanced_statistics(),
             "leaks": self.get_stroke_leak_analysis(),
             "differentials": self.get_score_differentials(_rounds=rounds),
@@ -1069,7 +1350,18 @@ def _training_to_dict(s):
 # ---- Scorecard Export ----
 def generate_scorecard_data(backend, round_data):
     course = backend.get_course_by_name(round_data["course_name"])
-    pars = course["pars"] if course else [4] * len(round_data.get("scores", []))
+    pars = (round_data.get("pars") or (course["pars"] if course else None)
+            or [4] * len(round_data.get("scores", [])))
+    # Stroke index + strokes received, aligned with pars (None = unknown/unplayed)
+    holes, _, hole_hcp = round_hole_layout(round_data, course)
+    ch = round_data.get("course_handicap")
+    strokes = [None] * len(pars)
+    net_total = None
+    if hole_hcp and ch is not None and holes:
+        for i, g in zip(holes, strokes_per_hole(ch, [hole_hcp[i] for i in holes])):
+            strokes[i] = g
+    if ch is not None and round_data.get("total_score") is not None:
+        net_total = round_data["total_score"] - ch
     yardages = []
     if course:
         tee_color = round_data.get("tee_color", "")
@@ -1107,11 +1399,17 @@ def generate_scorecard_data(backend, round_data):
         "is_sim": round_data.get("is_sim", False),
         "notes": round_data.get("notes", ""),
         "pars": pars,
+        "hole_hcp": hole_hcp,
+        "strokes": strokes,
+        "course_handicap": ch,
+        "net_total": net_total,
         "scores": scores,
         "putts": putts,
         "yardages": yardages,
         "front_9": {
             "pars": front_9_pars,
+            "hole_hcp": hole_hcp[:9] if hole_hcp else [],
+            "strokes": strokes[:9],
             "scores": front_9_scores,
             "putts": front_9_putts,
             "yardages": front_9_yards,
@@ -1121,6 +1419,8 @@ def generate_scorecard_data(backend, round_data):
         },
         "back_9": {
             "pars": back_9_pars,
+            "hole_hcp": hole_hcp[9:18] if hole_hcp else [],
+            "strokes": strokes[9:18],
             "scores": back_9_scores,
             "putts": back_9_putts,
             "yardages": back_9_yards,

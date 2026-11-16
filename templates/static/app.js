@@ -37,7 +37,7 @@ const LEAK_DRILL_MAP = {
    ================================================================ */
 const S = {
   courses:[], clubs:[], handicap:null, editingClub:null,
-  prefs:{theme:'green', ocr_enabled:true, sim_in_handicap:false, entry_mode:'quick'},
+  prefs:{theme:'green', ocr_enabled:true, sim_in_handicap:false, entry_mode:'quick', show_hole_hcp:true, home_club:''},
   // Log round
   logCourse:null, logTee:null, logHoles:'full_18', logType:'solo',
   logSerious:true, logMode:'quick', logDate:'', logEditSnap:null, logFillIdxs:null,
@@ -102,14 +102,49 @@ function showAlert(title, body, btnLabel='OK') {
    API
    ================================================================ */
 async function api(path, opts={}) {
+  let res;
   try {
-    const res = await fetch(path, {headers:{'Content-Type':'application/json',...opts.headers},...opts});
-    const data = await res.json();
-    if (!res.ok && data && typeof data === 'object' && !('ok' in data)) data.ok = false;
-    return data;
+    res = await fetch(path, {headers:{'Content-Type':'application/json',...opts.headers},...opts});
   } catch(e) {
     return {ok: false, error: 'Network error — check your connection'};
   }
+  let data;
+  try { data = await res.json(); }
+  catch(e) {
+    // Non-JSON body (e.g. a Flask 500 HTML page): report the server error,
+    // not a misleading "network error".
+    return {ok: false, error: res.ok ? 'Bad response from server' : `Server error (${res.status})`};
+  }
+  if (!res.ok && data && typeof data === 'object' && !Array.isArray(data) && !('ok' in data)) data.ok = false;
+  return data;
+}
+
+// Error card for a screen whose data request failed; Retry re-runs render.
+function errorCardHtml(err, retryFn){
+  return `<div class="card" style="margin:16px">
+    <div class="section-head">Couldn't load this screen</div>
+    <div style="font-size:13px;color:var(--text2);padding:8px 0 12px">${esc(err||'Unknown error')}</div>
+    <button class="btn btn-primary" onclick="${retryFn}()">Retry</button>
+  </div>`;
+}
+
+// Handicap hero text from the server's handicap_progress (Backend.handicap_progress).
+// Returns {value, pending, label, sub}.
+function handicapHero(index, P){
+  if(index!=null) return {value:index.toFixed(1), pending:false, label:'Handicap Index', sub:''};
+  P=P||{};
+  const n=P.eligible||0, need=P.needed??3;
+  const parts=[];
+  parts.push(n===0
+    ? 'Log 3 serious solo rounds to establish'
+    : `${need} more serious solo round${need===1?'':'s'} to establish`);
+  if(P.unpaired_9) parts.push(`${P.unpaired_9} nine${P.unpaired_9>1?'s':''} waiting for a partner (front + back 9, same course & tee, make one round)`);
+  if(P.sims_excluded) parts.push('Sim rounds count only if enabled in Settings');
+  if(P.provisional!=null){
+    return {value:'~'+P.provisional.toFixed(1), pending:true,
+      label:`Provisional · ${n} of 3 rounds`, sub:parts.join(' · ')};
+  }
+  return {value:'--', pending:true, label:'Handicap Index', sub:parts.join(' · ')};
 }
 const GET=p=>api(p);
 const POST=(p,d)=>api(p,{method:'POST',body:JSON.stringify(d)});
@@ -262,6 +297,9 @@ window.addEventListener('popstate', e => {
 });
 
 function esc(t){return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+// A JS string literal safe inside a double-quoted HTML attribute, e.g.
+// onclick="pick(${jsq(name)})". Handles quotes/apostrophes in names.
+function jsq(t){return esc(JSON.stringify(String(t??'')));}
 
 // Map score-vs-par difference to the correct CSS class for scorecard markers.
 function scoreClass(score, par) {
@@ -276,12 +314,44 @@ function scoreClass(score, par) {
 // Score marker cell. Sim rounds show the strokes the player actually hit
 // (score − auto-rolled putts) with the putt count as a superscript; the
 // birdie/bogey marker still reflects the full hole score vs par.
-function scoreCellHtml(score, par, putts, isSim) {
+// strokes: handicap strokes received on the hole (WHS allocation); drawn as
+// dots in the cell corner. Negative (plus handicap) shows as a "+".
+function strokeDotsHtml(strokes) {
+  if (!strokes) return '';
+  if (strokes < 0) return `<span class="sc-stroke-dots" aria-label="gives a stroke">+</span>`;
+  return `<span class="sc-stroke-dots" aria-label="${strokes} handicap stroke${strokes>1?'s':''}">${'<i></i>'.repeat(Math.min(strokes,3))}</span>`;
+}
+function scoreCellHtml(score, par, putts, isSim, strokes) {
   const cls = scoreClass(score, par);
+  const dots = strokeDotsHtml(strokes);
   if (isSim && putts != null) {
-    return `<div class="sc-cell"><div class="sc-score ${cls}">${score - putts}<sup class="sc-sim-putts">${putts}</sup></div></div>`;
+    return `<div class="sc-cell sc-cell-pos">${dots}<div class="sc-score ${cls}">${score - putts}<sup class="sc-sim-putts">${putts}</sup></div></div>`;
   }
-  return `<div class="sc-cell"><div class="sc-score ${cls}">${score}</div></div>`;
+  return `<div class="sc-cell sc-cell-pos">${dots}<div class="sc-score ${cls}">${score}</div></div>`;
+}
+
+// HCP (stroke index) row for a 9-hole scorecard grid; '' when hidden/unknown.
+function hcpRowHtml(hcps, n) {
+  if (!S.prefs.show_hole_hcp || !hcps || !hcps.length) return '';
+  let row = `<div class="sc-cell sc-cell-header sc-cell-hcp">HCP</div>`;
+  for (let i = 0; i < n; i++) row += `<div class="sc-cell sc-cell-hcp">${hcps[i] ?? ''}</div>`;
+  return row + `<div class="sc-cell sc-cell-total sc-cell-hcp"></div>`;
+}
+
+// Flip the HCP row on scorecards; persisted as a pref.
+function toggleHoleHcp(rerender) {
+  const saving = savePref('show_hole_hcp', !S.prefs.show_hole_hcp);
+  rerender();
+  return saving;
+}
+
+// Home club: every course whose club string matches is a home course.
+function isHomeClub(club) { return !!club && club === (S.prefs.home_club || ''); }
+function homeBadge(club) { return isHomeClub(club) ? '<span class="home-badge" title="Home club">★ Home</span>' : ''; }
+function setHomeClub(club, rerender) {
+  const saving = savePref('home_club', club || '');
+  if (rerender) rerender();
+  return saving;
 }
 
 /* ================================================================
@@ -406,19 +476,15 @@ async function renderHome() {
   v.innerHTML='<div class="skeleton-card"><div class="skeleton skeleton-num" style="margin:20px auto"></div><div class="skeleton skeleton-line" style="margin:8px 20px"></div><div class="skeleton skeleton-line-sm" style="margin:4px 20px"></div></div>';
   // One request for the whole screen (see /api/home in app.py)
   const H=await GET('/api/home');
+  if(!H||H.ok===false||H.error){ v.innerHTML=errorCardHtml(H&&H.error,'renderHome'); return; }
   const stats=H.stats||{}, hc={handicap_index:H.handicap_index??null};
   const best=H.best, bestSim=H.best_sim, adv=H.advanced;
   const allRounds=H.rounds, allTraining=H.training, leaks=H.leaks;
   S.handicap=hc.handicap_index;
 
   // Handicap hero
-  const hasHC = S.handicap!==null;
-  const hcStr = hasHC ? S.handicap.toFixed(1) : '--';
-  let hcSub='';
-  if(!hasHC){
-    const rem=Math.max(0,54-(stats.total_holes_played||0));
-    hcSub = rem>0 ? `Play ${rem} more holes to establish` : 'Calculating…';
-  }
+  const hero = handicapHero(S.handicap, H.handicap_progress);
+  const hcStr = hero.value, hcSub = hero.sub;
 
   // Build combined best-round widget (IRL + Sim toggle)
   const [irlCard, simCard] = await Promise.all([
@@ -484,11 +550,11 @@ async function renderHome() {
       <button class="manual-info-btn" onclick="show('settings')" aria-label="Open settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>Settings</button>
       <div class="home-hero-body">
         <div class="home-hero-left">
-          <div class="home-hc-label">Handicap Index</div>
-          ${hcSub?`<div class="home-hc-sub" style="margin-top:8px">${hcSub}</div>`:''}
+          <div class="home-hc-label">${esc(hero.label)}</div>
+          ${hcSub?`<div class="home-hc-sub" style="margin-top:8px">${esc(hcSub)}</div>`:''}
         </div>
         <div class="home-hero-right" onclick="statsTab='overview';show('stats')" style="cursor:pointer" role="button" aria-label="View statistics">
-          <div class="home-hc-value${hasHC?'':' hc-pending'}">${hcStr}</div>
+          <div class="home-hc-value${hero.pending?' hc-pending':''}">${hcStr}</div>
         </div>
       </div>
     </div>
@@ -746,12 +812,12 @@ function renderScorecard() {
 
   // Tee dot pill
   const teeDotBorder=teeCSS==='#FFFFFF'?'1px solid rgba(0,0,0,0.2)':'none';
-  const teePill=`<span class="sc-pill"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${teeCSS};border:${teeDotBorder};vertical-align:middle;margin-right:4px"></span>${teeColor} Tees</span>`;
+  const teePill=`<span class="sc-pill"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${teeCSS};border:${teeDotBorder};vertical-align:middle;margin-right:4px"></span>${esc(teeColor)} Tees</span>`;
 
   // Build scorecard grids — traditional horizontal format
-  function buildNine(label, pars, scores, yardages, startHole, putts) {
+  function buildNine(label, pars, scores, yardages, startHole, putts, hcps, strokes) {
     if(!pars||!pars.length) return '';
-    putts=putts||[];
+    putts=putts||[]; strokes=strokes||[];
 
     // Header row (hole numbers)
     let holeRow=`<div class="sc-cell sc-cell-header sc-cell-hole"></div>`;
@@ -786,7 +852,7 @@ function renderScorecard() {
       if(s!=null){
         hasScores=true;
         scoreTotal+=s;
-        scoreRow+=scoreCellHtml(s,pars[i],putts[i],sc.is_sim);
+        scoreRow+=scoreCellHtml(s,pars[i],putts[i],sc.is_sim,strokes[i]);
       } else {
         scoreRow+=`<div class="sc-cell" style="color:var(--text3)">—</div>`;
       }
@@ -798,13 +864,17 @@ function renderScorecard() {
     return `
       <div class="sc-wrap">
         <div class="sc-grid sc-grid-9">
-          ${holeRow}${yardRow}${parRow}${scoreRow}
+          ${holeRow}${yardRow}${parRow}${hcpRowHtml(hcps,pars.length)}${scoreRow}
         </div>
       </div>`;
   }
 
-  const frontGrid=buildNine('FRONT OUT', sc.front_9.pars, sc.front_9.scores, sc.front_9.yardages, 0, sc.front_9.putts);
-  const backGrid=buildNine('BACK IN', sc.back_9.pars, sc.back_9.scores, sc.back_9.yardages, 9, sc.back_9.putts);
+  const f9=sc.front_9, b9=sc.back_9;
+  const frontGrid=buildNine('FRONT OUT', f9.pars, f9.scores, f9.yardages, 0, f9.putts, f9.hole_hcp, f9.strokes);
+  const backGrid=buildNine('BACK IN', b9.pars, b9.scores, b9.yardages, 9, b9.putts, b9.hole_hcp, b9.strokes);
+  const hasHcp=(sc.hole_hcp||[]).length>0;
+  const hcpChip=hasHcp?`<button class="sc-hcp-toggle${S.prefs.show_hole_hcp?' on':''}" onclick="toggleHoleHcp(renderScorecard)" aria-pressed="${!!S.prefs.show_hole_hcp}">HCP</button>`:'';
+  const netHtml=sc.net_total!=null?`<span class="sc-header-net">Net ${sc.net_total} · CH ${sc.course_handicap}</span>`:'';
 
   // Totals summary row — shown for all completed rounds
   let totalsHtml='';
@@ -839,7 +909,7 @@ function renderScorecard() {
       <div class="sc-header-main">
         <div class="sc-header-left">
           <div class="sc-header-course">${esc(sc.course_name)}</div>
-          <div class="sc-header-meta">${[sc.club_name,dateStr,totalYards?totalYards+' yds':''].filter(Boolean).join(' · ')}</div>
+          <div class="sc-header-meta">${esc([sc.club_name,dateStr,totalYards?totalYards+' yds':''].filter(Boolean).join(' · '))}</div>
         </div>
         <div class="sc-header-right">
           <div class="sc-header-total">${sc.total_score}</div>
@@ -847,10 +917,11 @@ function renderScorecard() {
         </div>
       </div>
       <div class="sc-header-footer" style="border-top-color:${headerFg==='#FFFFFF'?'rgba(255,255,255,0.15)':'rgba(0,0,0,0.1)'}">
-        ${teePill}${pills}${targetHtml}
+        ${teePill}${pills}${targetHtml}${netHtml}
       </div>
     </div>
 
+    ${hcpChip?`<div class="sc-toolbar">${sc.net_total!=null?'<span class="muted-xs sc-legend"><span class="sc-stroke-dots sc-legend-dot"><i></i></span> handicap stroke</span>':''}${hcpChip}</div>`:''}
     <!-- Scorecard grids -->
     ${frontGrid}
     ${backGrid}
@@ -1527,7 +1598,12 @@ async function startLog(){
   // S.clubs is kept current by all club mutators — no need to re-fetch
   await _clubsReady;
   const [courses,prefs]=await Promise.all([GET('/api/courses'),GET('/api/prefs')]);
+  if(!Array.isArray(courses)){showAlert('Could Not Load Courses',(courses&&courses.error)||'Check your connection and try again.');return;}
   S.courses=courses;
+  if(prefs&&!prefs.error) S.prefs={...S.prefs,...prefs};
+  // Keep the last-used course (fresh copy), else preselect home / most recent
+  const cur=S.logCourse&&S.courses.find(c=>c.name===S.logCourse.name);
+  S.logCourse=cur||_defaultLogCourse();
   S.logMode=prefs.entry_mode||'quick';
   S.logType='solo'; S.logSerious=true; S.logHoles='full_18'; S.logIsSim=false;
   show('log-setup');
@@ -1662,7 +1738,7 @@ function lsTypeChanged(){
   }
 }
 
-// Course selector field on the log-setup page. Tapping opens the search sheet.
+// Course selector field on the log-setup page. Tapping opens the picker sheet.
 function renderCourseField(){
   const el=document.getElementById('ls-course-field');
   if(!el) return;
@@ -1671,8 +1747,9 @@ function renderCourseField(){
     const tp=c.pars.reduce((a,b)=>a+b,0);
     el.innerHTML=`<div class="ls-course-field" onclick="openCourseSheet()">
       <div style="flex:1;min-width:0">
+        <div class="ls-cf-club">${esc(c.club||'Other')} ${homeBadge(c.club)}</div>
         <div class="ls-cf-name">${esc(c.name)}</div>
-        <div class="ls-cf-sub">${esc(c.club||'Other')} · ${c.pars.length} holes · Par ${tp}</div>
+        <div class="ls-cf-sub">${c.pars.length} holes · Par ${tp}</div>
       </div>
       <span class="ls-cf-chevron">Change ›</span>
     </div>`;
@@ -1684,104 +1761,158 @@ function renderCourseField(){
 }
 
 /* ================================================================
-   COURSE SEARCH SHEET — pinned search + Recent + facility groups
+   COURSE PICKER SHEET — club first, then course.
+   Level 1: search + ★ Home club + Recent courses + All clubs.
+   Level 2 (S.csClub set): that club's courses. A one-course club picks
+   straight from level 1. Mid-round edits open locked on the round's club.
+   "Recent" / "last played" come from /api/courses (server-side rounds).
    ================================================================ */
-const RECENT_COURSES_KEY='galf_recent_courses';
 let _courseSheet=null;
 
-function _getRecentCourses(){ try{ return JSON.parse(localStorage.getItem(RECENT_COURSES_KEY))||[]; }catch(e){ return []; } }
-function _pushRecentCourse(name){
-  let r=_getRecentCourses().filter(n=>n!==name);
-  r.unshift(name);
-  r=r.slice(0,6);
-  try{ localStorage.setItem(RECENT_COURSES_KEY, JSON.stringify(r)); }catch(e){}
-  S.logRecentCourses=r;
+// Courses grouped by club string ('' = no club), with recency per club.
+function _csClubs(){
+  const m=new Map();
+  for(const c of S.courses){
+    const k=c.club||'';
+    if(!m.has(k)) m.set(k,{club:k,courses:[],last:''});
+    const g=m.get(k); g.courses.push(c);
+    if((c.last_played||'')>g.last) g.last=c.last_played||'';
+  }
+  for(const g of m.values()) g.courses.sort((a,b)=>(b.last_played||'').localeCompare(a.last_played||'')||a.name.localeCompare(b.name));
+  // Home first, then most recently played, then A-Z ("Other" last)
+  return [...m.values()].sort((a,b)=>(isHomeClub(b.club)-isHomeClub(a.club))
+    || b.last.localeCompare(a.last) || (!a.club)-(!b.club) || a.club.localeCompare(b.club));
+}
+function _shortDate(d){
+  if(!d) return '';
+  const dt=new Date(d.substring(0,10)+'T12:00:00'); if(isNaN(dt)) return '';
+  const now=new Date();
+  return dt.toLocaleDateString(undefined, dt.getFullYear()===now.getFullYear()?{month:'short',day:'numeric'}:{month:'short',year:'numeric'});
+}
+function _teeDots(c){
+  return (c.tee_boxes||[]).map(t=>`<span class="tee-dot cs-tee-dot" style="background:${teeColorCSS(t.color)}"></span>`).join('');
 }
 
-async function openCourseSheet(){
-  if(!S.logRecentCourses) S.logRecentCourses=_getRecentCourses();
-  // Seed recents from played rounds the first time (existing users have no local list yet)
-  if(!S.logRecentCourses.length){
-    try{
-      const rounds=await GET('/api/rounds?round_type=all');
-      const seen=new Set(), seed=[];
-      for(const rd of (rounds||[])){
-        const n=rd.course_name;
-        if(n && !seen.has(n) && S.courses.find(c=>c.name===n)){ seen.add(n); seed.push(n); if(seed.length>=6) break; }
-      }
-      S.logRecentCourses=seed;
-    }catch(e){}
-  }
+function openCourseSheet(){
+  const lockClub=S.logEditSnap?(S.logEditSnap.club||''):null;
+  S.csClub=lockClub;  // null = clubs list
   _courseSheet=_showDialog(`
     <div class="course-sheet" onclick="event.stopPropagation()">
       <div class="course-sheet-header">
-        <input class="course-search" id="cs-search" type="search" placeholder="Search courses" autocomplete="off" oninput="csFilter(this.value)">
+        <input class="course-search" id="cs-search" type="search" placeholder="Search clubs or courses" autocomplete="off" oninput="csRender()">
         <button class="course-sheet-cancel" onclick="csClose()">Cancel</button>
       </div>
-      <div class="course-sheet-list" id="cs-list">${csBuildListHtml('')}</div>
+      <div class="course-sheet-list" id="cs-list"></div>
     </div>`);
-  const inp=document.getElementById('cs-search');
-  if(inp) setTimeout(()=>inp.focus(),50);
+  csRender();
 }
 
-function csClose(){ if(_courseSheet){ _courseSheet.remove(); _courseSheet=null; } }
-function csFilter(q){ const l=document.getElementById('cs-list'); if(l) l.innerHTML=csBuildListHtml(q); }
+function csClose(){ if(_courseSheet){ _courseSheet.remove(); _courseSheet=null; } S.csClub=null; }
+function csRender(){
+  const l=document.getElementById('cs-list'); if(!l) return;
+  const q=(document.getElementById('cs-search')?.value||'').trim().toLowerCase();
+  l.innerHTML=csBuildListHtml(q);
+  l.scrollTop=0;
+}
+function csOpenClub(club){
+  const g=_csClubs().find(x=>x.club===club); if(!g) return;
+  if(g.courses.length===1){ csPick(g.courses[0].name); return; }
+  S.csClub=club;
+  const inp=document.getElementById('cs-search'); if(inp) inp.value='';
+  csRender();
+}
+function csBackToClubs(){ S.csClub=null; csRender(); }
 
-function csRow(c){
+// Course row. withClub: show the club as the bold first line (search/recent).
+function csRow(c, withClub){
   const tp=c.pars.reduce((a,b)=>a+b,0);
   const sel=S.logCourse&&S.logCourse.name===c.name;
-  return `<div class="cs-row${sel?' sel':''}" onclick="csPick('${esc(c.name)}')">
-    <div class="cs-row-main"><div class="cs-row-name">${esc(c.name)}</div>
-    <div class="cs-row-sub">${esc(c.club||'Other')} · ${c.pars.length} holes · Par ${tp}</div></div>
+  const last=_shortDate(c.last_played);
+  const meta=[`${c.pars.length} holes · Par ${tp}`, last?`Played ${last}`:''].filter(Boolean).join(' · ');
+  return `<div class="cs-row${sel?' sel':''}" onclick="csPick(${jsq(c.name)})">
+    <div class="cs-row-main">
+      ${withClub?`<div class="cs-row-club">${esc(c.club||'Other')} ${homeBadge(c.club)}</div>`:''}
+      <div class="cs-row-name">${esc(c.name)}</div>
+      <div class="cs-row-sub">${meta} <span class="cs-tee-dots">${_teeDots(c)}</span></div>
+    </div>
     ${sel?'<span class="cs-check">✓</span>':''}
   </div>`;
 }
 
-function csBuildListHtml(query){
-  const q=(query||'').trim().toLowerCase();
+function csClubCard(g){
+  const home=isHomeClub(g.club);
+  const n=g.courses.length;
+  const last=_shortDate(g.last);
+  const one=n===1?g.courses[0]:null;
+  const sub=one ? `${esc(one.name)} · Par ${one.pars.reduce((a,b)=>a+b,0)}` : `${n} courses`;
+  const sel=S.logCourse&&(S.logCourse.club||'')===g.club;
+  return `<div class="cs-club-card${home?' home':''}${sel?' sel':''}" onclick="csOpenClub(${jsq(g.club)})">
+    <div class="cs-club-main">
+      <div class="cs-club-name">${esc(g.club||'Other')} ${home?'<span class="home-badge">★ Home</span>':''}</div>
+      <div class="cs-club-sub">${sub}${last?` · Played ${last}`:''}</div>
+    </div>
+    <span class="cs-club-chev">${one?(sel&&S.logCourse.name===one.name?'✓':''):`${n} ›`}</span>
+  </div>`;
+}
+
+const _csEmpty=msg=>`<div class="muted-sm" style="padding:18px 16px">${msg}</div>`;
+
+function csBuildListHtml(q){
+  const clubs=_csClubs();
+  // Search: flat course list across clubs, matching club or course name
+  if(q){
+    const inClub=S.csClub!=null;
+    const hits=S.courses.filter(c=>(!inClub||(c.club||'')===S.csClub)
+      && (c.name.toLowerCase().includes(q)||(c.club||'').toLowerCase().includes(q)));
+    hits.sort((a,b)=>(isHomeClub(b.club)-isHomeClub(a.club))||(a.club||'').localeCompare(b.club||'')||a.name.localeCompare(b.name));
+    return hits.length?hits.map(c=>csRow(c,true)).join(''):_csEmpty('No matching courses');
+  }
+  // Level 2: one club's courses
+  if(S.csClub!=null){
+    const g=clubs.find(x=>x.club===S.csClub);
+    const locked=!!S.logEditSnap;
+    let html=`<div class="cs-club-head">
+      ${locked?'':'<button class="cs-back" onclick="csBackToClubs()">‹ Clubs</button>'}
+      <div class="cs-club-head-name">${esc(S.csClub||'Other')} ${homeBadge(S.csClub)}</div>
+      ${locked?'<div class="cs-club-head-sub">Locked to this club mid-round</div>':''}
+    </div>`;
+    return html+(g&&g.courses.length?g.courses.map(c=>csRow(c,false)).join(''):_csEmpty('No courses'));
+  }
+  // Level 1: clubs
   let html='';
-  // Editing a round in progress: you can't change club mid-round, but a
-  // multi-nine club (27 holes = three 18-hole combos) may share nines, so
-  // sibling courses at the same club stay pickable. Scores on shared nines
-  // carry over (see beginEntry).
-  const lockClub=S.logEditSnap?(S.logEditSnap.club||''):null;
-  if(lockClub!==null){
-    html+=`<div class="cs-section-label">${esc(lockClub||'Other')} · locked to this club mid-round</div>`;
-    const sib=S.courses.filter(c=>(c.club||'')===lockClub && (!q||c.name.toLowerCase().includes(q)));
-    sib.sort((a,b)=>a.name.localeCompare(b.name));
-    return html+(sib.length?sib.map(csRow).join(''):'<div class="muted-sm" style="padding:18px 16px">No matching courses</div>');
+  const home=clubs.filter(g=>isHomeClub(g.club));
+  if(home.length){
+    html+='<div class="cs-section-label">Home Club</div>'+home.map(csClubCard).join('');
   }
-  // Recent (only when not searching)
-  if(!q){
-    const recents=(S.logRecentCourses||[]).map(n=>S.courses.find(c=>c.name===n)).filter(Boolean);
-    if(recents.length){
-      html+='<div class="cs-section-label">Recent</div>';
-      html+=recents.map(csRow).join('');
-    }
+  const recent=S.courses.filter(c=>c.last_played)
+    .sort((a,b)=>b.last_played.localeCompare(a.last_played)).slice(0,3);
+  if(recent.length){
+    html+='<div class="cs-section-label">Recent</div>'+recent.map(c=>csRow(c,true)).join('');
   }
-  // All courses grouped by facility, alphabetical
-  const groups={};
-  for(const c of S.courses){
-    if(q && !(c.name.toLowerCase().includes(q) || (c.club||'').toLowerCase().includes(q))) continue;
-    const k=c.club||'Other';
-    (groups[k]=groups[k]||[]).push(c);
+  const rest=clubs.filter(g=>!isHomeClub(g.club));
+  if(rest.length){
+    html+=`<div class="cs-section-label">${home.length?'Other Clubs':'Clubs'}</div>`+rest.map(csClubCard).join('');
   }
-  const facilities=Object.keys(groups).sort();
-  if(!facilities.length) return html+'<div class="muted-sm" style="padding:18px 16px">No matching courses</div>';
-  for(const f of facilities){
-    html+=`<div class="cs-section-label">${esc(f)}</div>`;
-    groups[f].sort((a,b)=>a.name.localeCompare(b.name));
-    html+=groups[f].map(csRow).join('');
+  if(!home.length && S.courses.length && clubs.some(g=>g.club)){
+    html+=`<div class="cs-hint">Tip: open a course and tap “Set as home club” to pin it here.</div>`;
   }
-  return html;
+  return html||_csEmpty('No courses');
 }
 
 function csPick(name){
   S.logCourse=S.courses.find(c=>c.name===name);
-  _pushRecentCourse(name);
   csClose();
   renderCourseField();
   lsRefreshTees();
+}
+
+// Default course for a fresh log: most recent at the home club, else most
+// recent anywhere, else none (the user picks).
+function _defaultLogCourse(){
+  const byRecent=[...S.courses].filter(c=>c.last_played).sort((a,b)=>b.last_played.localeCompare(a.last_played));
+  return byRecent.find(c=>isHomeClub(c.club))
+    || S.courses.find(c=>isHomeClub(c.club))
+    || byRecent[0] || null;
 }
 
 function lsRefreshTees(){
@@ -1795,10 +1926,10 @@ function lsRefreshTees(){
   let html='';
   for(const t of tees){
     const active=t.color===S.logTee?' active':'';
-    html+=`<div class="tee-pill${active}" onclick="S.logTee='${t.color}';lsRefreshTees()">
+    html+=`<div class="tee-pill${active}" onclick="S.logTee=${jsq(t.color)};lsRefreshTees()">
       <span class="tee-dot" style="background:${teeColorCSS(t.color)}"></span>
-      <span>${t.color}</span>
-      <span class="tee-pill-info">${t.rating}/${t.slope}</span>
+      <span>${esc(t.color)}</span>
+      <span class="tee-pill-info">${esc(t.rating)}/${esc(t.slope)}</span>
     </div>`;
   }
   container.innerHTML=html;
@@ -2138,8 +2269,8 @@ function renderLogEntry(){
       </div>
       <div class="entry-course-info">
         <div class="entry-course-name">${esc(S.logCourse.name)}</div>
-        <div class="entry-hole-info">Par ${par} · ${yard} yds</div>
-        <div class="entry-tee-info">${S.logTee} Tees · <span style="color:var(--accent);font-weight:700">${hi+1}</span><span style="color:var(--text3)">/${S.holesToScore.length}</span></div>
+        <div class="entry-hole-info">Par ${par} · ${yard} yds${_entryHcpInfo(hi)}</div>
+        <div class="entry-tee-info">${esc(S.logTee)} Tees · <span style="color:var(--accent);font-weight:700">${hi+1}</span><span style="color:var(--text3)">/${S.holesToScore.length}</span></div>
       </div>
     </div>
     <div class="entry-progress-bar"><div class="entry-progress-fill" style="width:${_progPct}%"></div></div>
@@ -2520,13 +2651,51 @@ function showFinishOrExtend(){
   el.querySelector('#dlg-cancel').addEventListener('click',()=>el.remove());
 }
 
-// Truncate an 18-hole round to its first 9 and finish.
+/* WHS stroke allocation, mirrored from Backend.py (course_handicap /
+   strokes_per_hole) so live entry can show "HCP 7 •" without a request. */
+function courseHandicapJs(index, tee, par, nine, fullPar){
+  if(index==null||!tee||tee.rating==null||!tee.slope) return null;
+  const r=tee.rating, sl=tee.slope;
+  if(nine) return r<50 ? Math.round(index/2*sl/113+(r-par)) : Math.round((index*sl/113+(r-fullPar))/2);
+  return Math.round(index*sl/113+(r-par));
+}
+function strokesPerHoleJs(ch, hcps){
+  const n=hcps.length, out=new Array(n).fill(0);
+  if(!n||ch==null) return out;
+  const order=[...Array(n).keys()].sort((a,b)=>hcps[a]-hcps[b]);
+  const neg=ch<0, base=Math.floor(Math.abs(ch)/n), extra=Math.abs(ch)%n;
+  (neg?order.reverse():order).forEach((i,rank)=>{ out[i]=(neg?-1:1)*(base+(rank<extra?1:0)); });
+  return out;
+}
+// Strokes received per hole of the round being entered, keyed by course hole index.
+function _liveStrokes(){
+  const c=S.logCourse, hcp=c&&c.hole_hcp;
+  if(!hcp||S.handicap==null) return null;
+  const holes=S.holesToScore, nine=holes.length<=9;
+  const par=holes.reduce((a,h)=>a+c.pars[h],0);
+  const tee=(c.tee_boxes||[]).find(t=>t.color===S.logTee);
+  const ch=courseHandicapJs(S.handicap, tee, par, nine, c.pars.reduce((a,b)=>a+b,0));
+  if(ch==null) return null;
+  const given=strokesPerHoleJs(ch, holes.map(h=>hcp[h]));
+  const out={}; holes.forEach((h,i)=>out[h]=given[i]); return out;
+}
+function _entryHcpInfo(hi){
+  const c=S.logCourse, hcp=c&&c.hole_hcp; if(!hcp) return '';
+  const h=S.holesToScore[hi];
+  const st=(_liveStrokes()||{})[h]||0;
+  const dots=st>0?' '+'•'.repeat(Math.min(st,3)):st<0?' +':'';
+  return ` · HCP ${hcp[h]}${dots?`<span class="entry-stroke-dots" title="Handicap strokes on this hole">${dots}</span>`:''}`;
+}
+
+// Truncate an 18-hole round to its first 9 played holes and finish. A round
+// started on the back 9 then extended keeps holes 10-18, so label the nine
+// from the holes actually kept, not by position.
 function finishAsNine(){
   S.holesToScore=S.holesToScore.slice(0,9);
   S.holeScores=S.holeScores.slice(0,9);
   S.holeClubs=S.holeClubs.slice(0,9);
   if(S.holeSimPutts) S.holeSimPutts=S.holeSimPutts.slice(0,9);
-  S.logHoles='front_9';
+  S.logHoles=S.holesToScore.every(h=>h>=9)?'back_9':'front_9';
   if(S.currentHoleIdx>8) S.currentHoleIdx=8;
   saveDraft(); checkFinish();
 }
@@ -2640,8 +2809,9 @@ function renderLogNotes(){
   const ds=diff>0?`+${diff}`:diff===0?'E':`${diff}`;
 
   // Build scorecard grids (reuse the buildNine logic from renderScorecard)
+  const liveStrokes=_liveStrokes()||{};
   function buildMiniNine(label, startIdx, count) {
-    const pars=[],sc=[],yds=[],pt_=[];
+    const pars=[],sc=[],yds=[],pt_=[],hc=[],stk=[];
     const yardages=course.yardages?.[teeColor]||[];
     for(let i=startIdx;i<startIdx+count&&i<course.pars.length;i++){
       pars.push(course.pars[i]);
@@ -2650,6 +2820,8 @@ function renderLogNotes(){
       sc.push(hi>=0?scores[hi]:null);
       pt_.push(hi>=0?puttsArr[hi]:null);
       yds.push(yardages[i]||null);
+      hc.push(course.hole_hcp?course.hole_hcp[i]:null);
+      stk.push(liveStrokes[i]||0);
     }
     if(!sc.some(s=>s!=null)) return '';
 
@@ -2667,13 +2839,14 @@ function renderLogNotes(){
     for(let i=0;i<pars.length;i++){
       const s=sc[i];
       if(s!=null&&s>0){has=true;st+=s;
-        scoreRow+=scoreCellHtml(s,pars[i],pt_[i],S.logIsSim);}
+        scoreRow+=scoreCellHtml(s,pars[i],pt_[i],S.logIsSim,stk[i]);}
       else scoreRow+=`<div class="sc-cell" style="color:var(--text3)">—</div>`;
     }
     scoreRow+=`<div class="sc-cell sc-cell-total">${has?st:''}</div>`;
     if(!has) return '';
 
-    return `<div class="sc-wrap"><div class="sc-grid sc-grid-9">${holeRow}${parRow}${scoreRow}</div></div>`;
+    const hcpRow=course.hole_hcp?hcpRowHtml(hc,pars.length):'';
+    return `<div class="sc-wrap"><div class="sc-grid sc-grid-9">${holeRow}${parRow}${hcpRow}${scoreRow}</div></div>`;
   }
 
   let frontGrid='',backGrid='';
@@ -2692,7 +2865,7 @@ function renderLogNotes(){
   if(!S.logSerious) pills+=`<span class="sc-pill">Casual</span>`;
   if(S.logIsSim) pills+=`<span class="sc-pill">Sim</span>`;
   const teeDotBorder=teeCSS_==='#FFFFFF'?'1px solid rgba(0,0,0,0.2)':'none';
-  const teePill=`<span class="sc-pill"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${teeCSS_};border:${teeDotBorder};vertical-align:middle;margin-right:4px"></span>${teeColor} Tees</span>`;
+  const teePill=`<span class="sc-pill"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${teeCSS_};border:${teeDotBorder};vertical-align:middle;margin-right:4px"></span>${esc(teeColor)} Tees</span>`;
 
   // Holes left empty by a settings edit (new nine after a course swap).
   const missing=_emptyIdxs();
@@ -2783,7 +2956,6 @@ async function submitRound(){
   if(res&&res.ok===false){if(btn){btn.disabled=false;btn.style.opacity='1';}showAlert('Save Failed', res.error||'Unknown error');return;}
   clearDraft();
   clearStatsCache();
-  _pushRecentCourse(course.name);
   const diff=total-parP;
   const ds=diff>0?`+${diff}`:diff===0?'E':`${diff}`;
   showAlert('Round Saved!', `${total} (${ds}) · ${course.name} · ${S.holesToScore.length} holes`);
@@ -2797,7 +2969,8 @@ async function renderCourses(){
   // Re-fetch only when courses haven't been loaded yet; saveCourse() updates S.courses after mutations
   if(!S.courses.length) S.courses=await GET('/api/courses');
   const v=document.getElementById('v-courses');
-  const sorted=[...S.courses].sort((a,b)=>(a.club||'').localeCompare(b.club||'')||a.name.localeCompare(b.name));
+  // Home club first, then clubs A-Z, courses A-Z within each
+  const sorted=[...S.courses].sort((a,b)=>(isHomeClub(b.club)-isHomeClub(a.club))||(a.club||'').localeCompare(b.club||'')||a.name.localeCompare(b.name));
   let rows='';
   if(!sorted.length){
     rows=`<div class="empty"><div class="empty-icon"><img src="${ico('golf-course')}" style="width:80px;height:80px;object-fit:contain;display:block;margin:0 auto"></div><div class="empty-headline">No Courses Yet</div><div class="empty-text">Add a course to start logging rounds.</div><div class="empty-cta"><button class="btn btn-primary" style="max-width:220px;margin:0 auto" onclick="editCourse(null)">Add a Course</button></div></div>`;
@@ -2806,7 +2979,7 @@ async function renderCourses(){
     const clubs={};
     for(const c of sorted){const k=c.club||'Other';if(!clubs[k])clubs[k]=[];clubs[k].push(c);}
     for(const [clubName,courses] of Object.entries(clubs)){
-      rows+=`<div class="club-section-label"><span class="club-section-label-title">${esc(clubName)}</span></div>`;
+      rows+=`<div class="club-section-label"><span class="club-section-label-title">${esc(clubName)}</span>${homeBadge(courses[0].club)}</div>`;
       rows+='<div class="club-items-card">';
       for(let i=0;i<courses.length;i++){
         const c=courses[i];
@@ -2815,7 +2988,7 @@ async function renderCourses(){
         let dots='';for(const tc of teeColors) dots+=`<span class="tee-dot" style="width:10px;height:10px;display:inline-block;background:${teeColorCSS(tc)}"></span>`;
         const solo=courses.length===1;
         const br=solo?'12px':i===0?'12px 12px 0 0':i===courses.length-1?'0 0 12px 12px':'0';
-        rows+=`<div class="course-row" style="display:flex;align-items:center;padding:14px 16px;cursor:pointer;background:var(--card);border-radius:${br};overflow:hidden;${i<courses.length-1?'border-bottom:0.5px solid var(--sep);':''}" onclick="viewCourse('${esc(c.name)}')">
+        rows+=`<div class="course-row" style="display:flex;align-items:center;padding:14px 16px;cursor:pointer;background:var(--card);border-radius:${br};overflow:hidden;${i<courses.length-1?'border-bottom:0.5px solid var(--sep);':''}" onclick="viewCourse(${jsq(c.name)})">
           <div style="flex:1;min-width:0">
             <div style="font-size:16px;font-weight:500">${esc(c.name)}</div>
             <div style="font-size:12px;color:var(--text2);margin-top:2px;display:flex;align-items:center;gap:6px">
@@ -2930,13 +3103,16 @@ async function renderCourseDetail(){
   let teePills='';
   for(const t of tees){
     const active=t.color===S.viewCourseTee?' active':'';
-    teePills+=`<div class="tee-pill${active}" onclick="S.viewCourseTee='${t.color}';renderCourseDetail()">
+    teePills+=`<div class="tee-pill${active}" onclick="S.viewCourseTee=${jsq(t.color)};renderCourseDetail()">
       <span class="tee-dot" style="background:${teeColorCSS(t.color)}"></span>
-      <span>${t.color}</span>
+      <span>${esc(t.color)}</span>
     </div>`;
   }
 
-  // Hole grid table
+  // Hole grid table (HCP column only when the course has a stroke index row)
+  const hcp=c.hole_hcp;
+  const hcpTd=i=>hcp?`<td class="hole-hcp">${hcp[i]??'—'}</td>`:'';
+  const blankTd=hcp?'<td></td>':'';
   let holeRows='';
   let f9par=0,b9par=0,f9yds=0,b9yds=0;
   for(let i=0;i<c.pars.length;i++){
@@ -2946,6 +3122,7 @@ async function renderCourseDetail(){
     holeRows+=`<tr>
       <td class="hole-num">${i+1}</td>
       <td class="${parClass}">${par}</td>
+      ${hcpTd(i)}
       <td>${yd||'—'}</td>
     </tr>`;
     if(i<9){f9par+=par;f9yds+=(yd||0);}
@@ -2953,14 +3130,14 @@ async function renderCourseDetail(){
 
     // Insert front-9 subtotal
     if(i===8&&c.pars.length>9){
-      holeRows+=`<tr class="nine-sep"><td>OUT</td><td>${f9par}</td><td>${f9yds||'—'}</td></tr>`;
+      holeRows+=`<tr class="nine-sep"><td>OUT</td><td>${f9par}</td>${blankTd}<td>${f9yds||'—'}</td></tr>`;
     }
   }
   // Back-9 subtotal + total
   if(c.pars.length>9){
-    holeRows+=`<tr class="nine-sep"><td>IN</td><td>${b9par}</td><td>${b9yds||'—'}</td></tr>`;
+    holeRows+=`<tr class="nine-sep"><td>IN</td><td>${b9par}</td>${blankTd}<td>${b9yds||'—'}</td></tr>`;
   }
-  holeRows+=`<tr class="total-row"><td>TOT</td><td>${totalPar}</td><td>${totalYards||'—'}</td></tr>`;
+  holeRows+=`<tr class="total-row"><td>TOT</td><td>${totalPar}</td>${blankTd}<td>${totalYards||'—'}</td></tr>`;
 
   // Tee detail card
   let teeDetailHtml='';
@@ -2968,13 +3145,13 @@ async function renderCourseDetail(){
     teeDetailHtml=`<div class="tee-detail">
       <div class="tee-detail-header">
         <span class="tee-dot" style="background:${teeColorCSS(activeTee.color)};width:18px;height:18px"></span>
-        <span class="tee-detail-color">${activeTee.color} Tees</span>
+        <span class="tee-detail-color">${esc(activeTee.color)} Tees</span>
       </div>
       <div class="tee-detail-row">
         <div class="tee-detail-item"><div class="tee-detail-val">${activeTee.rating}</div><div class="tee-detail-lbl">Rating</div></div>
         <div class="tee-detail-item"><div class="tee-detail-val">${activeTee.slope}</div><div class="tee-detail-lbl">Slope</div></div>
         <div class="tee-detail-item"><div class="tee-detail-val">${totalYards||'—'}</div><div class="tee-detail-lbl">Yards</div></div>
-        <div class="tee-detail-item"><div class="tee-detail-val">${activeTee.handicap!=null?activeTee.handicap:'—'}</div><div class="tee-detail-lbl">HCP</div></div>
+        <div class="tee-detail-item"><div class="tee-detail-val">${activeTee.handicap!=null?(activeTee.handicap>0?'+':'')+activeTee.handicap:'—'}</div><div class="tee-detail-lbl">Rating − Par</div></div>
       </div>
     </div>`;
   }
@@ -2982,7 +3159,8 @@ async function renderCourseDetail(){
   v.innerHTML=`
     <div class="course-hero">
       <div class="course-hero-name">${esc(c.name)}</div>
-      <div class="course-hero-club">${esc(c.club||'')}</div>
+      <div class="course-hero-club">${esc(c.club||'')} ${homeBadge(c.club)}</div>
+      ${c.club?`<button class="home-toggle${isHomeClub(c.club)?' on':''}" onclick="setHomeClub(${isHomeClub(c.club)?"''":jsq(c.club)},renderCourseDetail)">${isHomeClub(c.club)?'★ Home club · Unset':'☆ Set as home club'}</button>`:''}
       <div class="course-hero-stats">
         <div class="course-hero-stat"><div class="course-hero-stat-val">${c.pars.length}</div><div class="course-hero-stat-lbl">Holes</div></div>
         <div class="course-hero-stat"><div class="course-hero-stat-val">${totalPar}</div><div class="course-hero-stat-lbl">Par</div></div>
@@ -2997,15 +3175,15 @@ async function renderCourseDetail(){
     <div class="hole-grid">
       <div style="border-radius:12px;overflow:hidden;background:var(--card)">
         <table>
-          <tr><th>Hole</th><th>Par</th><th>Yards</th></tr>
+          <tr><th>Hole</th><th>Par</th>${hcp?'<th>HCP</th>':''}<th>Yards</th></tr>
           ${holeRows}
         </table>
       </div>
     </div>
 
     <div style="padding:12px 16px;display:flex;gap:8px">
-      <button class="btn btn-primary" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px" onclick="editCourse('${esc(c.name)}')"><img src="/static/pencil-96.png" class="icon-16"> Edit Course</button>
-      <button class="btn btn-red" style="flex:0;padding:10px 20px" onclick="deleteCourse('${esc(c.name)}')"><img src="/static/trash-96.png" style="width:18px;height:18px;object-fit:contain"></button>
+      <button class="btn btn-primary" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px" onclick="editCourse(${jsq(c.name)})"><img src="/static/pencil-96.png" class="icon-16"> Edit Course</button>
+      <button class="btn btn-red" style="flex:0;padding:10px 20px" onclick="deleteCourse(${jsq(c.name)})"><img src="/static/trash-96.png" style="width:18px;height:18px;object-fit:contain"></button>
     </div>
   `;
 }
@@ -3027,6 +3205,7 @@ let ceYardages = {};
 let ceActiveTee = '';
 let cePars = [];
 let ceParTouched = new Set(); // hole indices whose par the user (or saved course) set
+let ceHcp = [];               // hole handicap (stroke index) per hole; '' = blank
 let _ceRestore = null;        // draft to render instead of S.editCourse (scan round-trip)
 
 function renderCourseEditor(){
@@ -3042,11 +3221,13 @@ function renderCourseEditor(){
   ceYardages = {};
   if(d){
     cePars=[...d.pars];
+    ceHcp=[...(d.hcp||[])];
     ceParTouched=new Set(d.parTouched);
     tees=d.tees;
     for(const t of tees) ceYardages[t.color]=[...(d.yardages[t.color]||new Array(numHoles).fill(0))];
   }else{
     cePars = c ? [...c.pars] : new Array(numHoles).fill(4);
+    ceHcp = c && c.hole_hcp ? [...c.hole_hcp] : [];
     ceParTouched = new Set(c ? cePars.map((_,i)=>i) : []);
     tees=c?c.tee_boxes:[{color:'White',rating:72.0,slope:113,placeholder:true}];
     for(const t of tees){
@@ -3054,6 +3235,7 @@ function renderCourseEditor(){
     }
   }
   ceActiveTee = (d&&d.activeTee&&tees.some(t=>t.color===d.activeTee)) ? d.activeTee : (tees[0]?.color || 'White');
+  ceHcp = cePars.map((_,i)=>ceHcp[i] ?? '');
 
   // Tee boxes editor
   let teesHtml='';
@@ -3100,7 +3282,7 @@ function renderCourseEditor(){
 
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none" onclick="toggleParGrid()">
-        <div class="section-head">Hole Pars</div>
+        <div class="section-head">Hole Pars &amp; Handicaps</div>
         <span id="ce-par-chevron" style="font-size:12px;color:var(--text2);transition:transform .2s">▼</span>
       </div>
       <div id="ce-par-grid" style="margin-top:8px"></div>
@@ -3146,9 +3328,11 @@ function refreshCeParGrid(){
   const container=document.getElementById('ce-par-grid');
   if(!container) return;
   const numHoles=cePars.length;
-  let html=`<div class="hole-input-row" style="border-bottom:1px solid var(--sep)">
+  let html=`<div class="ce-hcp-help">HCP is the hole's handicap (stroke index) from the card: 1 = hardest. Optional; used for handicap strokes and the net double bogey cap.</div>
+  <div class="hole-input-row" style="border-bottom:1px solid var(--sep)">
     <div class="hole-input-num" style="font-size:10px">Hole</div>
     <div class="hole-input-label" style="flex:1">Par</div>
+    <div class="hole-input-label ce-hcp-col">HCP</div>
   </div>`;
   for(let i=0;i<numHoles;i++){
     const p=cePars[i]||4;
@@ -3160,6 +3344,7 @@ function refreshCeParGrid(){
         <button type="button" class="par-step-btn" onclick="ceAdjustPar(${i},1)" aria-label="Increase par for hole ${i+1}"${p>=PAR_MAX?' disabled':''}>+</button>
       </div>
       <input class="ce-par-input" type="hidden" value="${p}" data-hole="${i}">
+      <input class="hole-input-field ce-hcp-input ce-hcp-col" type="number" inputmode="numeric" min="1" max="18" value="${ceHcp[i]??''}" placeholder="—" data-hole="${i}" oninput="ceHcp[${i}]=this.value" aria-label="Handicap for hole ${i+1}">
     </div>`;
   }
   container.innerHTML=html;
@@ -3210,9 +3395,9 @@ function refreshCeTeePills(){
   let html='';
   for(const col of colors){
     const active=col===ceActiveTee?' active':'';
-    html+=`<div class="tee-pill${active}" onclick="ceSwitchTee('${esc(col)}')">
+    html+=`<div class="tee-pill${active}" onclick="ceSwitchTee(${jsq(col)})">
       <span class="tee-dot" style="background:${teeColorCSS(col)}"></span>
-      <span>${col}</span>
+      <span>${esc(col)}</span>
     </div>`;
   }
   if(!colors.length) html='<div style="font-size:12px;color:var(--text2)">Add a tee box above first</div>';
@@ -3289,6 +3474,7 @@ function addTeeBox(){
 }
 
 let _courseSaving=false; // guards Save against double-tap while the POST is in flight
+let _ceDropOk=false;     // user confirmed saving without rating-less tees
 async function saveCourse(){
   if(_courseSaving) return;
   const name=document.getElementById('ce-name').value.trim();
@@ -3304,16 +3490,43 @@ async function saveCourse(){
   parInputs.forEach(inp=>{ pars.push(parseInt(inp.value)||4); });
   if(pars.length<9){showAlert('Need More Holes','A course must have at least 9 holes.');return;}
 
-  // Collect tee boxes
+  // Hole handicaps: all blank = none; otherwise every hole, 1-18, no repeats
+  const hcpRaw=pars.map((_,i)=>String(ceHcp[i]??'').trim());
+  let hole_hcp=null;
+  if(hcpRaw.some(v=>v!=='')){
+    const blanks=[], bad=[], seen={}, dup=new Set();
+    hole_hcp=hcpRaw.map((v,i)=>{
+      if(v===''){blanks.push(i+1);return null;}
+      const n=Number(v);
+      if(!Number.isInteger(n)||n<1||n>18){bad.push(i+1);return null;}
+      if(seen[n]){dup.add(seen[n]);dup.add(i+1);} else seen[n]=i+1;
+      return n;
+    });
+    const msgs=[];
+    if(blanks.length) msgs.push(`Missing on hole${blanks.length>1?'s':''} ${blanks.join(', ')}.`);
+    if(bad.length) msgs.push(`Must be 1–18 on hole${bad.length>1?'s':''} ${bad.join(', ')}.`);
+    if(dup.size) msgs.push(`Repeated on holes ${[...dup].sort((a,b)=>a-b).join(', ')}.`);
+    if(msgs.length){showAlert('Check Hole Handicaps',msgs.join(' ')+' Fill every hole or clear them all.');return;}
+  }
+
+  // Collect tee boxes. Tees without rating + slope can't be saved; say which.
   const teeEls=document.querySelectorAll('#ce-tees .tee-editor-card');
-  const teeBoxes=[];
+  const teeBoxes=[], dropped=[];
   teeEls.forEach(el=>{
     const color=el.querySelector('.tee-color').value.trim();
     const rating=parseFloat(el.querySelector('.tee-rating').value);
     const slope=parseInt(el.querySelector('.tee-slope').value);
     if(color&&!isNaN(rating)&&!isNaN(slope)) teeBoxes.push({color,rating,slope});
+    else if(color) dropped.push(color);
   });
   if(!teeBoxes.length){showAlert('Add a Tee Box','Add at least one tee box with rating and slope.');return;}
+  if(dropped.length && !_ceDropOk){
+    showConfirm('Some Tees Will Not Be Saved',
+      `${dropped.join(', ')} ${dropped.length>1?'have':'has'} no rating or slope and will be left out. Their yardages are lost.`,
+      'Save Anyway', ()=>{ _ceDropOk=true; saveCourse(); }, 'Go Back');
+    return;
+  }
+  _ceDropOk=false;
 
   // Build yardages from ceYardages — only include tees that still exist
   const yardages={};
@@ -3321,7 +3534,7 @@ async function saveCourse(){
     if(ceYardages[tb.color]) yardages[tb.color]=ceYardages[tb.color];
   }
 
-  const data={name,club,pars,tee_boxes:teeBoxes,yardages};
+  const data={name,club,pars,hole_hcp,tee_boxes:teeBoxes,yardages};
 
   _courseSaving=true;
   try{
@@ -3543,7 +3756,8 @@ async function renderStats(){
     v.innerHTML='<div class="page-header" style="text-align:right"><div class="page-title">Statistics</div></div><div class="skeleton-card" style="margin:8px 16px"><div class="skeleton skeleton-num" style="margin:20px auto;width:80px;height:80px"></div><div class="skeleton skeleton-line" style="margin:8px 20px"></div><div class="skeleton skeleton-line-sm" style="margin:4px 20px"></div></div>';
     // One request for the whole screen (see /api/stats/bundle in app.py)
     const B=await GET('/api/stats/bundle');
-    _statsCache={stats:B.stats||{},hc:{handicap_index:B.handicap_index??null},adv:B.advanced,
+    if(!B||B.ok===false||B.error){ v.innerHTML=errorCardHtml(B&&B.error,'renderStats'); return; }
+    _statsCache={stats:B.stats||{},hc:{handicap_index:B.handicap_index??null,progress:B.handicap_progress},adv:B.advanced,
       leaks:B.leaks,diffs:B.differentials,best:B.best,analytics:B.club_analytics};
   }
   const {stats,hc,adv,leaks,diffs,best,analytics:cachedAnalytics}=_statsCache;
@@ -3564,8 +3778,10 @@ async function renderStats(){
       <!-- Handicap hero -->
       <div class="stat-card">
         <div class="stat-hero">
-          <div class="stat-hero-val" style="color:${hcColor}">${idx!=null?idx.toFixed(1):'—'}</div>
-          <div class="stat-hero-label">${idx!=null?'Handicap Index':'Not yet established'}</div>
+          ${(()=>{const h=handicapHero(idx,hc.progress);return `
+          <div class="stat-hero-val" style="color:${hcColor}">${idx!=null?h.value:(hc.progress&&hc.progress.provisional!=null?h.value:'—')}</div>
+          <div class="stat-hero-label">${esc(idx!=null?h.label:(hc.progress&&hc.progress.provisional!=null?h.label:'Not yet established'))}</div>
+          ${h.sub?`<div class="stat-hero-sub" style="font-size:12px;color:var(--text2);margin-top:4px">${esc(h.sub)}</div>`:''}`;})()}
         </div>
       </div>
 
@@ -3598,7 +3814,7 @@ async function renderStats(){
             <div class="diff-rank">${i+1}</div>
             <div class="diff-info">
               <div class="diff-course">${esc(d.course)}</div>
-              <div class="diff-meta">${(d.date||'').substring(0,10)} · ${d.holes}h · Score ${d.score}</div>
+              <div class="diff-meta">${(d.date||'').substring(0,10)} · ${d.holes}h · Score ${d.score}${d.ags!=null&&d.ags!==d.score?` · AGS ${d.ags}`:''}</div>
             </div>
             <div class="diff-val" style="color:${c}">${d.diff.toFixed(1)}</div>
           </div>`;
@@ -4041,6 +4257,7 @@ function ceSnapshot() {
     name: document.getElementById('ce-name')?.value.trim() || '',
     club: document.getElementById('ce-club')?.value.trim() || '',
     pars: [...cePars],
+    hcp: [...ceHcp],
     parTouched: [...ceParTouched],
     tees, yardages,
     activeTee: ceActiveTee,
@@ -4283,6 +4500,15 @@ function _mergeOcrIntoEditor(ocr) {
   }
   d.parTouched = [...touched];
   for (const c of Object.keys(d.yardages)) d.yardages[c] = fit(d.yardages[c]);
+
+  // Hole handicaps (stroke index): positional, fill blanks only
+  const hc = (d.hcp || []).slice(0, n); while (hc.length < n) hc.push('');
+  (ocr.handicaps || []).forEach((h, i) => {
+    if (i >= n || h == null || h < 1 || h > 18) return;
+    if (!blank(hc[i])) { if (Number(hc[i]) !== h) kept++; return; }
+    hc[i] = h; filled++;
+  });
+  d.hcp = hc;
 
   // Tees
   // Tee name: canonical color when no other scanned tee shares it (gives the
@@ -4717,6 +4943,26 @@ function renderSettings(){
             <div class="settings-row-sub">Serious sim rounds feed your Handicap Index. Off = real rounds only.</div>
           </div>
           ${sw('sim_in_handicap', p.sim_in_handicap===true)}
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-text">
+            <div class="settings-row-label">Show hole handicaps</div>
+            <div class="settings-row-sub">HCP (stroke index) row on scorecards. Also toggles from the HCP chip on any scorecard.</div>
+          </div>
+          ${sw('show_hole_hcp', p.show_hole_hcp!==false)}
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-title">Home Club</div>
+      <div class="settings-card">
+        <div class="settings-row">
+          <div class="settings-row-text">
+            <div class="settings-row-label" id="set-home-club">${p.home_club?'★ '+esc(p.home_club):'Not set'}</div>
+            <div class="settings-row-sub">Set it from any course page. Home courses are pinned first when you log a round.</div>
+          </div>
+          ${p.home_club?`<button class="btn" id="set-home-clear" style="width:auto;padding:6px 12px;font-size:12px" onclick="setHomeClub('');document.getElementById('set-home-club').textContent='Not set';this.remove()">Clear</button>`:''}
         </div>
       </div>
     </div>
