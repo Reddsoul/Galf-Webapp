@@ -7,17 +7,18 @@ Stdlib only (urllib); Pillow used for downscaling when available.
 
 Config (env vars)
 -----------------
-OCR_LLM_URL         Endpoint. Two formats supported, detected from the path:
-                    - OpenAI-compatible (default): base URL ending in /v1
-                      (".../chat/completions" is appended) or the full
-                      /v1/chat/completions URL. vLLM, LiteLLM, llama.cpp,
-                      LM Studio, Ollama compat mode.
-                    - Ollama NATIVE: http://host:11434/api/chat
-                      Lets us send keep_alive so the model is loaded ONLY for
-                      the duration of a scan.
-                    Default: http://localhost:4000/v1
-OCR_LLM_MODEL       Model name. Default: "fast"
-OCR_LLM_API_KEY     Optional bearer token. Sent only when set.
+Server, model and API key are NOT configured here: the app passes them in
+from Settings -> Scan LLM (saved only after Test Connection succeeds).
+There are no defaults. The CLI at the bottom reads OCR_LLM_URL /
+OCR_LLM_MODEL / OCR_LLM_API_KEY for ad-hoc testing.
+
+URL formats, detected from the path:
+  - OpenAI-compatible: base URL ending in /v1 (".../chat/completions" is
+    appended) or the full /v1/chat/completions URL. vLLM, LiteLLM,
+    llama.cpp, LM Studio, Ollama compat mode.
+  - Ollama native: http://host:11434/api/chat (supports keep_alive).
+
+Tuning env vars:
 OCR_LLM_DEBUG       "1" logs the raw model output to stderr.
 OCR_LLM_THINKING    "1" lets reasoning models think before answering (slower,
                     sometimes more accurate). Default "0" = thinking off via
@@ -45,7 +46,6 @@ import sys
 import urllib.error
 import urllib.request
 
-DEFAULT_URL = "http://localhost:4000/v1"
 
 _PROMPT = """You are reading a photo of a golf scorecard. Extract its data as JSON.
 
@@ -82,15 +82,17 @@ Rules:
 
 class LLMScorecardOCR:
 
-    def __init__(self, url=None, model=None, api_key=None):
-        # Explicit args (from Settings) win; blank/None falls back to env.
-        url = (url or os.environ.get("OCR_LLM_URL") or DEFAULT_URL).strip().rstrip("/")
+    def __init__(self, url, model, api_key=""):
+        url = (url or "").strip().rstrip("/")
+        model = (model or "").strip()
+        if not url or not model:
+            raise ValueError("Scan LLM not configured: URL and model are required")
         # Accept a bare OpenAI-style base URL (".../v1").
         if url.endswith("/v1"):
             url += "/chat/completions"
         self.url = url
-        self.model = (model or os.environ.get("OCR_LLM_MODEL") or "fast").strip()
-        self.api_key = (api_key or os.environ.get("OCR_LLM_API_KEY", "")).strip()
+        self.model = model
+        self.api_key = (api_key or "").strip()
         self.thinking = os.environ.get("OCR_LLM_THINKING", "0") == "1"
         self.debug = os.environ.get("OCR_LLM_DEBUG", "0") == "1"
         self.timeout = int(os.environ.get("OCR_LLM_TIMEOUT", "180"))
@@ -316,5 +318,7 @@ if __name__ == "__main__":
         sys.exit(1)
     with open(sys.argv[1], "rb") as f:
         data = f.read()
-    out = LLMScorecardOCR().process_image(data)
+    out = LLMScorecardOCR(os.environ.get("OCR_LLM_URL"),
+                          os.environ.get("OCR_LLM_MODEL"),
+                          os.environ.get("OCR_LLM_API_KEY", "")).process_image(data)
     print(json.dumps(out, indent=2))

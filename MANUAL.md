@@ -518,7 +518,9 @@ Instead of entering course data by hand, you can photograph a real scorecard and
 
 #### Starting a Scan
 
-Tap **+ Add New Course**, then tap the **Scan Card** button that appears at the top of the Add Course form. The Scan Scorecard screen opens.
+Tap **+ Add New Course** (or **Edit Course** on an existing one), then tap the **Scan Card** button at the top of the form. The Scan Scorecard screen opens.
+
+> **First time:** scanning has no default server. If it isn't set up yet, Scan Card offers to open [Settings → Scan LLM](#9-settings), where you enter the server's Base URL and model and tap **Test Connection**.
 
 > The **Scan Card** button only appears when **Scorecard scanning (OCR)** is on in [Settings](#9-settings). Turn the setting off to hide the button entirely.
 
@@ -547,11 +549,11 @@ If the scan finds only 9 holes of par values, Galf asks which 9 holes the card c
 
 #### Saving
 
-The extracted values fill in the Add Course form: course name, club, pars, tee colors, ratings, slopes, and yardages. Check them, correct anything misread, and save the course as you would when entering it by hand.
+The extracted values fill in the course form: course name, club, pars, tee colors, ratings, slopes, and yardages. Only fields you haven't filled are touched — anything you typed before scanning is kept, and a summary tells you how many fields were filled. Check them, correct anything misread, and save the course as you would when entering it by hand.
 
-> Scan Card uses a **local vision LLM**. The model does not run on the box hosting Galf — the photo is sent to an [Ollama](https://ollama.com) (or llama.cpp / LM Studio) server elsewhere on your LAN, set via `OCR_LLM_URL`. With the default `OCR_LLM_KEEP_ALIVE=0`, the model is loaded only for the duration of a scan and unloaded immediately after, so the helper machine's RAM is free between scans. Nothing leaves your network. A scan takes ~15–60 s including the cold model load.
+> Scan Card uses a **vision LLM on another machine** — the model does not run on the box hosting Galf. The photo goes to the server set in Settings → Scan LLM (any OpenAI-compatible endpoint, or Ollama). A scan usually takes 5–30 s.
 >
-> If the helper machine is off or asleep, Scan Card reports that the scan failed. Manual entry still works. See the README for setup.
+> If that server is off or unreachable, Scan Card reports that the scan failed. Manual entry still works.
 
 ---
 
@@ -796,7 +798,17 @@ Score colors (green birdies, red bogeys) stay the same in both themes so a score
 
 | Setting | What it does |
 |---|---|
-| **Scorecard scanning (OCR)** | Shows or hides the **Scan Card** button when adding a course. |
+| **Scorecard scanning (OCR)** | Shows or hides the **Scan Card** button on the course form. |
+
+#### Scan LLM
+
+| Field | What it is |
+|---|---|
+| **Base URL** | The vision LLM server, e.g. `http://host:port/v1` (OpenAI-compatible) or `http://host:11434/api/chat` (Ollama). |
+| **Model** | A vision-capable model on that server. |
+| **API Key** | Optional. Stored on the server, never shown again — type a new one to replace it, or **Remove** it. |
+
+Nothing here is saved until you tap **Test Connection** and it succeeds (server reachable, model listed). A failed test leaves your previous settings in place. Until a test passes, scanning is off.
 
 ### Help
 

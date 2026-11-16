@@ -4053,6 +4053,11 @@ function scanBackToEditor() {
 }
 
 function openScanForEditor() {
+  if (!S.prefs.ocr_llm_ready) {
+    showConfirm('Set Up Scanning', 'Scorecard scanning needs a vision LLM. Enter its URL and model in Settings → Scan LLM and tap Test Connection.',
+      'Open Settings', () => show('settings'), 'Not Now');
+    return;
+  }
   _scanBase = ceSnapshot();
   _scanOcr = null;
   _scanStep = 'upload';
@@ -4628,37 +4633,49 @@ async function savePref(key, value){
   if(res && res.error) showAlert('Save Failed', res.error);
 }
 
-// Scan LLM fields. The API key never comes back from the server; we only learn
-// whether one is saved (ocr_llm_api_key_set).
-async function saveLlmField(key, value){
-  value=String(value||'').trim();
-  const res=await PUT('/api/prefs',{[key]:value});
-  if(!res || res.ok===false || res.error){ showAlert('Save Failed',(res&&res.error)||'Could not save setting.'); return; }
-  if(res.prefs) S.prefs={...S.prefs,...res.prefs};
-  if(key==='ocr_llm_api_key') renderSettings(); // refresh saved/clear state, wipe the field
+// Scan LLM settings. Nothing is saved until Test Connection passes: the
+// server stores url/model/key only on success. The key never comes back from
+// the server; we only learn whether one is saved (ocr_llm_api_key_set).
+let _llmClearKey = false;   // user tapped Remove on the saved key (pending test)
+let _llmStatus = null;      // {ok, text} to show after a re-render
+
+function llmFieldsChanged(){
   const st=document.getElementById('set-llm-status');
-  if(st){ st.style.color=''; st.textContent='Saved.'; }
+  if(st){ st.style.color='var(--text2)'; st.textContent='Not saved — tap Test Connection to save.'; }
+}
+
+function llmRemoveKey(){
+  _llmClearKey=true;
+  const k=document.getElementById('set-llm-key');
+  if(k){ k.value=''; k.placeholder='Will be removed on next successful test'; }
+  const b=document.getElementById('set-llm-key-rm'); if(b) b.remove();
+  llmFieldsChanged();
 }
 
 async function testLlm(){
   const btn=document.getElementById('set-llm-test'), st=document.getElementById('set-llm-status');
   if(!btn||!st) return;
-  // Test what's in the fields now, even if not saved yet
   const body={
-    ocr_llm_url:document.getElementById('set-llm-url').value.trim(),
-    ocr_llm_model:document.getElementById('set-llm-model').value.trim(),
-    ocr_llm_api_key:document.getElementById('set-llm-key').value.trim(),
+    url:document.getElementById('set-llm-url').value.trim(),
+    model:document.getElementById('set-llm-model').value.trim(),
+    api_key:document.getElementById('set-llm-key').value.trim(),
+    clear_key:_llmClearKey,
   };
-  btn.disabled=true; st.style.color=''; st.textContent='Testing…';
+  if(!body.url||!body.model){ st.style.color='var(--red)'; st.textContent='Enter both a Base URL and a model.'; return; }
+  btn.disabled=true; st.style.color='var(--text2)'; st.textContent='Testing…';
   try{
     const r=await POST('/api/ocr/test',body);
-    if(r&&r.ok){ st.style.color='var(--green, #2e7d32)'; st.textContent='Connected — model found.'; }
-    else{
-      st.style.color='var(--red, #c62828)';
-      st.textContent=(r&&r.error)||'Test failed.';
-      if(r&&r.models&&r.models.length) st.textContent+=` Available: ${r.models.join(', ')}`;
+    if(r&&r.prefs) S.prefs={...S.prefs,...r.prefs};
+    if(r&&r.ok){
+      _llmClearKey=false;
+      _llmStatus={ok:true,text:'Connected — settings saved. Scanning is ready.'};
+      renderSettings();  // clears the key field, refreshes saved-key state
+      return;
     }
-  }catch(e){ st.style.color='var(--red, #c62828)'; st.textContent='Test failed: could not reach Galf.'; }
+    st.style.color='var(--red)';
+    st.textContent=((r&&r.error)||'Test failed.')+' Nothing was saved.';
+    if(r&&r.models&&r.models.length) st.textContent+=` Available models: ${r.models.join(', ')}`;
+  }catch(e){ st.style.color='var(--red)'; st.textContent='Test failed: could not reach Galf. Nothing was saved.'; }
   finally{ btn.disabled=false; }
 }
 
@@ -4677,7 +4694,10 @@ function renderSettings(){
       <div class="theme-opt-sub">${t.sub}</div>
     </button>`).join('');
 
-  const llmDef=p.ocr_llm_defaults||{};
+  const llmStatus=_llmStatus || (p.ocr_llm_ready
+    ? {ok:true, text:'Connected and saved.'}
+    : {ok:false, text:'Not set up — enter a URL and model, then tap Test Connection.'});
+  _llmStatus=null;
   v.innerHTML=`
     <div class="page-header" style="text-align:right"><div class="page-title">Settings</div></div>
 
@@ -4721,25 +4741,25 @@ function renderSettings(){
           <div class="form-group">
             <div class="form-label">Base URL</div>
             <input class="form-input" id="set-llm-url" type="url" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false"
-              value="${esc(p.ocr_llm_url||'')}" placeholder="${esc(llmDef.url||'')}" onchange="saveLlmField('ocr_llm_url',this.value)">
+              value="${esc(p.ocr_llm_url||'')}" placeholder="http://host:port/v1" oninput="llmFieldsChanged()">
           </div>
           <div class="form-group">
             <div class="form-label">Model</div>
             <input class="form-input" id="set-llm-model" autocapitalize="off" autocorrect="off" spellcheck="false"
-              value="${esc(p.ocr_llm_model||'')}" placeholder="${esc(llmDef.model||'')}" onchange="saveLlmField('ocr_llm_model',this.value)">
+              value="${esc(p.ocr_llm_model||'')}" placeholder="Vision model name" oninput="llmFieldsChanged()">
           </div>
           <div class="form-group" style="margin-bottom:6px">
             <div class="form-label">API Key <span style="font-weight:400;color:var(--text2)">(optional)</span></div>
             <div style="display:flex;gap:8px">
               <input class="form-input" id="set-llm-key" type="password" autocomplete="off" style="flex:1"
-                placeholder="${p.ocr_llm_api_key_set?'•••••••• saved':'None'}" onchange="saveLlmField('ocr_llm_api_key',this.value)">
-              ${p.ocr_llm_api_key_set?`<button class="btn" style="width:auto;padding:6px 12px;background:var(--bg)" onclick="saveLlmField('ocr_llm_api_key','')">Clear</button>`:''}
+                placeholder="${p.ocr_llm_api_key_set?'•••••••• saved — type to replace':'None'}" oninput="llmFieldsChanged()">
+              ${p.ocr_llm_api_key_set?`<button class="btn" id="set-llm-key-rm" style="width:auto;padding:6px 12px;background:var(--bg)" onclick="llmRemoveKey()">Remove</button>`:''}
             </div>
           </div>
-          <div class="settings-row-sub" style="margin-bottom:10px">Blank fields use the server defaults shown in grey. The key is stored on the server and never shown again.</div>
+          <div class="settings-row-sub" style="margin-bottom:10px">Settings are saved only when Test Connection succeeds. The key is stored on the server and never shown again.</div>
           <div style="display:flex;gap:8px;align-items:center">
             <button class="btn btn-primary" style="width:auto;padding:8px 14px" id="set-llm-test" onclick="testLlm()">Test Connection</button>
-            <div id="set-llm-status" class="settings-row-sub" style="margin:0;flex:1" aria-live="polite"></div>
+            <div id="set-llm-status" class="settings-row-sub" style="margin:0;flex:1;color:${llmStatus.ok?'var(--green)':'var(--text2)'}" aria-live="polite">${esc(llmStatus.text)}</div>
           </div>
         </div>
       </div>
