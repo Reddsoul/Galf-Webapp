@@ -129,7 +129,7 @@ All config via environment variables (or `.env` file):
 | `PORT` | `5003` | Port the app listens on (set `PORT=5003` in `.env`) |
 | `DATA_PATH` | `./data` | Directory for `galf.db` |
 | `APP_NAME` | `Galf` | Name shown in startup banner |
-| `OCR_LLM_URL` | `http://localhost:4000/v1` | Vision-LLM endpoint. OpenAI-compatible base URL ending in `/v1` (vLLM, LiteLLM, llama.cpp, LM Studio) or full `/v1/chat/completions`. Ollama native `/api/chat` also works |
+| `OCR_LLM_URL` | `http://localhost:4000/v1` | Vision-LLM endpoint (or set it in Settings → Scan LLM). OpenAI-compatible base URL ending in `/v1` (vLLM, LiteLLM, llama.cpp, LM Studio) or full `/v1/chat/completions`. Ollama native `/api/chat` also works |
 | `OCR_LLM_MODEL` | `fast` | Vision model name on that server |
 | `OCR_LLM_API_KEY` | _(empty)_ | Optional bearer token, sent only when set |
 | `OCR_LLM_KEEP_ALIVE` | `0` | Ollama native only: how long the model stays in RAM after a scan |
@@ -139,12 +139,14 @@ All config via environment variables (or `.env` file):
 
 The scan engine does **not** run on the box hosting Galf — the app sends the photo to a vision LLM on another machine. Galf itself runs happily on a 1 GB ARM NAS (e.g. Synology DS124), which cannot fit any vision model worth using.
 
-Default target is the Spark LLM server's OpenAI-compatible API (`http://localhost:4000/v1`, model `fast`, no key). The Galf container must be able to reach it over Tailscale; if it can't resolve the `*.ts.net` name, set `OCR_LLM_URL` to the server's Tailscale IP:
+Point Galf at your LLM server's OpenAI-compatible API, either in **Settings → Scan LLM** or via env at deploy time (e.g. DSM Container Manager). Don't commit the real hostname:
 
 ```
-OCR_LLM_URL=http://<spark-tailscale-ip>:4000/v1
+OCR_LLM_URL=http://<llm-host>:4000/v1
 OCR_LLM_MODEL=fast
 ```
+
+The Galf container must be able to reach that host. Over Tailscale, if Docker can't resolve a MagicDNS name, use the machine's Tailscale IP.
 
 The URL, model and an optional API key can also be set in the app under **Settings → Scan LLM** (blank fields fall back to these env vars). **Test Connection** checks the server is reachable and lists its models. The API key is stored server-side and never sent back to the browser.
 
