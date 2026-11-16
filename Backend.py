@@ -53,6 +53,10 @@ DEFAULT_SETTINGS = {
     "theme": "green",           # "green" | "burgundy"
     "ocr_enabled": True,        # show Scan Card + allow /api/courses/scan
     "sim_in_handicap": False,   # opt in: serious sim rounds feed the handicap index
+    # Scan LLM overrides; "" = fall back to OCR_LLM_* env vars.
+    "ocr_llm_url": "",
+    "ocr_llm_model": "",
+    "ocr_llm_api_key": "",      # never sent to the client (see app.py)
 }
 SETTINGS_KEYS = tuple(DEFAULT_SETTINGS)
 

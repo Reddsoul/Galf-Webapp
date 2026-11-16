@@ -15,8 +15,28 @@ from models import db, Round
 from Backend import GolfBackend, generate_scorecard_data, _round_to_dict, normalize_existing_tee_colors, run_migrations, SETTINGS_KEYS
 
 # Scan backend: local vision LLM (llama.cpp / Ollama), stdlib client
-from ocr_llm import LLMScorecardOCR
-_ocr_llm = LLMScorecardOCR()
+from ocr_llm import LLMScorecardOCR, DEFAULT_URL as _OCR_DEFAULT_URL
+
+
+def _ocr_client(overrides=None):
+    """Scan client built from Settings (blank = env/default), per request so
+    edits in Settings apply without a restart."""
+    p = {**backend.user_prefs, **(overrides or {})}
+    return LLMScorecardOCR(url=p.get("ocr_llm_url"),
+                           model=p.get("ocr_llm_model"),
+                           api_key=p.get("ocr_llm_api_key"))
+
+
+def _public_prefs():
+    """Prefs for the client: API key replaced by a set/unset flag; env
+    defaults included so Settings can show them as placeholders."""
+    p = dict(backend.user_prefs)
+    p["ocr_llm_api_key_set"] = bool(p.pop("ocr_llm_api_key", ""))
+    p["ocr_llm_defaults"] = {
+        "url": os.environ.get("OCR_LLM_URL") or _OCR_DEFAULT_URL,
+        "model": os.environ.get("OCR_LLM_MODEL") or "fast",
+    }
+    return p
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -150,7 +170,7 @@ def api_scan_scorecard():
         return jsonify({"error": "Empty image file"}), 400
 
     try:
-        return jsonify(_ocr_llm.process_image(image_bytes))
+        return jsonify(_ocr_client().process_image(image_bytes))
     except ValueError as e:
         return jsonify({"error": "Could not read image",
                         "tip": "Try better lighting or a flatter angle",
@@ -160,7 +180,7 @@ def api_scan_scorecard():
         return jsonify({
             "error": "Scan failed",
             "tip": "Could not get a result from the vision LLM. Check that the "
-                   "LLM server is up and OCR_LLM_URL is correct, then try again, "
+                   "LLM server is up and the Scan LLM settings are correct, then try again, "
                    "or enter the course by hand.",
             "detail": str(e),
         }), 503
@@ -276,7 +296,7 @@ def api_training_template():
 # ---------------------------------------------------------------------------
 @app.route("/api/prefs")
 def api_prefs():
-    return jsonify(backend.user_prefs)
+    return jsonify(_public_prefs())
 
 
 @app.route("/api/prefs", methods=["PUT"])
@@ -288,11 +308,28 @@ def api_update_prefs():
     if unknown:
         return jsonify({"ok": False,
                         "error": f"Unknown pref keys: {sorted(unknown)}"}), 400
+    for k in ("ocr_llm_url", "ocr_llm_model", "ocr_llm_api_key"):
+        if k in data:
+            data[k] = str(data[k] or "").strip()
+    url = data.get("ocr_llm_url")
+    if url and not url.startswith(("http://", "https://")):
+        return jsonify({"ok": False,
+                        "error": "Base URL must start with http:// or https://"}), 400
     backend.user_prefs.update(data)
     backend.save_user_prefs()
     # Handicap eligibility depends on sim_in_handicap; stats cache holds none
     # of it, but the client re-fetches home/stats after a prefs change anyway.
-    return jsonify({"ok": True, "prefs": backend.user_prefs})
+    return jsonify({"ok": True, "prefs": _public_prefs()})
+
+
+@app.route("/api/ocr/test", methods=["POST"])
+def api_ocr_test():
+    """Probe the scan LLM. Body may carry unsaved url/model/api_key to test."""
+    data = request.get_json() or {}
+    overrides = {k: str(data[k]).strip() for k in
+                 ("ocr_llm_url", "ocr_llm_model", "ocr_llm_api_key")
+                 if data.get(k)}
+    return jsonify(_ocr_client(overrides).check())
 
 
 @app.route("/api/manual")

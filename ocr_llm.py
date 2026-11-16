@@ -18,6 +18,7 @@ OCR_LLM_URL         Endpoint. Two formats supported, detected from the path:
                     Default: http://localhost:4000/v1
 OCR_LLM_MODEL       Model name. Default: "fast"
 OCR_LLM_API_KEY     Optional bearer token. Sent only when set.
+OCR_LLM_DEBUG       "1" logs the raw model output to stderr.
 OCR_LLM_THINKING    "1" lets reasoning models think before answering (slower,
                     sometimes more accurate). Default "0" = thinking off via
                     chat_template_kwargs.enable_thinking (vLLM/Qwen-style).
@@ -53,41 +54,45 @@ Return ONLY a JSON object, no prose, matching exactly this schema:
   "course_name": string or null,   // course name (e.g. "Lakeside Course"); null if absent
   "club_name": string or null,     // club/facility name if distinct from course name
   "nine_hole_card": boolean,       // true if the card covers only 9 holes
-  "pars": [int, ...],              // par per hole in hole order (9 or 18 values, each 3-5)
+  "pars": [int or null, ...],      // par per hole in hole order (9 or 18 values, each 3-6)
   "handicaps": [int, ...],         // stroke index / HDCP per hole (1-18), [] if absent
   "tee_boxes": [
     {
-      "label": string,             // tee name as printed (e.g. "Black", "Championship")
+      "label": string,             // tee name EXACTLY as printed (e.g. "Black", "Championship", "Blue/White")
       "color": string or null,     // canonical color: Black/Blue/White/Yellow/Red/Gold/Green/Silver
       "rating": float or null,     // course rating (55.0-82.0)
       "slope": int or null,        // slope (55-155)
-      "yardages": [int, ...]       // yards per hole in hole order (80-650 each), [] if unreadable
+      "yardages": [int or null, ...] // yards per hole in hole order, null for an unreadable hole
     }
   ]
 }
 
 Rules:
-- Include EVERY tee row printed on the card (each row of yardages is a tee), even if it has no rating/slope.
+- Include EVERY tee row printed on the card — every row of yardages is its own tee box, even if it has no rating/slope. Combo tees (e.g. "Blue/White"), forward/ladies tees and junior tees are separate entries. Cards commonly have 4-8 tee rows; count them before answering.
+- Each tee box must have its own distinct label. Do not merge two rows into one.
+- PAR row: the row labelled "Par" (or "Men's Par"). Do NOT confuse it with the Handicap/HCP/Stroke Index row (values 1-18) or a yardage row. If there are separate men's and ladies' par rows, use the men's. Pars are almost always 3, 4 or 5 and an 18-hole total is usually 68-73 — check the OUT/IN totals against your values.
 - Ratings/slopes may sit next to the tee name, in a separate side table, or in a footer, often as "71.4/128" or under headers like "R/S", "Rating/Slope", "CR/SL". Match them to the right tee.
 - Ladies/forward tees often have separate ratings — use the men's rating unless only one is printed.
 - Hole order: 1..9 then 10..18. Front and back nine are often separate tables — concatenate them.
 - Do NOT include OUT/IN/TOT column values in pars, handicaps, or yardages.
 - Ratings often appear as "71.4/128" (rating/slope) near the tee name or in a side table.
-- If a value is unreadable, use null (or omit the hole from yardages only if the whole row is unreadable).
+- If a single value is unreadable, put null in that hole's position — never skip it, or every later hole shifts. Use [] only if the whole row is unreadable.
 - Never invent values. Missing is better than wrong."""
 
 
 class LLMScorecardOCR:
 
-    def __init__(self):
-        url = os.environ.get("OCR_LLM_URL", DEFAULT_URL).strip().rstrip("/")
+    def __init__(self, url=None, model=None, api_key=None):
+        # Explicit args (from Settings) win; blank/None falls back to env.
+        url = (url or os.environ.get("OCR_LLM_URL") or DEFAULT_URL).strip().rstrip("/")
         # Accept a bare OpenAI-style base URL (".../v1").
         if url.endswith("/v1"):
             url += "/chat/completions"
         self.url = url
-        self.model = os.environ.get("OCR_LLM_MODEL", "fast")
-        self.api_key = os.environ.get("OCR_LLM_API_KEY", "").strip()
+        self.model = (model or os.environ.get("OCR_LLM_MODEL") or "fast").strip()
+        self.api_key = (api_key or os.environ.get("OCR_LLM_API_KEY", "")).strip()
         self.thinking = os.environ.get("OCR_LLM_THINKING", "0") == "1"
+        self.debug = os.environ.get("OCR_LLM_DEBUG", "0") == "1"
         self.timeout = int(os.environ.get("OCR_LLM_TIMEOUT", "180"))
         self.keep_alive = os.environ.get("OCR_LLM_KEEP_ALIVE", "0")
         # Ollama native API supports keep_alive (load model per scan,
@@ -159,8 +164,36 @@ class LLMScorecardOCR:
             # Reasoning models can burn max_tokens before writing the answer.
             raise RuntimeError("LLM returned empty content (token limit hit?)")
 
+        if self.debug:
+            print(f"[ocr_llm] raw model output:\n{text}", file=sys.stderr)
         raw = self._parse_json_block(text)
         return self._coerce(raw)
+
+    def check(self) -> dict:
+        """Probe the endpoint: list models and confirm ours is served.
+        OpenAI-compatible only (Ollama native has no /v1/models)."""
+        if self.native_ollama:
+            base = self.url.rsplit("/api/chat", 1)[0]
+            models_url, key = base + "/api/tags", "models"
+        else:
+            models_url, key = self.url.rsplit("/chat/completions", 1)[0] + "/models", "data"
+        headers = {}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        req = urllib.request.Request(models_url, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            return {"ok": False, "error": f"HTTP {e.code} from {models_url}"}
+        except (urllib.error.URLError, OSError, TimeoutError, ValueError) as e:
+            return {"ok": False, "error": f"Unreachable: {e}"}
+        items = (body.get(key) or []) if isinstance(body, dict) else []
+        names = [m.get("id") or m.get("name") for m in items if isinstance(m, dict)]
+        if self.model not in names:
+            return {"ok": False, "models": names,
+                    "error": f'Server is up, but model "{self.model}" is not listed.'}
+        return {"ok": True, "models": names}
 
     # ── Helpers ───────────────────────────────────────────────────────────
 
@@ -230,8 +263,15 @@ class LLMScorecardOCR:
                 return None
             return f if lo <= f <= hi else None
 
-        pars = [p for p in (_int(v, 3, 6) for v in (raw.get("pars") or []))
-                if p is not None][:18]
+        def _positional(vals, lo, hi):
+            # Keep hole positions: an unreadable hole stays null instead of
+            # being dropped (dropping shifts every later hole by one).
+            out = [_int(v, lo, hi) for v in (vals or [])][:18]
+            while out and out[-1] is None:
+                out.pop()
+            return out
+
+        pars = _positional(raw.get("pars"), 3, 6)
         hcps = [h for h in (_int(v, 1, 18) for v in (raw.get("handicaps") or []))
                 if h is not None][:18]
 
@@ -244,9 +284,7 @@ class LLMScorecardOCR:
             if color not in ("Black", "Blue", "White", "Yellow", "Red",
                              "Gold", "Green", "Silver"):
                 color = None
-            yardages = [y for y in (_int(v, 80, 650)
-                                    for v in (t.get("yardages") or []))
-                        if y is not None][:18]
+            yardages = _positional(t.get("yardages"), 50, 750)
             if not label and not color:
                 continue
             tee_boxes.append({
