@@ -4280,9 +4280,21 @@ function _mergeOcrIntoEditor(ocr) {
   for (const c of Object.keys(d.yardages)) d.yardages[c] = fit(d.yardages[c]);
 
   // Tees
-  const ocrTees = (ocr.tee_boxes || []).map(t => {
-    const raw = String(t.color || t.label || '').trim();
-    return { ...t, color: raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : '' };
+  // Tee name: canonical color when no other scanned tee shares it (gives the
+  // right color dot), else the printed label, so "Championship" and "Black",
+  // or "Blue/White" and "Blue", stay separate tee boxes.
+  const cap = v => { v = String(v || '').trim(); return v ? v.charAt(0).toUpperCase() + v.slice(1) : ''; };
+  const scanned = ocr.tee_boxes || [];
+  const colorCount = {};
+  for (const t of scanned) if (t.color) colorCount[t.color.toLowerCase()] = (colorCount[t.color.toLowerCase()] || 0) + 1;
+  const seen = new Set();
+  const ocrTees = scanned.map(t => {
+    const uniqueColor = t.color && colorCount[t.color.toLowerCase()] === 1;
+    let name = cap(uniqueColor ? t.color : (t.label || t.color));
+    // Two rows with the same printed name: number them rather than merge
+    for (let k = 2; name && seen.has(name.toLowerCase()); k++) name = `${cap(t.label || t.color)} ${k}`;
+    if (name) seen.add(name.toLowerCase());
+    return { ...t, color: name };
   }).filter(t => t.color);
   const findTee = col => d.tees.find(t => t.color.toLowerCase() === col.toLowerCase());
 
@@ -4616,6 +4628,40 @@ async function savePref(key, value){
   if(res && res.error) showAlert('Save Failed', res.error);
 }
 
+// Scan LLM fields. The API key never comes back from the server; we only learn
+// whether one is saved (ocr_llm_api_key_set).
+async function saveLlmField(key, value){
+  value=String(value||'').trim();
+  const res=await PUT('/api/prefs',{[key]:value});
+  if(!res || res.ok===false || res.error){ showAlert('Save Failed',(res&&res.error)||'Could not save setting.'); return; }
+  if(res.prefs) S.prefs={...S.prefs,...res.prefs};
+  if(key==='ocr_llm_api_key') renderSettings(); // refresh saved/clear state, wipe the field
+  const st=document.getElementById('set-llm-status');
+  if(st){ st.style.color=''; st.textContent='Saved.'; }
+}
+
+async function testLlm(){
+  const btn=document.getElementById('set-llm-test'), st=document.getElementById('set-llm-status');
+  if(!btn||!st) return;
+  // Test what's in the fields now, even if not saved yet
+  const body={
+    ocr_llm_url:document.getElementById('set-llm-url').value.trim(),
+    ocr_llm_model:document.getElementById('set-llm-model').value.trim(),
+    ocr_llm_api_key:document.getElementById('set-llm-key').value.trim(),
+  };
+  btn.disabled=true; st.style.color=''; st.textContent='Testing…';
+  try{
+    const r=await POST('/api/ocr/test',body);
+    if(r&&r.ok){ st.style.color='var(--green, #2e7d32)'; st.textContent='Connected — model found.'; }
+    else{
+      st.style.color='var(--red, #c62828)';
+      st.textContent=(r&&r.error)||'Test failed.';
+      if(r&&r.models&&r.models.length) st.textContent+=` Available: ${r.models.join(', ')}`;
+    }
+  }catch(e){ st.style.color='var(--red, #c62828)'; st.textContent='Test failed: could not reach Galf.'; }
+  finally{ btn.disabled=false; }
+}
+
 function renderSettings(){
   const v=document.getElementById('v-settings');
   const p=S.prefs;
@@ -4631,6 +4677,7 @@ function renderSettings(){
       <div class="theme-opt-sub">${t.sub}</div>
     </button>`).join('');
 
+  const llmDef=p.ocr_llm_defaults||{};
   v.innerHTML=`
     <div class="page-header" style="text-align:right"><div class="page-title">Settings</div></div>
 
@@ -4663,6 +4710,37 @@ function renderSettings(){
             <div class="settings-row-sub">Shows the Scan Card button when adding a course.</div>
           </div>
           ${sw('ocr_enabled', p.ocr_enabled!==false)}
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-title">Scan LLM</div>
+      <div class="settings-card">
+        <div class="settings-row" style="display:block">
+          <div class="form-group">
+            <div class="form-label">Base URL</div>
+            <input class="form-input" id="set-llm-url" type="url" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false"
+              value="${esc(p.ocr_llm_url||'')}" placeholder="${esc(llmDef.url||'')}" onchange="saveLlmField('ocr_llm_url',this.value)">
+          </div>
+          <div class="form-group">
+            <div class="form-label">Model</div>
+            <input class="form-input" id="set-llm-model" autocapitalize="off" autocorrect="off" spellcheck="false"
+              value="${esc(p.ocr_llm_model||'')}" placeholder="${esc(llmDef.model||'')}" onchange="saveLlmField('ocr_llm_model',this.value)">
+          </div>
+          <div class="form-group" style="margin-bottom:6px">
+            <div class="form-label">API Key <span style="font-weight:400;color:var(--text2)">(optional)</span></div>
+            <div style="display:flex;gap:8px">
+              <input class="form-input" id="set-llm-key" type="password" autocomplete="off" style="flex:1"
+                placeholder="${p.ocr_llm_api_key_set?'•••••••• saved':'None'}" onchange="saveLlmField('ocr_llm_api_key',this.value)">
+              ${p.ocr_llm_api_key_set?`<button class="btn" style="width:auto;padding:6px 12px;background:var(--bg)" onclick="saveLlmField('ocr_llm_api_key','')">Clear</button>`:''}
+            </div>
+          </div>
+          <div class="settings-row-sub" style="margin-bottom:10px">Blank fields use the server defaults shown in grey. The key is stored on the server and never shown again.</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn btn-primary" style="width:auto;padding:8px 14px" id="set-llm-test" onclick="testLlm()">Test Connection</button>
+            <div id="set-llm-status" class="settings-row-sub" style="margin:0;flex:1" aria-live="polite"></div>
+          </div>
         </div>
       </div>
     </div>

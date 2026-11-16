@@ -146,6 +146,8 @@ OCR_LLM_URL=http://<spark-tailscale-ip>:4000/v1
 OCR_LLM_MODEL=fast
 ```
 
+The URL, model and an optional API key can also be set in the app under **Settings → Scan LLM** (blank fields fall back to these env vars). **Test Connection** checks the server is reachable and lists its models. The API key is stored server-side and never sent back to the browser.
+
 Any other OpenAI-compatible vision server works the same way. For a local Ollama box, use `OCR_LLM_URL=http://<host>:11434/api/chat` with a vision model (e.g. `qwen2.5vl:3b`); `OCR_LLM_KEEP_ALIVE=0` unloads it after each scan.
 
 Scanning fills only the Add/Edit Course fields you have not filled yourself — anything you typed before scanning is kept. If the LLM server is unreachable, Scan Card reports it and every other feature keeps working.
