@@ -8,25 +8,27 @@ Stdlib only (urllib); Pillow used for downscaling when available.
 Config (env vars)
 -----------------
 OCR_LLM_URL         Endpoint. Two formats supported, detected from the path:
-                    - Ollama NATIVE (recommended): http://host:11434/api/chat
+                    - OpenAI-compatible (default): base URL ending in /v1
+                      (".../chat/completions" is appended) or the full
+                      /v1/chat/completions URL. vLLM, LiteLLM, llama.cpp,
+                      LM Studio, Ollama compat mode.
+                    - Ollama NATIVE: http://host:11434/api/chat
                       Lets us send keep_alive so the model is loaded ONLY for
-                      the duration of a scan and unloaded right after —
-                      zero RAM footprint between scans.
-                    - OpenAI-compatible: http://host:PORT/v1/chat/completions
-                      (llama.cpp llama-server, LM Studio, Ollama compat mode)
-                    Default: http://127.0.0.1:11434/api/chat
-OCR_LLM_MODEL       Model name. Default: "qwen2.5vl:3b"
+                      the duration of a scan.
+                    Default: http://localhost:4000/v1
+OCR_LLM_MODEL       Model name. Default: "fast"
+OCR_LLM_API_KEY     Optional bearer token. Sent only when set.
+OCR_LLM_THINKING    "1" lets reasoning models think before answering (slower,
+                    sometimes more accurate). Default "0" = thinking off via
+                    chat_template_kwargs.enable_thinking (vLLM/Qwen-style).
 OCR_LLM_TIMEOUT     Request timeout in seconds. Default: 180 (cold model
                     load + inference on modest hardware).
 OCR_LLM_KEEP_ALIVE  Ollama native only. How long the model stays in RAM
                     after a scan. Default "0" = unload immediately.
                     Use e.g. "5m" while batch-scanning several cards.
 
-Suggested models (running on a helper box, NOT the NAS):
-  - qwen2.5vl:3b   (~3 GB RAM while loaded, best accuracy/size for tables)
-  - moondream      (~1.7 GB, lighter, weaker on dense tables)
-The app itself can run on a 1 GB NAS — the model RAM is only used on the
-machine OCR_LLM_URL points at, and only while a scan is in flight.
+The model runs on another box (the Spark LLM server), never on the NAS —
+the app itself stays stdlib-light and runs fine on a 1 GB NAS.
 
 Public interface:
     LLMScorecardOCR().process_image(image_bytes: bytes) -> dict
@@ -42,7 +44,7 @@ import sys
 import urllib.error
 import urllib.request
 
-DEFAULT_URL = "http://127.0.0.1:11434/api/chat"
+DEFAULT_URL = "http://localhost:4000/v1"
 
 _PROMPT = """You are reading a photo of a golf scorecard. Extract its data as JSON.
 
@@ -65,6 +67,9 @@ Return ONLY a JSON object, no prose, matching exactly this schema:
 }
 
 Rules:
+- Include EVERY tee row printed on the card (each row of yardages is a tee), even if it has no rating/slope.
+- Ratings/slopes may sit next to the tee name, in a separate side table, or in a footer, often as "71.4/128" or under headers like "R/S", "Rating/Slope", "CR/SL". Match them to the right tee.
+- Ladies/forward tees often have separate ratings — use the men's rating unless only one is printed.
 - Hole order: 1..9 then 10..18. Front and back nine are often separate tables — concatenate them.
 - Do NOT include OUT/IN/TOT column values in pars, handicaps, or yardages.
 - Ratings often appear as "71.4/128" (rating/slope) near the tee name or in a side table.
@@ -75,8 +80,14 @@ Rules:
 class LLMScorecardOCR:
 
     def __init__(self):
-        self.url = os.environ.get("OCR_LLM_URL", DEFAULT_URL)
-        self.model = os.environ.get("OCR_LLM_MODEL", "qwen2.5vl:3b")
+        url = os.environ.get("OCR_LLM_URL", DEFAULT_URL).strip().rstrip("/")
+        # Accept a bare OpenAI-style base URL (".../v1").
+        if url.endswith("/v1"):
+            url += "/chat/completions"
+        self.url = url
+        self.model = os.environ.get("OCR_LLM_MODEL", "fast")
+        self.api_key = os.environ.get("OCR_LLM_API_KEY", "").strip()
+        self.thinking = os.environ.get("OCR_LLM_THINKING", "0") == "1"
         self.timeout = int(os.environ.get("OCR_LLM_TIMEOUT", "180"))
         self.keep_alive = os.environ.get("OCR_LLM_KEEP_ALIVE", "0")
         # Ollama native API supports keep_alive (load model per scan,
@@ -105,6 +116,9 @@ class LLMScorecardOCR:
             payload = {
                 "model": self.model,
                 "temperature": 0,
+                # Headroom for reasoning models that think before the JSON.
+                "max_tokens": 8192,
+                "response_format": {"type": "json_object"},
                 "messages": [{
                     "role": "user",
                     "content": [
@@ -114,15 +128,23 @@ class LLMScorecardOCR:
                     ],
                 }],
             }
-        req = urllib.request.Request(
-            self.url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
+            if not self.thinking:
+                payload["chat_template_kwargs"] = {"enable_thinking": False}
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                body = json.loads(resp.read().decode("utf-8"))
+            body = self._post(payload)
+        except urllib.error.HTTPError as e:
+            # Some servers reject response_format / chat_template_kwargs —
+            # retry once without the optional extras.
+            optional = ("response_format", "chat_template_kwargs")
+            if e.code == 400 and any(k in payload for k in optional):
+                for k in optional:
+                    payload.pop(k, None)
+                try:
+                    body = self._post(payload)
+                except (urllib.error.URLError, OSError, TimeoutError) as e2:
+                    raise RuntimeError(f"LLM request failed ({self.url}): {e2}")
+            else:
+                raise RuntimeError(f"LLM request failed ({self.url}): {e}")
         except (urllib.error.URLError, OSError, TimeoutError) as e:
             raise RuntimeError(f"LLM endpoint unreachable ({self.url}): {e}")
 
@@ -133,19 +155,38 @@ class LLMScorecardOCR:
                 text = body["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError):
             raise RuntimeError(f"Unexpected LLM response shape: {str(body)[:300]}")
+        if not text:
+            # Reasoning models can burn max_tokens before writing the answer.
+            raise RuntimeError("LLM returned empty content (token limit hit?)")
 
         raw = self._parse_json_block(text)
         return self._coerce(raw)
 
     # ── Helpers ───────────────────────────────────────────────────────────
 
+    def _post(self, payload: dict) -> dict:
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        req = urllib.request.Request(
+            self.url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+
     @staticmethod
-    def _downscale(image_bytes: bytes, long_side: int = 1536):
+    def _downscale(image_bytes: bytes, long_side: int = 2048):
         """Resize to keep prompts small; pass through untouched if PIL missing."""
         try:
             from PIL import Image
         except ImportError:
-            return image_bytes, "image/jpeg"
+            mime = ("image/png" if image_bytes[:8] == b"\x89PNG\r\n\x1a\n"
+                    else "image/webp" if image_bytes[8:12] == b"WEBP"
+                    else "image/jpeg")
+            return image_bytes, mime
         try:
             img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         except Exception as e:

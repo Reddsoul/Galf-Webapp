@@ -160,7 +160,7 @@ def api_scan_scorecard():
         return jsonify({
             "error": "Scan failed",
             "tip": "Could not get a result from the vision LLM. Check that the "
-                   "helper box is on and OCR_LLM_URL is correct, then try again, "
+                   "LLM server is up and OCR_LLM_URL is correct, then try again, "
                    "or enter the course by hand.",
             "detail": str(e),
         }), 503

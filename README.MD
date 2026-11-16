@@ -129,30 +129,26 @@ All config via environment variables (or `.env` file):
 | `PORT` | `5003` | Port the app listens on (set `PORT=5003` in `.env`) |
 | `DATA_PATH` | `./data` | Directory for `galf.db` |
 | `APP_NAME` | `Galf` | Name shown in startup banner |
-| `OCR_LLM_URL` | `http://127.0.0.1:11434/api/chat` | Vision-LLM endpoint. Ollama native API (`/api/chat`, recommended) or any OpenAI-compatible `/v1/chat/completions` (llama.cpp, LM Studio). Use a LAN IP when the app runs on a NAS |
-| `OCR_LLM_MODEL` | `qwen2.5vl:3b` | Vision model name on that server (`moondream` is a lighter option) |
-| `OCR_LLM_KEEP_ALIVE` | `0` | Ollama only: how long the model stays in RAM after a scan. `0` = unload immediately (recommended for helper boxes you also use for other things) |
-| `OCR_LLM_TIMEOUT` | `180` | Scan request timeout in seconds. Includes cold model load when `KEEP_ALIVE=0` |
+| `OCR_LLM_URL` | `http://localhost:4000/v1` | Vision-LLM endpoint. OpenAI-compatible base URL ending in `/v1` (vLLM, LiteLLM, llama.cpp, LM Studio) or full `/v1/chat/completions`. Ollama native `/api/chat` also works |
+| `OCR_LLM_MODEL` | `fast` | Vision model name on that server |
+| `OCR_LLM_API_KEY` | _(empty)_ | Optional bearer token, sent only when set |
+| `OCR_LLM_KEEP_ALIVE` | `0` | Ollama native only: how long the model stays in RAM after a scan |
+| `OCR_LLM_TIMEOUT` | `180` | Scan request timeout in seconds |
 
 ### Setting up scorecard scanning
 
-The scan engine does **not** run on the box hosting Galf — the app just sends the photo to a vision LLM elsewhere on your LAN. This is deliberate: Galf itself runs happily on a 1 GB ARM NAS (e.g. Synology DS124), which cannot fit any vision model worth using. Any Mac or PC with ~4 GB free RAM can be the scan helper:
+The scan engine does **not** run on the box hosting Galf — the app sends the photo to a vision LLM on another machine. Galf itself runs happily on a 1 GB ARM NAS (e.g. Synology DS124), which cannot fit any vision model worth using.
 
-```bash
-# on the helper box (e.g. a Mac Mini)
-brew install ollama && brew services start ollama
-ollama pull qwen2.5vl:3b
-```
-
-Then set on the Galf side (e.g. in DSM Container Manager env):
+Default target is the Spark LLM server's OpenAI-compatible API (`http://localhost:4000/v1`, model `fast`, no key). The Galf container must be able to reach it over Tailscale; if it can't resolve the `*.ts.net` name, set `OCR_LLM_URL` to the server's Tailscale IP:
 
 ```
-OCR_LLM_URL=http://<helper-box-ip>:11434/api/chat
+OCR_LLM_URL=http://<spark-tailscale-ip>:4000/v1
+OCR_LLM_MODEL=fast
 ```
 
-With `OCR_LLM_KEEP_ALIVE=0` (the default) the model is loaded from disk when a scan arrives and unloaded seconds after — the helper box's RAM is only occupied during the scan itself, and nothing needs to run "always on". A scan takes roughly 15–60 s including the cold load. If the helper box is asleep or off, Scan Card reports it's unavailable; every other feature keeps working.
+Any other OpenAI-compatible vision server works the same way. For a local Ollama box, use `OCR_LLM_URL=http://<host>:11434/api/chat` with a vision model (e.g. `qwen2.5vl:3b`); `OCR_LLM_KEEP_ALIVE=0` unloads it after each scan.
 
-To make Ollama reachable from the NAS, ensure it listens on the LAN: `launchctl setenv OLLAMA_HOST 0.0.0.0` (or `OLLAMA_HOST=0.0.0.0` in the service env), then restart Ollama.
+Scanning fills only the Add/Edit Course fields you have not filled yourself — anything you typed before scanning is kept. If the LLM server is unreachable, Scan Card reports it and every other feature keeps working.
 
 ---
 

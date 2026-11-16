@@ -3026,39 +3026,52 @@ async function deleteCourse(name){
 let ceYardages = {};
 let ceActiveTee = '';
 let cePars = [];
+let ceParTouched = new Set(); // hole indices whose par the user (or saved course) set
+let _ceRestore = null;        // draft to render instead of S.editCourse (scan round-trip)
 
 function renderCourseEditor(){
   const v=document.getElementById('v-course-editor');
   const c=S.editCourse;
+  const d=_ceRestore; _ceRestore=null;
   const title=c?'Edit Course':'Add New Course';
-  const numHoles=c?c.pars.length:18;
+  const numHoles=d?d.pars.length:c?c.pars.length:18;
 
-  // Initialize pars and yardages storage from course data
-  cePars = c ? [...c.pars] : new Array(numHoles).fill(4);
+  // Initialize pars and yardages storage from draft / course data / defaults.
+  // An untouched new-course default tee is flagged placeholder so a scan may fill it.
+  let tees;
   ceYardages = {};
-  const tees=c?c.tee_boxes:[{color:'White',rating:72.0,slope:113}];
-  for(const t of tees){
-    ceYardages[t.color] = c?.yardages?.[t.color] ? [...c.yardages[t.color]] : new Array(numHoles).fill(0);
+  if(d){
+    cePars=[...d.pars];
+    ceParTouched=new Set(d.parTouched);
+    tees=d.tees;
+    for(const t of tees) ceYardages[t.color]=[...(d.yardages[t.color]||new Array(numHoles).fill(0))];
+  }else{
+    cePars = c ? [...c.pars] : new Array(numHoles).fill(4);
+    ceParTouched = new Set(c ? cePars.map((_,i)=>i) : []);
+    tees=c?c.tee_boxes:[{color:'White',rating:72.0,slope:113,placeholder:true}];
+    for(const t of tees){
+      ceYardages[t.color] = c?.yardages?.[t.color] ? [...c.yardages[t.color]] : new Array(numHoles).fill(0);
+    }
   }
-  ceActiveTee = tees[0]?.color || 'White';
+  ceActiveTee = (d&&d.activeTee&&tees.some(t=>t.color===d.activeTee)) ? d.activeTee : (tees[0]?.color || 'White');
 
   // Tee boxes editor
   let teesHtml='';
   tees.forEach((t,i)=>{
-    teesHtml+=`<div class="tee-editor-card" data-tee-idx="${i}">
+    teesHtml+=`<div class="tee-editor-card" data-tee-idx="${i}"${t.placeholder?' data-placeholder="1"':''} oninput="delete this.dataset.placeholder">
       <button class="tee-editor-remove" onclick="removeTeeEditor(this)" title="Remove" aria-label="Remove tee box">✕</button>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <div class="form-group" style="flex:1;min-width:70px">
           <div class="form-label">Color</div>
-          <input class="form-input tee-color" value="${t.color}" onchange="onTeeColorRenamed()">
+          <input class="form-input tee-color" value="${esc(t.color)}" onchange="onTeeColorRenamed()">
         </div>
         <div class="form-group" style="flex:1;min-width:70px">
           <div class="form-label">Rating</div>
-          <input class="form-input tee-rating" value="${t.rating}" type="number" inputmode="decimal" step="0.1">
+          <input class="form-input tee-rating" value="${t.rating ?? ''}" type="number" inputmode="decimal" step="0.1">
         </div>
         <div class="form-group" style="flex:1;min-width:70px">
           <div class="form-label">Slope</div>
-          <input class="form-input tee-slope" value="${t.slope}" type="number" inputmode="numeric">
+          <input class="form-input tee-slope" value="${t.slope ?? ''}" type="number" inputmode="numeric">
         </div>
       </div>
     </div>`;
@@ -3073,15 +3086,15 @@ function renderCourseEditor(){
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <div class="section-head">Course Information</div>
-        ${!c && ocrEnabled() ? `<button class="btn btn-primary" style="width:auto;padding:6px 12px;font-size:12px;display:flex;align-items:center;gap:5px" onclick="openScanForEditor()"><img src="/static/camera-w-96.png" style="width:14px;height:14px;object-fit:contain"> Scan Card</button>` : ''}
+        ${ocrEnabled() ? `<button class="btn btn-primary" style="width:auto;padding:6px 12px;font-size:12px;display:flex;align-items:center;gap:5px" onclick="openScanForEditor()"><img src="/static/camera-w-96.png" style="width:14px;height:14px;object-fit:contain"> Scan Card</button>` : ''}
       </div>
       <div class="form-group">
         <div class="form-label">Course Name</div>
-        <input class="form-input" id="ce-name" value="${c?esc(c.name):''}">
+        <input class="form-input" id="ce-name" value="${d?esc(d.name):c?esc(c.name):''}">
       </div>
       <div class="form-group">
         <div class="form-label">Club / Facility</div>
-        <input class="form-input" id="ce-club" value="${c?esc(c.club||''):''}">
+        <input class="form-input" id="ce-club" value="${d?esc(d.club):c?esc(c.club||''):''}">
       </div>
     </div>
 
@@ -3159,6 +3172,7 @@ function ceAdjustPar(i, delta){
   const next=Math.max(PAR_MIN, Math.min(PAR_MAX, cur+delta));
   if(next===cur) return;
   cePars[i]=next;
+  ceParTouched.add(i);
   const val=document.getElementById('ce-par-val-'+i);
   if(val) val.textContent=next;
   const row=val?val.closest('.hole-input-row'):null;
@@ -4005,8 +4019,41 @@ async function clubToggleInBag(name){
 // Scan state
 let _scanOcr = null;         // raw OCR response from /api/courses/scan
 let _scanStep = 'upload';    // upload | loading | nine-q
+let _scanBase = null;        // editor snapshot taken when Scan Card was tapped
+
+/** Capture everything currently in the course editor form. */
+function ceSnapshot() {
+  ceStashCurrentYards();
+  const tees = [];
+  document.querySelectorAll('#ce-tees .tee-editor-card').forEach(el => {
+    const color = el.querySelector('.tee-color').value.trim();
+    if (!color) return;
+    tees.push({
+      color,
+      rating: el.querySelector('.tee-rating').value.trim(),
+      slope: el.querySelector('.tee-slope').value.trim(),
+      placeholder: el.dataset.placeholder === '1',
+    });
+  });
+  const yardages = {};
+  for (const t of tees) yardages[t.color] = [...(ceYardages[t.color] || [])];
+  return {
+    name: document.getElementById('ce-name')?.value.trim() || '',
+    club: document.getElementById('ce-club')?.value.trim() || '',
+    pars: [...cePars],
+    parTouched: [...ceParTouched],
+    tees, yardages,
+    activeTee: ceActiveTee,
+  };
+}
+
+function scanBackToEditor() {
+  _ceRestore = _scanBase;
+  show('course-editor');
+}
 
 function openScanForEditor() {
+  _scanBase = ceSnapshot();
   _scanOcr = null;
   _scanStep = 'upload';
   show('scan');
@@ -4016,7 +4063,7 @@ function openScanForEditor() {
 function renderScan() {
   const v = document.getElementById('v-scan');
   if (!v) return;
-  const backBtn = `<button class="back-btn" onclick="show('course-editor')">◀ Add Course</button>`;
+  const backBtn = `<button class="back-btn" onclick="scanBackToEditor()">◀ ${S.editCourse ? 'Edit Course' : 'Add Course'}</button>`;
   v.innerHTML = `<div class="page-header">${backBtn}<div class="page-title">Scan Scorecard</div></div>` +
     _renderScanBody();
   _scanBindEvents();
@@ -4153,7 +4200,7 @@ async function scanSubmit() {
       _scanStep = 'nine-q';
       renderScan();
     } else {
-      _fillEditorFromOcr(_scanOcrToCourse(data));
+      _mergeOcrIntoEditor(_scanOcrToCourse(data));
     }
   } catch (err) {
     showAlert('Network Error','Make sure the app is running and try again.');
@@ -4163,7 +4210,9 @@ async function scanSubmit() {
 }
 
 function scanNineChoice(choice) {
-  _fillEditorFromOcr(_scanOcrToCourse(_scanOcr, choice));
+  // Editor already holds a 9-hole course: merge the 9 scanned holes 1:1.
+  const nineBase = _scanBase && _scanBase.pars.length === 9;
+  _mergeOcrIntoEditor(_scanOcrToCourse(_scanOcr, nineBase ? 'full' : choice));
 }
 
 function _scanOcrToCourse(ocrData, nineChoice) {
@@ -4193,52 +4242,91 @@ function _scanOcrToCourse(ocrData, nineChoice) {
   return d;
 }
 
-// ── Fill course editor with OCR data ─────────────────────────────────────────
+// ── Merge OCR data into the course editor ────────────────────────────────────
+// Scan only fills what the user has NOT filled: blank name/club, untouched
+// pars, blank rating/slope, zero yardages, and tees not yet on the form.
 
-function _fillEditorFromOcr(data) {
-  S.editCourse = null;
+function _mergeOcrIntoEditor(ocr) {
+  const base = _scanBase || ceSnapshot();
+  const d = JSON.parse(JSON.stringify(base));
+  let filled = 0, kept = 0;
+  const blank = v => v === '' || v == null;
+
+  // Name / club
+  for (const [key, src] of [['name', 'course_name'], ['club', 'club_name']]) {
+    if (!ocr[src]) continue;
+    if (blank(d[key])) { d[key] = ocr[src]; filled++; } else if (d[key] !== ocr[src]) kept++;
+  }
+
+  // Hole count: adopt the card's when the user hasn't entered any hole data yet
+  const ocrPars = ocr.pars || [];
+  const anyYards = Object.values(d.yardages).some(a => a.some(y => y > 0));
+  const fresh = !S.editCourse && !d.parTouched.length && !anyYards;
+  if (fresh && (ocrPars.length === 9 || ocrPars.length === 18) && ocrPars.length !== d.pars.length) {
+    d.pars = new Array(ocrPars.length).fill(4);
+  }
+  const n = d.pars.length;
+  const fit = arr => { const a = (arr || []).slice(0, n); while (a.length < n) a.push(0); return a; };
+
+  // Pars
+  const touched = new Set(d.parTouched);
+  for (let i = 0; i < n; i++) {
+    const p = ocrPars[i];
+    if (p == null || p < 3 || p > 6) continue;
+    if (touched.has(i)) { if (d.pars[i] !== p) kept++; continue; }
+    d.pars[i] = p; touched.add(i); filled++;
+  }
+  d.parTouched = [...touched];
+  for (const c of Object.keys(d.yardages)) d.yardages[c] = fit(d.yardages[c]);
+
+  // Tees
+  const ocrTees = (ocr.tee_boxes || []).map(t => {
+    const raw = String(t.color || t.label || '').trim();
+    return { ...t, color: raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : '' };
+  }).filter(t => t.color);
+  const findTee = col => d.tees.find(t => t.color.toLowerCase() === col.toLowerCase());
+
+  // An untouched default tee that the card doesn't list gets dropped
+  if (ocrTees.length) {
+    d.tees = d.tees.filter(t => {
+      const drop = t.placeholder && !(d.yardages[t.color] || []).some(y => y > 0)
+        && !ocrTees.some(o => o.color.toLowerCase() === t.color.toLowerCase());
+      if (drop) delete d.yardages[t.color];
+      return !drop;
+    });
+  }
+
+  for (const o of ocrTees) {
+    let t = findTee(o.color);
+    if (!t) {
+      t = { color: o.color, rating: '', slope: '', placeholder: false };
+      d.tees.push(t);
+      d.yardages[t.color] = new Array(n).fill(0);
+    }
+    // Placeholder defaults (72.0/113) count as blank
+    for (const k of ['rating', 'slope']) {
+      if (o[k] == null) continue;
+      if (blank(t[k]) || t.placeholder) { t[k] = o[k]; filled++; }
+      else if (Number(t[k]) !== Number(o[k])) kept++;
+    }
+    t.placeholder = false;
+    const yards = d.yardages[t.color];
+    (o.yardages || []).forEach((y, i) => {
+      if (i >= n || y == null || y <= 0) return;
+      if (yards[i] > 0) { if (yards[i] !== y) kept++; return; }
+      yards[i] = y; filled++;
+    });
+  }
+  if (!d.tees.some(t => t.color === d.activeTee)) d.activeTee = d.tees[0]?.color || '';
+
+  _ceRestore = d;
   show('course-editor');
 
-  requestAnimationFrame(() => {
-    const nameEl = document.getElementById('ce-name');
-    const clubEl = document.getElementById('ce-club');
-    if (nameEl && data.course_name) nameEl.value = data.course_name;
-    if (clubEl && data.club_name) clubEl.value = data.club_name;
-
-    if (data.pars?.length) {
-      cePars = data.pars.map(v => (v != null && v >= 3 && v <= 6) ? v : 4);
-      refreshCeParGrid();
-    }
-
-    if (data.tee_boxes?.length) {
-      const container = document.getElementById('ce-tees');
-      if (container) {
-        container.innerHTML = '';
-        ceYardages = {};
-        data.tee_boxes.forEach(t => {
-          // Capitalize color so it matches teeColorCSS() map keys (Black/Blue/White/etc.)
-          const rawColor = t.color || t.label || 'White';
-          const color = rawColor.charAt(0).toUpperCase() + rawColor.slice(1);
-          const div = document.createElement('div');
-          div.className = 'tee-editor-card';
-          div.innerHTML = `<button class="tee-editor-remove" onclick="removeTeeEditor(this)" title="Remove">✕</button>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <div class="form-group" style="flex:1;min-width:70px"><div class="form-label">Color</div><input class="form-input tee-color" value="${esc(color)}" onchange="onTeeColorRenamed()"></div>
-              <div class="form-group" style="flex:1;min-width:70px"><div class="form-label">Rating</div><input class="form-input tee-rating" value="${t.rating != null ? t.rating : ''}" type="number" step="0.1"></div>
-              <div class="form-group" style="flex:1;min-width:70px"><div class="form-label">Slope</div><input class="form-input tee-slope" value="${t.slope != null ? t.slope : ''}" type="number"></div>
-            </div>`;
-          container.appendChild(div);
-          const yards = (t.yardages || []).map(v => v != null ? v : 0);
-          while (yards.length < cePars.length) yards.push(0);
-          ceYardages[color] = yards;
-        });
-        const firstColor = data.tee_boxes[0]?.color || data.tee_boxes[0]?.label || 'White';
-        ceActiveTee = firstColor.charAt(0).toUpperCase() + firstColor.slice(1);
-        refreshCeTeePills();
-        refreshCeHoleGrid();
-      }
-    }
-  });
+  const msg = filled
+    ? `Filled ${filled} field${filled === 1 ? '' : 's'} from the scorecard.` +
+      (kept ? ` Kept ${kept} value${kept === 1 ? '' : 's'} you'd already entered.` : '')
+    : 'Nothing new to fill — every field the scan could read is already filled in.';
+  showAlert('Scan Complete', msg + ' Review before saving.');
 }
 
 /* ================================================================

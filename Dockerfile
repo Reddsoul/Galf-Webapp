@@ -9,16 +9,14 @@ COPY . .
 
 EXPOSE 5003
 
-# Scorecard scanning calls a vision LLM on ANOTHER box on your LAN
-# (Ollama native API recommended — supports keep_alive=0 so the model
-# only occupies RAM there during a scan). The app container itself
-# stays tiny and runs fine on a 1 GB NAS.
-# Override OCR_LLM_URL with your helper box's LAN IP.
+# Scorecard scanning calls a vision LLM on ANOTHER box (the Spark LLM
+# server, OpenAI-compatible API over Tailscale). The app container itself
+# stays tiny and runs fine on a 1 GB NAS. If the container can't resolve
+# the *.ts.net name, override OCR_LLM_URL with the server's Tailscale IP.
 ENV PORT=5003 \
     DATA_PATH=/data \
     APP_NAME=Galf \
-    OCR_LLM_URL=http://host.docker.internal:11434/api/chat \
-    OCR_LLM_MODEL=qwen2.5vl:3b \
-    OCR_LLM_KEEP_ALIVE=0
+    OCR_LLM_URL=http://localhost:4000/v1 \
+    OCR_LLM_MODEL=fast
 
 CMD ["sh", "-c", "python app.py"]
