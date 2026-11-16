@@ -6,7 +6,7 @@ A self-hosted mobile golf companion that lives on your iPhone. Log rounds, track
 
 ## What It Does
 
-- **Handicap tracking** — Calculates a real WHS/USGA Handicap Index per 2024 rules, using the best differentials from your last 20 eligible rounds. Serious 18-hole rounds count, and front and back 9-hole rounds are paired into 18s. Simulator rounds are excluded unless you opt in under Settings.
+- **Handicap tracking** — Calculates a WHS-style Handicap Index from the best differentials of your last 20 eligible rounds, with net double bogey per-hole caps (adjusted gross score) driven by each course's hole handicaps. Serious 18-hole rounds count, and front and back 9-hole rounds are paired into 18s (not the 2024 expected-score method). Shows a provisional estimate until three rounds count. PCC, caps and exceptional-score reduction aren't implemented. Simulator rounds are excluded unless you opt in under Settings.
 - **Round logging** — Quick score entry (one number per hole) or detailed hole-by-hole entry with GIR, putts, club, and penalty tracking. A searchable course picker with a Recent list speeds setup. 9-hole rounds can be extended to 18 mid-round, and 18-hole rounds can be finished early as a 9.
 - **Fix it before you save** — Review & Save is editable. Tap the header to change course, tee, date, holes, or round type; tap the scorecard to step back through holes. Entered scores survive the edit — holes are remapped by number, and swapping to a sibling course at the same facility matches nines by par (and yardage) so a shared nine keeps its scores. Holes the edit leaves blank are flagged on the review card and become a short guided fill-in; nothing saves with a silent gap.
 - **Simulator rounds** — Tracked separately with their own personal best. Putts are auto-rolled in both entry modes: in Quick mode you enter strokes to green and Galf adds the putts, so sim rounds still feed GIR without polluting putting stats.
@@ -17,7 +17,7 @@ A self-hosted mobile golf companion that lives on your iPhone. Log rounds, track
 - **Club bag** — Track carry distances (and partial-wedge distances) per club; during detailed entry the app suggests the fewest-shots club sequence to reach the pin.
 - **Personal bests** — Home screen shows best IRL and simulator scorecards on a single toggle card. A full 18 always outranks a 9-hole round.
 - **Activity heatmap** — 18-week calendar on the home screen showing days you played a round, practiced, or both.
-- **Settings** — Two themes (Royal Green, Burgundy — each with light and dark variants), a toggle for whether sim rounds count toward the handicap, and an on/off switch for scorecard scanning. Stored server-side so they follow you across devices.
+- **Settings** — Two themes (Royal Green, Burgundy — each with light and dark variants), a toggle for whether sim rounds count toward the handicap, a home club (pinned first when logging), a hole-handicap row toggle, and an on/off switch for scorecard scanning. Stored server-side so they follow you across devices.
 - **Built-in manual** — Full screen-by-screen reference with search, section chips, and prev/next paging, opened from **Settings → Manual** (renders this project's `MANUAL.md` live).
 
 ---

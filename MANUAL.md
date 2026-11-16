@@ -10,8 +10,10 @@ A small **⚙ Settings** button sits in the bottom corner of the handicap hero c
 
 The large number at the top is your **WHS Handicap Index**, calculated from your serious solo rounds following USGA rules. Front and back 9-hole rounds are paired into 18-hole entries. Simulator rounds don't count unless you turn on **Count simulator rounds** under [Settings](#9-settings).
 
-- Shows `--` until you have logged **three serious 18-hole rounds**
-- Beneath the dashes it tells you how many more you need: _"Play 2 more 18-hole rounds to establish"_
+- Needs **three serious solo 18-hole rounds** (a front 9 + back 9 pair counts as one). Until then it tells you exactly what's missing, e.g. _"2 more serious solo rounds to establish"_, plus _"1 nine waiting for a partner"_ when a 9-hole round has no matching half yet, and a reminder when sim rounds are being left out
+- After your first or second eligible round it shows a **provisional** estimate (`~14.2`, labelled _"Provisional · 1 of 3 rounds"_): your lowest differential minus 2.0. It's a guide, not an official index
+- **Net double bogey:** each hole counts for at most **par + 2 + the handicap strokes you get on that hole** (WHS adjusted gross score), so one blow-up hole can't wreck your index. Before you have an index the cap is **par + 5**. Strokes come from your index as it stood before that round and the course's hole handicaps (see [5.3](#53-adding-or-editing-a-course)); a course with no HCP row spreads the strokes evenly
+- If the server can't be reached or errors, the Home screen shows an error card with **Retry** instead of blank numbers
 - Once established, the number updates automatically every time you save a new round
 - Shown to one decimal place (e.g. `12.3`)
 - Tap the handicap number to jump straight to the [Statistics](#6-statistics) Overview
@@ -78,13 +80,14 @@ The setup screen collects everything Galf needs before you start entering scores
 
 #### Course
 
-A single **Course** field. It shows the currently selected course (name, facility, holes, and par) or _"Select a course"_ if none is picked yet. Tap it to open the **course search sheet**:
+A single **Course** field showing the club (with **★ Home** for your home club), the course, holes and par. When you start a new round it is **preselected**: the course you last used, otherwise your most recently played course at your home club, otherwise your most recently played course. Tap it to open the **course picker**, which works club first, then course:
 
-- A search box is pinned at the top — type any part of a course or facility name to filter instantly.
-- A **Recent** section lists your last few courses for one-tap selection. (The first time, it is seeded from the courses in your played rounds.)
-- Below that, every course is listed grouped by **Club / Facility**, alphabetical.
+- A search box is pinned at the top: type any part of a club or course name to get a flat list labelled club / course.
+- **Home Club** — your home club as a highlighted card, always on top.
+- **Recent** — your three most recently played courses, one tap to pick.
+- **Clubs** — every other club as a card with its course count and when you last played there, most recent first.
 
-Tap a course to select it (a green checkmark marks the current one) and the sheet closes. Tap **Cancel** to close without changing the selection.
+Tap a club card to see its courses (each with holes, par, tee colors and last played), then tap a course. A club with only one course is picked straight from its card. **‹ Clubs** goes back. A checkmark marks the current selection; **Cancel** closes without changing it.
 
 > When you reach this screen by editing a round from [Review & Save](#25-review-save), the sheet is **locked to the facility you started on** and lists only that facility's courses. That still lets you fix a wrong course at a multi-nine club (a 27-hole facility has three 18-hole combinations), and the nine you already played carries its scores over.
 
@@ -389,6 +392,7 @@ The header is tinted in the tee box color you played from:
 - **Date** played and total yardage (if available)
 - **Total score** and score vs. par in large type
 - **Target score** — your par-plus-handicap target, and how you performed against it (e.g. `Target 80 (+3)`)
+- **Net and course handicap** — e.g. `Net 78 · CH 12`, when you had a Handicap Index when the round was saved
 
 #### Pills
 
@@ -409,7 +413,8 @@ The traditional hole-by-hole grid appears for the front 9 and back 9 separately.
 - **Hole numbers** across the top
 - **Yardage** row (if entered for this course and tee)
 - **Par** row — par 3s in green, par 5s in the app's accent color, par 4s in the default
-- **Score** row — each score is color-coded (see [Score Color Coding](#8-score-color-coding))
+- **HCP** row — each hole's handicap (stroke index; 1 = hardest), when the course has one. Tap the **HCP** chip above the grid to show or hide it; the choice is remembered (also in [Settings](#9-settings))
+- **Score** row — each score is color-coded (see [Score Color Coding](#8-score-color-coding)). A small **dot** in the corner marks a hole where your course handicap gives you a stroke (two dots = two strokes)
 
 For 18-hole rounds, a **Totals row** appears between the two grids showing OUT (front 9), IN (back 9), TOTAL, PAR, and +/−.
 
@@ -431,7 +436,7 @@ Tap **Delete** at the bottom to permanently remove the round. A confirmation pro
 
 ### 5.1 Course List
 
-Courses are grouped by **Club / Facility** name, sorted alphabetically. Each course row shows:
+Courses are grouped by **Club / Facility** name, sorted alphabetically, with your **home club** first and marked **★ Home**. Each course row shows:
 
 - Course name
 - Number of holes and total par
@@ -451,6 +456,8 @@ A read-only view of a course with everything Galf knows about it.
 
 Shows course name, facility name, and three stats: Holes, Par, and total Yards (for the currently selected tee).
 
+**☆ Set as home club** marks this course's club as your home club; every course with the same Club / Facility name becomes a home course (★ Home), pinned first in the course picker and preselected when you log a round. Tap it again (**★ Home club · Unset**) to clear it. You can also clear it in [Settings](#9-settings). Renaming the club on every one of its courses moves the home club with it.
+
 #### Tee Pills
 
 Tap a tee color to switch the yardage display. The selected tee's detail card shows:
@@ -460,11 +467,11 @@ Tap a tee color to switch the yardage display. The selected tee's detail card sh
 | **Rating** | Course Rating for this tee (e.g. `72.1`) |
 | **Slope** | Slope Rating (e.g. `128`) |
 | **Yards** | Total yardage for all holes combined |
-| **HCP** | Calculated handicap differential for this tee — used internally for handicap math |
+| **Rating − Par** | How much harder than par this tee plays (rating minus par). Sets your target score |
 
 #### Hole Grid
 
-A table with one row per hole showing hole number, par, and yardage. Par 3s are green, par 5s are the accent color. Front 9 subtotal (OUT), back 9 subtotal (IN), and a grand total (TOT) appear at the bottom.
+A table with one row per hole showing hole number, par, hole handicap (**HCP**, if entered), and yardage. Par 3s are green, par 5s are the accent color. Front 9 subtotal (OUT), back 9 subtotal (IN), and a grand total (TOT) appear at the bottom.
 
 #### Edit and Delete
 
@@ -496,11 +503,13 @@ Each tee box has three fields:
 | **Rating** | Course Rating for this tee (on the scorecard, e.g. `72.1`) |
 | **Slope** | Slope Rating (on the scorecard, e.g. `128`) |
 
-Tap **+ Add Tee** to add another tee box. Tap the **✕** button on a tee card to remove it. You need at least one tee box to save.
+Tap **+ Add Tee** to add another tee box. Tap the **✕** button on a tee card to remove it. You need at least one tee box to save. A tee without a rating or slope can't be saved: Save names those tees and asks before leaving them out.
 
-#### Hole Pars & Yardages
+#### Hole Pars, Handicaps & Yardages
 
-A hole-by-hole grid with two columns per hole: **Par** and **Yardage**.
+**Hole Pars & Handicaps** has a par stepper and an **HCP** box per hole. HCP is the hole's handicap (stroke index) printed on the card, usually the **HCP** or **HDCP** row: 1 is the hardest hole, 18 the easiest (9-hole cards often use only odd or only even numbers). It's optional, but under WHS it decides which holes you get handicap strokes on, which drives the net double bogey cap on your handicap and the stroke dots and net score on scorecards. Either fill every hole (no repeats, 1–18) or leave them all blank; Save names any hole that's missing or repeated. Scanning a card fills empty HCP boxes too.
+
+**Yardages by Tee** is a hole-by-hole grid of yardages.
 
 - Tap a tee color pill at the top to edit yardages for that specific tee — each tee has its own distances
 - Par values are shared across all tees
@@ -838,7 +847,12 @@ Score colors (green birdies, red bogeys) stay the same in both themes so a score
 
 | Setting | What it does |
 |---|---|
-| **Count simulator rounds** | Off (default): real rounds only, per WHS. On: serious sim rounds also feed the Handicap Index and the holes-to-establish counter. |
+| **Count simulator rounds** | Off (default): real rounds only, per WHS. On: serious sim rounds also feed the Handicap Index and the rounds-to-establish counter. |
+| **Show hole handicaps** | On (default): scorecards show the HCP (stroke index) row. Same switch as the **HCP** chip on a scorecard. |
+
+### Home Club
+
+Shows your home club (★) or _Not set_. Set it from any course's detail page; **Clear** removes it here.
 
 ### Courses
 

@@ -274,8 +274,9 @@ class LLMScorecardOCR:
             return out
 
         pars = _positional(raw.get("pars"), 3, 6)
-        hcps = [h for h in (_int(v, 1, 18) for v in (raw.get("handicaps") or []))
-                if h is not None][:18]
+        # Positional like pars: an unreadable hole stays null so later holes
+        # keep their index (the editor fills blanks only).
+        hcps = _positional(raw.get("handicaps"), 1, 18)
 
         tee_boxes = []
         for t in (raw.get("tee_boxes") or []):

@@ -9,10 +9,10 @@ import os
 import socket
 import sys
 
-from flask import Flask, request, jsonify, render_template, send_from_directory
+from flask import Flask, abort, request, jsonify, render_template, send_from_directory
 
 from models import db, Round
-from Backend import GolfBackend, generate_scorecard_data, _round_to_dict, normalize_existing_tee_colors, run_migrations, SETTINGS_KEYS
+from Backend import GolfBackend, generate_scorecard_data, _round_to_dict, run_migrations, SETTINGS_KEYS
 
 # Scan backend: remote vision LLM, stdlib client. Configured only in
 # Settings -> Scan LLM; no defaults.
@@ -33,6 +33,16 @@ def _public_prefs():
     p["ocr_llm_api_key_set"] = bool(p.pop("ocr_llm_api_key", ""))
     p["ocr_llm_ready"] = _ocr_ready()
     return p
+
+
+def _json_body():
+    """Request JSON as a dict, or a 400 for anything else (null, list, bad JSON)."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        resp = jsonify({"ok": False, "error": "Expected a JSON object"})
+        resp.status_code = 400
+        abort(resp)
+    return data
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -55,16 +65,8 @@ db.init_app(app)
 
 with app.app_context():
     db.create_all()
-    # Migrate: add in_bag column to clubs table if missing
-    from sqlalchemy import text, inspect
-    _insp = inspect(db.engine)
-    _cols = [c["name"] for c in _insp.get_columns("clubs")]
-    if "in_bag" not in _cols:
-        with db.engine.connect() as _conn:
-            _conn.execute(text("ALTER TABLE clubs ADD COLUMN in_bag INTEGER DEFAULT 1"))
-            _conn.commit()
-    run_migrations()
-    normalize_existing_tee_colors()
+    # Versioned schema/data migrations (PRAGMA user_version ladder)
+    run_migrations(os.path.join(_DATA_PATH, "galf.db"))
 
 backend = GolfBackend()
 
@@ -131,22 +133,26 @@ def api_courses():
 
 @app.route("/api/courses", methods=["POST"])
 def api_add_course():
-    data = request.get_json()
+    data = _json_body()
     try:
         backend.add_course(data)
-    except (ValueError, KeyError) as e:
+    except (ValueError, KeyError, TypeError) as e:
         return jsonify({"ok": False, "error": str(e)}), 400
     return jsonify({"ok": True})
 
 
-@app.route("/api/courses/<name>", methods=["PUT"])
+# <path:name>: combo courses like "Dye / Hills" contain a slash
+@app.route("/api/courses/<path:name>", methods=["PUT"])
 def api_update_course(name):
-    data = request.get_json()
-    backend.update_course(name, data)
+    data = _json_body()
+    try:
+        backend.update_course(name, data)
+    except (ValueError, KeyError, TypeError) as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
     return jsonify({"ok": True})
 
 
-@app.route("/api/courses/<name>", methods=["DELETE"])
+@app.route("/api/courses/<path:name>", methods=["DELETE"])
 def api_delete_course(name):
     backend.delete_course(name)
     return jsonify({"ok": True})
@@ -200,10 +206,10 @@ def api_rounds():
 
 @app.route("/api/rounds", methods=["POST"])
 def api_add_round():
-    data = request.get_json()
+    data = _json_body()
     try:
         backend.add_round(data)
-    except (ValueError, KeyError) as e:
+    except (ValueError, KeyError, TypeError) as e:
         return jsonify({"ok": False, "error": str(e)}), 400
     return jsonify({"ok": True})
 
@@ -232,19 +238,19 @@ def api_clubs():
 
 @app.route("/api/clubs", methods=["POST"])
 def api_add_club():
-    data = request.get_json()
+    data = _json_body()
     ok = backend.add_club(data)
     return jsonify({"ok": ok})
 
 
-@app.route("/api/clubs/<name>", methods=["PUT"])
+@app.route("/api/clubs/<path:name>", methods=["PUT"])
 def api_update_club(name):
-    data = request.get_json()
+    data = _json_body()
     ok = backend.update_club(name, data)
     return jsonify({"ok": ok})
 
 
-@app.route("/api/clubs/<name>", methods=["DELETE"])
+@app.route("/api/clubs/<path:name>", methods=["DELETE"])
 def api_delete_club(name):
     backend.delete_club(name)
     return jsonify({"ok": True})
@@ -278,7 +284,7 @@ def api_training():
 
 @app.route("/api/training", methods=["POST"])
 def api_add_training():
-    data = request.get_json()
+    data = _json_body()
     result = backend.add_training_session(data)
     return jsonify(result)
 
@@ -304,7 +310,7 @@ def api_prefs():
 
 @app.route("/api/prefs", methods=["PUT"])
 def api_update_prefs():
-    data = request.get_json() or {}
+    data = _json_body()
     # Only these keys persist — reject the rest loudly
     # Scan LLM keys are excluded: they're saved only by a passing /api/ocr/test.
     allowed = {"entry_mode", "preferred_tee", *(set(SETTINGS_KEYS) - set(_OCR_KEYS))}
@@ -326,7 +332,7 @@ def api_ocr_test():
     Body: url, model, api_key (blank = keep the saved key), clear_key (bool).
     A failed test leaves the previously saved config untouched.
     """
-    data = request.get_json() or {}
+    data = _json_body()
     url = str(data.get("url") or "").strip()
     model = str(data.get("model") or "").strip()
     if not url or not model:
