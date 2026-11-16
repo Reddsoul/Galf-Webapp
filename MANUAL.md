@@ -477,6 +477,8 @@ A table with one row per hole showing hole number, par, and yardage. Par 3s are 
 
 The Course Editor is used for both adding and editing. All fields work the same either way.
 
+> **Shortcut:** tap **Scan Card** at the top of the form to fill it from a photo of the scorecard — see [5.4 Scanning a Physical Scorecard](#54-scanning-a-physical-scorecard). It works on a blank form and on a course you've already started or saved; it only fills what's empty.
+
 #### Course Information
 
 | Field | What to enter |
@@ -514,15 +516,25 @@ Tap **Save Course** to write changes. Tap **Cancel** to discard and go back.
 
 ### 5.4 Scanning a Physical Scorecard
 
-Instead of entering course data by hand, you can photograph a real scorecard and let Galf read the pars, yardages, and tee ratings automatically.
+Instead of entering course data by hand, you can photograph a real scorecard and let Galf read it: course name, club, pars, every tee box, ratings, slopes, and yardages.
+
+#### One-Time Setup
+
+Scanning sends the photo to a **vision LLM** (an AI model that can read images) running on another machine — Galf has no built-in scanner and **no default server**. Before the first scan:
+
+1. Open [Settings](#9-settings) → **Scan LLM**.
+2. Enter the server's **Base URL** and **Model** (plus an **API Key** if your server needs one).
+3. Tap **Test Connection**. When it reports *Connected — settings saved*, scanning is ready.
+
+If you tap **Scan Card** before this is done, Galf shows **Set Up Scanning** with an **Open Settings** button instead of the scan screen.
 
 #### Starting a Scan
 
 Tap **+ Add New Course** (or **Edit Course** on an existing one), then tap the **Scan Card** button at the top of the form. The Scan Scorecard screen opens.
 
-> **First time:** scanning has no default server. If it isn't set up yet, Scan Card offers to open [Settings → Scan LLM](#9-settings), where you enter the server's Base URL and model and tap **Test Connection**.
-
 > The **Scan Card** button only appears when **Scorecard scanning (OCR)** is on in [Settings](#9-settings). Turn the setting off to hide the button entirely.
+
+You can fill in some fields first (say, the course name and the tees you care about) and then scan — the scan only fills what you've left empty. Tapping **◀ Add Course** / **◀ Edit Course** on the scan screen returns to the form exactly as you left it.
 
 #### Upload Step
 
@@ -533,9 +545,12 @@ Two buttons let you supply the image:
 | **Take Photo** | Opens the camera directly — point at the scorecard |
 | **Choose File** | Opens the photo library or file browser |
 
-A preview of the selected image appears. Tap **Scan This Card** to send it to the server. Processing takes 5–15 seconds.
+You can also drag an image onto the upload area. A preview appears; tap **Scan This Card** to send it, or **✕** to pick a different photo. A scan usually takes 5–30 seconds.
 
-> **Best results:** lay the card flat on a dark surface, use good lighting, and avoid glare. Shoot straight down — not at an angle.
+> **Best results:**
+> - Get the **whole card** in frame — including the rows at the bottom (forward/ladies tees are often printed below the Par row) and any ratings/slopes table on the side or back.
+> - Lay the card flat, use even light, avoid glare, and shoot straight down rather than at an angle.
+> - If the front and back nine are on different panels, make sure both are visible, or scan them as separate 9-hole photos.
 
 #### 9-Hole Card Detected
 
@@ -543,17 +558,48 @@ If the scan finds only 9 holes of par values, Galf asks which 9 holes the card c
 
 | Choice | Effect |
 |---|---|
-| **Front 9 — Holes 1–9** | Assigns extracted data to holes 1–9 |
-| **Back 9 — Holes 10–18** | Assigns extracted data to holes 10–18 |
-| **It's actually a full 18-hole card** | Treats all values as 18 holes (use this if the card fits on one page) |
+| **Front 9 — Holes 1–9** | Fills holes 1–9; holes 10–18 are left as they are |
+| **Back 9 — Holes 10–18** | Fills holes 10–18; holes 1–9 are left as they are |
+| **It's actually a full 18-hole card** | Uses the values as read (on a blank form this makes a 9-hole course) |
 
-#### Saving
+If the course on the form is already a 9-hole course, the 9 scanned holes go straight into holes 1–9 whichever you pick.
 
-The extracted values fill in the course form: course name, club, pars, tee colors, ratings, slopes, and yardages. Only fields you haven't filled are touched — anything you typed before scanning is kept, and a summary tells you how many fields were filled. Check them, correct anything misread, and save the course as you would when entering it by hand.
+#### What Gets Filled
 
-> Scan Card uses a **vision LLM on another machine** — the model does not run on the box hosting Galf. The photo goes to the server set in Settings → Scan LLM (any OpenAI-compatible endpoint, or Ollama). A scan usually takes 5–30 s.
->
-> If that server is off or unreachable, Scan Card reports that the scan failed. Manual entry still works.
+The scan **never overwrites anything you entered** — it only fills gaps:
+
+| Field | Filled when… |
+|---|---|
+| **Course Name / Club** | the field is empty |
+| **Hole count** | the form is a new, untouched course — it then matches the card (9 or 18 holes) |
+| **Par (per hole)** | you haven't changed that hole's par yet. On a saved course, all pars count as yours and are kept |
+| **Tee boxes** | a tee on the card isn't on the form yet — it's added. Tees are matched by name, ignoring case (`blue` = `Blue`) |
+| **Rating / Slope** | the box is empty |
+| **Yardage (per hole, per tee)** | that hole's yardage is empty or 0 |
+
+A few details:
+
+- The starting **White 72.0 / 113** tee on a new course is a placeholder. If you haven't touched it, the scan fills its rating and slope from the card, or removes it if the card has no White tee.
+- Tee names come from the card. When two tees share a color — e.g. **Championship** and **Black**, or a **Blue/White** combo next to **Blue** — each keeps its printed name so they stay separate tee boxes.
+- Holes the scanner couldn't read are left blank rather than guessed, so later holes never shift out of place.
+- Stroke index / handicap per hole is read but not stored — Galf doesn't use it.
+
+#### Reviewing and Saving
+
+When the scan finishes you're back on the course form with a **Scan Complete** message, e.g. *Filled 74 fields from the scorecard. Kept 3 values you'd already entered.* "Kept" counts places where the card disagreed with what you'd typed — your value stayed. If the message says *Nothing new to fill*, everything the scan could read was already filled in.
+
+Nothing is saved yet. Check the pars and each tee's yardages (tap the tee pills under **Yardages by Tee**), fix anything misread, then tap **Save Course**.
+
+#### If a Scan Fails
+
+| Message | What to do |
+|---|---|
+| **Set Up Scanning** | Scanning isn't configured — open Settings → Scan LLM and pass **Test Connection** |
+| **Scan Failed** — *Could not get a result from the vision LLM…* | The LLM server is off, unreachable, or returned something unusable. Check it's running, re-run **Test Connection**, and try again |
+| **Scan Failed** — *Try better lighting or a flatter angle* | The image couldn't be read — retake the photo |
+| **Network Error** | Galf itself couldn't be reached — check your connection |
+
+Manual entry always works, scan or no scan.
 
 ---
 
@@ -775,7 +821,7 @@ Every score in the app — on scorecards, the home best-round card, and the log 
 
 ## 9. Settings
 
-Open from the **⚙ Settings** button on the Home hero card. Every setting saves instantly and is remembered on the server, so it follows you across devices.
+Open from the **⚙ Settings** button on the Home hero card. Settings are remembered on the server, so they follow you across devices. Most save the moment you change them; **Scan LLM** saves only when **Test Connection** succeeds.
 
 ### Appearance
 
@@ -802,13 +848,25 @@ Score colors (green birdies, red bogeys) stay the same in both themes so a score
 
 #### Scan LLM
 
+Where [scorecard scanning](#54-scanning-a-physical-scorecard) sends photos. There are no defaults — scanning stays off until this is set up.
+
 | Field | What it is |
 |---|---|
-| **Base URL** | The vision LLM server, e.g. `http://host:port/v1` (OpenAI-compatible) or `http://host:11434/api/chat` (Ollama). |
-| **Model** | A vision-capable model on that server. |
-| **API Key** | Optional. Stored on the server, never shown again — type a new one to replace it, or **Remove** it. |
+| **Base URL** | The vision LLM server. Either an OpenAI-compatible endpoint ending in `/v1` (e.g. `http://host:port/v1` — vLLM, LiteLLM, llama.cpp, LM Studio) or an Ollama server (`http://host:11434/api/chat`). Must start with `http://` or `https://`. |
+| **Model** | The name of a vision-capable model on that server. |
+| **API Key** | Optional — only if your server requires one. Once saved it's never shown again: the field reads *saved — type to replace*. Leave it blank to keep the saved key, type a new one to replace it, or tap **Remove** to delete it. |
 
-Nothing here is saved until you tap **Test Connection** and it succeeds (server reachable, model listed). A failed test leaves your previous settings in place. Until a test passes, scanning is off.
+**Test Connection** checks the server with whatever is typed in the fields right now, and **saves them only if the test passes**. Editing a field shows *Not saved — tap Test Connection to save* until you do.
+
+| Result | Meaning |
+|---|---|
+| **Connected — settings saved. Scanning is ready.** | The server answered and lists your model. Saved. |
+| **Server is up, but model "…" is not listed.** | Wrong model name. The message lists the models the server has — copy one exactly. |
+| **Unreachable: …** | No answer at that URL — check the address and port, that the server is running, and that this Galf server can reach it on the network (e.g. over Tailscale). |
+| **HTTP 401 / 403** | The server wants an API key, or the key is wrong. |
+| **Enter both a Base URL and a model.** | One of the two fields is empty. |
+
+A failed test changes nothing: your previous working settings stay in place and scanning keeps using them. Removing a key only takes effect after the next successful test.
 
 ### Help
 
