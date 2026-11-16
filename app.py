@@ -14,28 +14,24 @@ from flask import Flask, request, jsonify, render_template, send_from_directory
 from models import db, Round
 from Backend import GolfBackend, generate_scorecard_data, _round_to_dict, normalize_existing_tee_colors, run_migrations, SETTINGS_KEYS
 
-# Scan backend: local vision LLM (llama.cpp / Ollama), stdlib client
-from ocr_llm import LLMScorecardOCR, DEFAULT_URL as _OCR_DEFAULT_URL
+# Scan backend: remote vision LLM, stdlib client. Configured only in
+# Settings -> Scan LLM; no defaults.
+from ocr_llm import LLMScorecardOCR
+
+_OCR_KEYS = ("ocr_llm_url", "ocr_llm_model", "ocr_llm_api_key", "ocr_llm_verified")
 
 
-def _ocr_client(overrides=None):
-    """Scan client built from Settings (blank = env/default), per request so
-    edits in Settings apply without a restart."""
-    p = {**backend.user_prefs, **(overrides or {})}
-    return LLMScorecardOCR(url=p.get("ocr_llm_url"),
-                           model=p.get("ocr_llm_model"),
-                           api_key=p.get("ocr_llm_api_key"))
+def _ocr_ready():
+    p = backend.user_prefs
+    return bool(p.get("ocr_llm_url") and p.get("ocr_llm_model")
+                and p.get("ocr_llm_verified"))
 
 
 def _public_prefs():
-    """Prefs for the client: API key replaced by a set/unset flag; env
-    defaults included so Settings can show them as placeholders."""
+    """Prefs for the client: API key replaced by a set/unset flag."""
     p = dict(backend.user_prefs)
     p["ocr_llm_api_key_set"] = bool(p.pop("ocr_llm_api_key", ""))
-    p["ocr_llm_defaults"] = {
-        "url": os.environ.get("OCR_LLM_URL") or _OCR_DEFAULT_URL,
-        "model": os.environ.get("OCR_LLM_MODEL") or "fast",
-    }
+    p["ocr_llm_ready"] = _ocr_ready()
     return p
 
 # ---------------------------------------------------------------------------
@@ -160,6 +156,10 @@ def api_delete_course(name):
 def api_scan_scorecard():
     if not backend.user_prefs.get("ocr_enabled", True):
         return jsonify({"ok": False, "error": "Scorecard OCR is disabled in Settings"}), 403
+    if not _ocr_ready():
+        return jsonify({"ok": False, "error": "Scan LLM not set up",
+                        "tip": "Open Settings → Scan LLM, enter the server URL "
+                               "and model, and tap Test Connection."}), 409
 
     if "image" not in request.files:
         return jsonify({"error": "No image uploaded"}), 400
@@ -170,7 +170,10 @@ def api_scan_scorecard():
         return jsonify({"error": "Empty image file"}), 400
 
     try:
-        return jsonify(_ocr_client().process_image(image_bytes))
+        p = backend.user_prefs
+        client = LLMScorecardOCR(p["ocr_llm_url"], p["ocr_llm_model"],
+                                 p.get("ocr_llm_api_key", ""))
+        return jsonify(client.process_image(image_bytes))
     except ValueError as e:
         return jsonify({"error": "Could not read image",
                         "tip": "Try better lighting or a flatter angle",
@@ -303,18 +306,12 @@ def api_prefs():
 def api_update_prefs():
     data = request.get_json() or {}
     # Only these keys persist — reject the rest loudly
-    allowed = {"entry_mode", "preferred_tee", *SETTINGS_KEYS}
+    # Scan LLM keys are excluded: they're saved only by a passing /api/ocr/test.
+    allowed = {"entry_mode", "preferred_tee", *(set(SETTINGS_KEYS) - set(_OCR_KEYS))}
     unknown = set(data) - allowed
     if unknown:
         return jsonify({"ok": False,
                         "error": f"Unknown pref keys: {sorted(unknown)}"}), 400
-    for k in ("ocr_llm_url", "ocr_llm_model", "ocr_llm_api_key"):
-        if k in data:
-            data[k] = str(data[k] or "").strip()
-    url = data.get("ocr_llm_url")
-    if url and not url.startswith(("http://", "https://")):
-        return jsonify({"ok": False,
-                        "error": "Base URL must start with http:// or https://"}), 400
     backend.user_prefs.update(data)
     backend.save_user_prefs()
     # Handicap eligibility depends on sim_in_handicap; stats cache holds none
@@ -324,12 +321,31 @@ def api_update_prefs():
 
 @app.route("/api/ocr/test", methods=["POST"])
 def api_ocr_test():
-    """Probe the scan LLM. Body may carry unsaved url/model/api_key to test."""
+    """Test the scan LLM with the given settings; save them only on success.
+
+    Body: url, model, api_key (blank = keep the saved key), clear_key (bool).
+    A failed test leaves the previously saved config untouched.
+    """
     data = request.get_json() or {}
-    overrides = {k: str(data[k]).strip() for k in
-                 ("ocr_llm_url", "ocr_llm_model", "ocr_llm_api_key")
-                 if data.get(k)}
-    return jsonify(_ocr_client(overrides).check())
+    url = str(data.get("url") or "").strip()
+    model = str(data.get("model") or "").strip()
+    if not url or not model:
+        return jsonify({"ok": False, "error": "Enter both a Base URL and a model."}), 400
+    if not url.startswith(("http://", "https://")):
+        return jsonify({"ok": False,
+                        "error": "Base URL must start with http:// or https://"}), 400
+    key = str(data.get("api_key") or "").strip()
+    if not key and not data.get("clear_key"):
+        key = backend.user_prefs.get("ocr_llm_api_key", "")
+
+    result = LLMScorecardOCR(url, model, key).check()
+    if result.get("ok"):
+        backend.user_prefs.update({"ocr_llm_url": url, "ocr_llm_model": model,
+                                   "ocr_llm_api_key": key,
+                                   "ocr_llm_verified": True})
+        backend.save_user_prefs()
+    result["prefs"] = _public_prefs()
+    return jsonify(result)
 
 
 @app.route("/api/manual")

@@ -53,10 +53,12 @@ DEFAULT_SETTINGS = {
     "theme": "green",           # "green" | "burgundy"
     "ocr_enabled": True,        # show Scan Card + allow /api/courses/scan
     "sim_in_handicap": False,   # opt in: serious sim rounds feed the handicap index
-    # Scan LLM overrides; "" = fall back to OCR_LLM_* env vars.
+    # Scan LLM — no defaults. Written only by /api/ocr/test after a
+    # successful connection test (see app.py); not settable via PUT /api/prefs.
     "ocr_llm_url": "",
     "ocr_llm_model": "",
-    "ocr_llm_api_key": "",      # never sent to the client (see app.py)
+    "ocr_llm_api_key": "",      # never sent to the client
+    "ocr_llm_verified": False,
 }
 SETTINGS_KEYS = tuple(DEFAULT_SETTINGS)
 
