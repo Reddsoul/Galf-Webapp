@@ -338,13 +338,6 @@ function hcpRowHtml(hcps, n) {
   return row + `<div class="sc-cell sc-cell-total sc-cell-hcp"></div>`;
 }
 
-// Flip the HCP row on scorecards; persisted as a pref.
-function toggleHoleHcp(rerender) {
-  const saving = savePref('show_hole_hcp', !S.prefs.show_hole_hcp);
-  rerender();
-  return saving;
-}
-
 // Home club: every course whose club string matches is a home course.
 function isHomeClub(club) { return !!club && club === (S.prefs.home_club || ''); }
 function homeBadge(club) { return isHomeClub(club) ? '<span class="home-badge" title="Home club">★ Home</span>' : ''; }
@@ -844,7 +837,7 @@ function renderScorecard() {
     parRow+=`<div class="sc-cell sc-cell-total">${parTotal}</div>`;
 
     // Score row
-    let scoreRow=`<div class="sc-cell sc-cell-header" style="font-weight:700;font-size:10px;color:var(--text)">SCORE</div>`;
+    let scoreRow=`<div class="sc-cell sc-cell-header" style="font-weight:700;font-size:10px;color:var(--text)">ST</div>`;
     let scoreTotal=0;
     let hasScores=false;
     for(let i=0;i<pars.length;i++){
@@ -872,8 +865,6 @@ function renderScorecard() {
   const f9=sc.front_9, b9=sc.back_9;
   const frontGrid=buildNine('FRONT OUT', f9.pars, f9.scores, f9.yardages, 0, f9.putts, f9.hole_hcp, f9.strokes);
   const backGrid=buildNine('BACK IN', b9.pars, b9.scores, b9.yardages, 9, b9.putts, b9.hole_hcp, b9.strokes);
-  const hasHcp=(sc.hole_hcp||[]).length>0;
-  const hcpChip=hasHcp?`<button class="sc-hcp-toggle${S.prefs.show_hole_hcp?' on':''}" onclick="toggleHoleHcp(renderScorecard)" aria-pressed="${!!S.prefs.show_hole_hcp}">HCP</button>`:'';
   const netHtml=sc.net_total!=null?`<span class="sc-header-net">Net ${sc.net_total} · CH ${sc.course_handicap}</span>`:'';
 
   // Totals summary row — shown for all completed rounds
@@ -921,7 +912,7 @@ function renderScorecard() {
       </div>
     </div>
 
-    ${hcpChip?`<div class="sc-toolbar">${sc.net_total!=null?'<span class="muted-xs sc-legend"><span class="sc-stroke-dots sc-legend-dot"><i></i></span> handicap stroke</span>':''}${hcpChip}</div>`:''}
+    ${sc.net_total!=null?'<div class="sc-toolbar"><span class="muted-xs sc-legend"><span class="sc-stroke-dots sc-legend-dot"><i></i></span> handicap stroke</span></div>':''}
     <!-- Scorecard grids -->
     ${frontGrid}
     ${backGrid}
@@ -2834,7 +2825,7 @@ function renderLogNotes(){
     for(const p of pars){pt+=p;parRow+=`<div class="sc-cell sc-cell-par">${p}</div>`;}
     parRow+=`<div class="sc-cell sc-cell-total">${pt}</div>`;
 
-    let scoreRow='<div class="sc-cell sc-cell-header" style="font-weight:700;font-size:10px">SCORE</div>';
+    let scoreRow='<div class="sc-cell sc-cell-header" style="font-weight:700;font-size:10px">ST</div>';
     let st=0;let has=false;
     for(let i=0;i<pars.length;i++){
       const s=sc[i];
@@ -4947,7 +4938,7 @@ function renderSettings(){
         <div class="settings-row">
           <div class="settings-row-text">
             <div class="settings-row-label">Show hole handicaps</div>
-            <div class="settings-row-sub">HCP (stroke index) row on scorecards. Also toggles from the HCP chip on any scorecard.</div>
+            <div class="settings-row-sub">HCP (stroke index) row on scorecards.</div>
           </div>
           ${sw('show_hole_hcp', p.show_hole_hcp!==false)}
         </div>

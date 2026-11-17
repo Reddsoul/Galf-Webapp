@@ -624,12 +624,6 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 }
 .sc-header-net { font-size: 11px; font-weight: 600; opacity: 0.65; margin-left: 8px; }
 .sc-toolbar { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin: 12px 16px -4px; }
-.sc-hcp-toggle {
-  font: inherit; font-size: 11px; font-weight: 700; letter-spacing: 0.3px;
-  padding: 4px 10px; border-radius: 999px; cursor: pointer;
-  border: 1px solid var(--sep); background: var(--card); color: var(--text2);
-}
-.sc-hcp-toggle.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 /* Review page: header + grids are tap targets that jump back to edit */
 .sc-tappable { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .sc-tappable:active { opacity: 0.8; }
@@ -715,7 +709,7 @@ textarea.form-input { min-height: 100px; resize: vertical; }
 
 /* Notes card */
 .sc-notes {
-  background: var(--card); margin: 0 16px 12px; padding: 16px;
+  background: var(--card); margin: 0 16px 12px; padding: 12px 16px; box-sizing: border-box;
   border-radius: 8px; border: 1.5px solid var(--sep); overflow: hidden;
 }
 .sc-notes-title { font-size: 12px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 0.3px; }

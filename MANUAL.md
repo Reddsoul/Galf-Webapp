@@ -413,8 +413,8 @@ The traditional hole-by-hole grid appears for the front 9 and back 9 separately.
 - **Hole numbers** across the top
 - **Yardage** row (if entered for this course and tee)
 - **Par** row — par 3s in green, par 5s in the app's accent color, par 4s in the default
-- **HCP** row — each hole's handicap (stroke index; 1 = hardest), when the course has one. Tap the **HCP** chip above the grid to show or hide it; the choice is remembered (also in [Settings](#9-settings))
-- **Score** row — each score is color-coded (see [Score Color Coding](#8-score-color-coding)). A small **dot** in the corner marks a hole where your course handicap gives you a stroke (two dots = two strokes)
+- **HCP** row — each hole's handicap (stroke index; 1 = hardest), when the course has one. Show or hide it with **Show hole handicaps** in [Settings](#9-settings)
+- **ST** row (strokes) — each score is color-coded (see [Score Color Coding](#8-score-color-coding)). A small **dot** in the corner marks a hole where your course handicap gives you a stroke (two dots = two strokes)
 
 For 18-hole rounds, a **Totals row** appears between the two grids showing OUT (front 9), IN (back 9), TOTAL, PAR, and +/−.
 
@@ -848,7 +848,7 @@ Score colors (green birdies, red bogeys) stay the same in both themes so a score
 | Setting | What it does |
 |---|---|
 | **Count simulator rounds** | Off (default): real rounds only, per WHS. On: serious sim rounds also feed the Handicap Index and the rounds-to-establish counter. |
-| **Show hole handicaps** | On (default): scorecards show the HCP (stroke index) row. Same switch as the **HCP** chip on a scorecard. |
+| **Show hole handicaps** | On (default): scorecards show the HCP (stroke index) row. The only place this toggle lives. |
 
 ### Home Club
 
